@@ -129,7 +129,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     data = {
-        "model": "mistral-large-latest",
+        "model": "pixtral-large-latest",
         "messages": messages,
         "max_tokens": 1000000
     }
