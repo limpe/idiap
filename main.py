@@ -157,7 +157,7 @@ async def process_with_mistral(text: str) -> Optional[str]:
     
     # Prepare the request data with the correct model name
     data = {
-        "model": "mistral-medium",  # Changed from pixtral-large-latest
+        "model": "mistral-large-latest",  # Changed from pixtral-large-latest
         "messages": [
             {
                 "role": "user",
