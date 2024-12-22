@@ -30,7 +30,7 @@ MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
-MAX_RETRIES = 3  # Jumlah maksimal percobaan untuk API calls
+MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 
 # Dictionary untuk menyimpan histori percakapan
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -129,7 +129,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     data = {
-        "model": "pixtral-large-latest",
+        "model": "mistral-large-latest",
         "messages": messages,
         "max_tokens": 10000
     }
