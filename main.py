@@ -29,18 +29,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # ... (Kode untuk memproses pesan suara tetap sama)
+        text = await process_voice_to_text(update) # Panggil fungsi terpisah
+        if text is None:
+            return # Hentikan jika gagal memproses suara
+        
+        await update.message.reply_text(f"Anda berkata: {text}")
+
+        response = await process_with_mistral(text) # Panggil fungsi asynchronous
+        if response:
+            await update.message.reply_text(f"Respon Mistral: {response}")
+            await send_voice_response(update, response) # Panggil fungsi terpisah
+        else:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses permintaan Anda.")
+
+    except Exception as e:
+        logger.exception(f"Error tak terduga di handle_voice: {e}")
+        await update.message.reply_text(f"Maaf, terjadi kesalahan dalam memproses pesan suara: {e}")
+
+async def process_voice_to_text(update: Update):
+    try:
         logger.info("Memproses pesan suara...")
         voice_file = await update.message.voice.get_file()
-        logger.info(f"File suara didapatkan: {voice_file.file_path}")
         voice_bytes = await voice_file.download_as_bytearray()
-        logger.info(f"File suara diunduh ({len(voice_bytes)} bytes).")
 
         try:
             audio = AudioSegment.from_ogg(io.BytesIO(voice_bytes))
             wav_io = io.BytesIO()
             audio.export(wav_io, format='wav')
             wav_io.seek(0)
-            logger.info("Konversi ke WAV berhasil.")
         except Exception as e:
             logger.warning(f"Gagal konversi ke WAV: {e}, mencoba memproses langsung.")
             wav_io = io.BytesIO(voice_bytes)
@@ -49,52 +66,26 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with sr.AudioFile(wav_io) as source:
             try:
                 audio_data = r.record(source)
-                logger.info("Merekam audio untuk Speech Recognition...")
                 text = r.recognize_google(audio_data, language="id-ID")
                 logger.info(f"Teks hasil Speech Recognition: {text}")
+                return text
             except sr.UnknownValueError:
                 logger.warning("Speech Recognition: Tidak mengerti.")
                 await update.message.reply_text("Maaf, saya tidak mengerti apa yang Anda katakan.")
-                return
+                return None
             except sr.RequestError as e:
                 logger.error(f"Speech Recognition error: {e}")
                 await update.message.reply_text(f"Maaf, terjadi masalah dengan layanan Speech Recognition: {e}")
-                return
+                return None
             except Exception as e:
                 logger.exception("Error tak terduga pada Speech Recognition")
                 await update.message.reply_text("Terjadi kesalahan saat mengenali ucapan.")
-                return
-
-        await update.message.reply_text(f"Anda berkata: {text}")
-
-        logger.info("Memanggil Mistral API...")
-        response = process_with_mistral(text)
-        logger.info(f"Respon dari Mistral: {response}")
-        await update.message.reply_text(f"Respon Mistral: {response}")
-
-        logger.info("Membuat respon suara...")
-        tts = gtts.gTTS(response, lang="id")
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as fp:
-            try:
-                tts.save(fp.name)
-                logger.info(f"File MP3 disimpan di: {fp.name}")
-                with open(fp.name, 'rb') as voice_file:
-                    await update.message.reply_voice(voice=voice_file)
-                logger.info("Respon suara dikirim.")
-            except FileNotFoundError:
-                logger.error(f"File MP3 tidak ditemukan: {fp.name}")
-                await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
-            except Exception as e:
-                logger.exception(f"Error saat membuat/mengirim file MP3: {e}")
-                await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
-            finally:
-                os.remove(fp.name)
-
+                return None
     except Exception as e:
-        logger.exception(f"Error tak terduga di handle_voice: {e}")
-        await update.message.reply_text(f"Maaf, terjadi kesalahan dalam memproses pesan suara: {e}")
+        logger.exception(f"Error dalam memproses audio: {e}")
+        return None
 
-def process_with_mistral(text):
+async def process_with_mistral(text): # Jadikan asynchronous
     headers = {
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
@@ -104,54 +95,57 @@ def process_with_mistral(text):
         "messages": [{"role": "user", "content": text}]
     }
     try:
-        logger.info(f"Mengirim request ke Mistral dengan teks: {text}")
-        response = requests.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=10
-        )
-        response.raise_for_status()
-        json_response = response.json()
-        logger.info(f"Respon JSON dari Mistral: {json_response}")
-        return json_response['choices'][0]['message']['content']
+        async with aiohttp.ClientSession() as session: # Gunakan aiohttp
+            async with session.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=10
+            ) as response:
+                response.raise_for_status()
+                json_response = await response.json()
+                return json_response['choices'][0]['message']['content']
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error memanggil Mistral API: {e} - Response Text: {getattr(response, 'text', 'No response text')}")
-        return f"Terjadi kesalahan saat berkomunikasi dengan Mistral API: {e}"
+        logger.error(f"Error memanggil Mistral API: {e}")
+        return None  # Kembalikan None saat error
     except (KeyError, IndexError, TypeError) as e:
-        logger.error(f"Format respon Mistral tidak sesuai: {e} - JSON Response: {json_response if 'json_response' in locals() else 'No JSON response'}")
-        return "Terjadi kesalahan dalam memproses respon dari Mistral API."
+        logger.error(f"Format respon Mistral tidak sesuai: {e}")
+        return None
+    except aiohttp.ClientError as e: # Tangani error aiohttp
+        logger.error(f"Error aiohttp: {e}")
+        return None
     except Exception as e:
         logger.exception(f"Error tak terduga pada process_with_mistral: {e}")
-        return "Terjadi kesalahan yang tidak terduga."
+        return None
 
+async def send_voice_response(update: Update, text):
+    logger.info("Membuat respon suara...")
+    tts = gtts.gTTS(text, lang="id")
+    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as fp:
+        try:
+            tts.save(fp.name)
+            with open(fp.name, 'rb') as voice_file:
+                await update.message.reply_voice(voice=voice_file)
+            logger.info("Respon suara dikirim.")
+        except FileNotFoundError:
+            logger.error(f"File MP3 tidak ditemukan: {fp.name}")
+            await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
+        except Exception as e:
+            logger.exception(f"Error saat membuat/mengirim file MP3: {e}")
+            await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
+        finally:
+            os.remove(fp.name)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         logger.info(f"Menerima pesan teks: {update.message.text}")
-        response = process_with_mistral(update.message.text)
-        logger.info(f"Respon Mistral untuk teks: {response}")
-
-        await update.message.reply_text(response)
-
-        logger.info("Membuat respon suara untuk teks...")
-        tts = gtts.gTTS(response, lang="id")
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as fp:
-            try:
-                tts.save(fp.name)
-                logger.info(f"File MP3 untuk teks disimpan di: {fp.name}")
-                with open(fp.name, 'rb') as voice_file:
-                    await update.message.reply_voice(voice=voice_file)
-                logger.info("Respon suara untuk teks dikirim.")
-            except FileNotFoundError:
-                logger.error(f"File MP3 untuk teks tidak ditemukan: {fp.name}")
-                await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
-            except Exception as e:
-                logger.exception(f"Error saat membuat/mengirim file MP3 untuk teks: {e}")
-                await update.message.reply_text("Terjadi kesalahan saat mengirim respon suara.")
-            finally:
-                os.remove(fp.name)
-
+        response = await process_with_mistral(update.message.text) # Panggil fungsi asynchronous
+        if response: # Pastikan response tidak None
+            logger.info(f"Respon Mistral untuk teks: {response}")
+            await update.message.reply_text(response)
+            await send_voice_response(update, response) # Kirim juga respon suara
+        else:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses permintaan Anda.")
     except Exception as e:
         logger.exception(f"Error tak terduga di handle_text: {e}")
         await update.message.reply_text(f"Maaf, terjadi kesalahan: {e}")
@@ -167,4 +161,6 @@ def main():
     application.run_polling()
 
 if __name__ == '__main__':
-    main()
+    import asyncio
+    import aiohttp
+    asyncio.run(main()) # Jalankan main dengan asyncio
