@@ -10,6 +10,7 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import gtts
 import aiohttp
+from langdetect import detect
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -33,6 +34,14 @@ MAX_RETRIES = 3  # Jumlah maksimal percobaan untuk API calls
 
 # Dictionary untuk menyimpan histori percakapan
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
+
+# Statistik penggunaan
+bot_statistics = {
+    "total_messages": 0,
+    "voice_messages": 0,
+    "text_messages": 0,
+    "errors": 0
+}
 
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
@@ -162,8 +171,15 @@ async def send_voice_response(update: Update, text: str):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        bot_statistics["total_messages"] += 1
+        bot_statistics["text_messages"] += 1
+
         chat_id = update.message.chat_id
         text = update.message.text
+
+        # Deteksi bahasa teks
+        detected_language = detect(text)
+        await update.message.reply_text(f"Bahasa yang terdeteksi: {detected_language}")
 
         if chat_id not in user_sessions:
             user_sessions[chat_id] = []
@@ -177,11 +193,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(response)
 
     except Exception as e:
+        bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_text")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        bot_statistics["total_messages"] += 1
+        bot_statistics["voice_messages"] += 1
+
         chat_id = update.message.chat_id
 
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
@@ -205,8 +225,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.delete()
 
     except AudioProcessingError as e:
+        bot_statistics["errors"] += 1
         await update.message.reply_text(f"Maaf, terjadi kesalahan: {str(e)}")
     except Exception as e:
+        bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
@@ -217,6 +239,19 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+        # Statistik command
+        async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            stats_message = (
+                f"Statistik Bot:\n"
+                f"- Total Pesan: {bot_statistics['total_messages']}\n"
+                f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+                f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+                f"- Kesalahan: {bot_statistics['errors']}"
+            )
+            await update.message.reply_text(stats_message)
+
+        application.add_handler(CommandHandler("stats", stats))
 
         application.run_polling()
 
