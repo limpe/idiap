@@ -20,7 +20,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     data = {
-        "model": "pixtral-large",  # or another available model
+        "model": "pixtral-large-latest",  # or another available model
         "messages": [{"role": "user", "content": user_message}]
     }
     
