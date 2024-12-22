@@ -131,7 +131,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     data = {
         "model": "pixtral-large-latest",
         "messages": messages,
-        "max_tokens": 1000000
+        "max_tokens": 100000
     }
 
     for attempt in range(MAX_RETRIES):
