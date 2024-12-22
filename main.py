@@ -20,12 +20,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     data = {
-        "model": "mistral-tiny",  # or another available model
+        "model": "pixtral-large",  # or another available model
         "messages": [{"role": "user", "content": user_message}]
     }
     
     response = requests.post(
-        "https://chat.mistral.ai/chat?model=ag:30fef39f:20241222:mistral-large-2-1:127fdd78",
+        "https://chat.mistral.ai/chat?model=ag:30fef39f:20241222:pixtral:73c0973e",
         headers=headers,
         json=data
     )
