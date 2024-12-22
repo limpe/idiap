@@ -83,7 +83,7 @@ def process_with_mistral(text):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "mistral-tiny", # atau model lain yang Anda inginkan
+        "model": "pixtral-large-latest", # atau model lain yang Anda inginkan
         "messages": [{"role": "user", "content": text}]
     }
     try:
