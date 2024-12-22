@@ -1,5 +1,3 @@
-python-telegram-bot==20.7a0
-speechrecognition
+python-telegram-bot
 requests
-gTTS
-pydub
+python-dotenv
