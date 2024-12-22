@@ -96,7 +96,7 @@ async def process_with_mistral(text):
         "messages": [{"role": "user", "content": text}]
     }
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session: # Timeout 20 detik
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
             async with session.post(
                 "https://api.mistral.ai/v1/chat/completions",
                 headers=headers,
@@ -107,8 +107,8 @@ async def process_with_mistral(text):
                 return json_response['choices'][0]['message']['content']
     except aiohttp.ClientTimeout as e:
         logger.error(f"Timeout saat memanggil Mistral API: {e}")
-    return "Maaf, permintaan ke Mistral API terlalu lama. Coba lagi nanti."
-    except aiohttp.ClientError as e:
+        return "Maaf, permintaan ke Mistral API terlalu lama. Coba lagi nanti."
+    except aiohttp.ClientError as e:  # Fixed the syntax here
         logger.error(f"Error aiohttp: {e}")
         return "Maaf, terjadi kesalahan saat berkomunikasi dengan Mistral API."
     except (KeyError, IndexError, TypeError) as e:
