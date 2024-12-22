@@ -66,7 +66,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     data = {
         "model": "mistral-large-latest",
         "messages": messages,
-        "max_tokens": 100000
+        "max_tokens": 10000
     }
 
     for attempt in range(MAX_RETRIES):
@@ -132,6 +132,49 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_text")
         await update.message.reply_text(
             "Maaf, terjadi kesalahan dalam memproses pesan Anda. "
+            "Mohon coba lagi nanti."
+        )
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk pesan suara dengan konteks percakapan"""
+    try:
+        chat_id = update.message.chat_id
+
+        # Beri tahu pengguna bahwa pesannya sedang diproses
+        processing_msg = await update.message.reply_text(
+            "Sedang memproses pesan suara Anda..."
+        )
+
+        # Proses voice message menjadi teks
+        text = await process_voice_to_text(update)
+        if text:
+            # Tambahkan teks yang dihasilkan ke histori percakapan pengguna
+            if chat_id not in user_sessions:
+                user_sessions[chat_id] = []
+            
+            user_sessions[chat_id].append({"role": "user", "content": text})
+
+            # Gunakan maksimal 10 pesan terakhir untuk menghemat sumber daya
+            mistral_messages = user_sessions[chat_id][-10:]
+            response = await process_with_mistral(mistral_messages)
+
+            if response:
+                # Tambahkan respons AI ke histori percakapan
+                user_sessions[chat_id].append({"role": "assistant", "content": response})
+
+                # Kirim respons ke pengguna dalam bentuk teks dan suara
+                await update.message.reply_text(response)
+                await send_voice_response(update, response)
+
+        # Hapus pesan "sedang memproses"
+        await processing_msg.delete()
+
+    except AudioProcessingError as e:
+        await update.message.reply_text(f"Maaf, terjadi kesalahan: {str(e)}")
+    except Exception as e:
+        logger.exception("Error tak terduga dalam handle_voice")
+        await update.message.reply_text(
+            "Maaf, terjadi kesalahan yang tidak terduga. "
             "Mohon coba lagi nanti."
         )
 
