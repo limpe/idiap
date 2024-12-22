@@ -31,9 +31,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         logger.info("Memproses pesan suara...")
         voice_file = await update.message.voice.get_file()
-        logger.info("File suara didapatkan: %s", voice_file.file_path) # Log file path
+        logger.info(f"File suara didapatkan: {voice_file.file_path}")
         voice_bytes = await voice_file.download_as_bytearray()
-        logger.info("File suara diunduh (%d bytes).", len(voice_bytes))
+        logger.info(f"File suara diunduh ({len(voice_bytes)} bytes).")
 
         try:
             audio = AudioSegment.from_ogg(io.BytesIO(voice_bytes))
@@ -100,7 +100,7 @@ def process_with_mistral(text):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "mistral-tiny", # Ubah ke model yang sesuai
+        "model": "mistral-tiny",
         "messages": [{"role": "user", "content": text}]
     }
     try:
@@ -112,8 +112,8 @@ def process_with_mistral(text):
             timeout=10
         )
         response.raise_for_status()
-        json_response = response.json() # Simpan respon JSON
-        logger.info(f"Respon JSON dari Mistral: {json_response}") # Log seluruh respon JSON
+        json_response = response.json()
+        logger.info(f"Respon JSON dari Mistral: {json_response}")
         return json_response['choices'][0]['message']['content']
     except requests.exceptions.RequestException as e:
         logger.error(f"Error memanggil Mistral API: {e}")
@@ -122,7 +122,7 @@ def process_with_mistral(text):
         return f"Terjadi kesalahan saat berkomunikasi dengan Mistral API: {e}"
     except (KeyError, IndexError, TypeError) as e:
         logger.error(f"Format respon Mistral tidak sesuai: {e}")
-         if 'json_response' in locals():
+        if 'json_response' in locals(): # Indentasi yang benar
             logger.error(f"Full JSON Response : {json_response}")
         return "Terjadi kesalahan dalam memproses respon dari Mistral API."
     except Exception as e:
@@ -171,3 +171,4 @@ def main():
     application.run_polling()
 
 if __name__ == '__main__':
+    main()
