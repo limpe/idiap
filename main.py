@@ -1,3 +1,4 @@
+from pydub import AudioSegment
 import os
 import logging
 import io
@@ -12,6 +13,7 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import gtts
 
+
 # Konfigurasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,6 +22,9 @@ pydub.utils.register_audio_codec("ffmpeg", "/usr/bin/ffmpeg")
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
+
+
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = """Halo! Saya asisten Anda. Saya dapat:
@@ -96,6 +101,33 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception(f"Error tak terduga di handle_voice: {e}")
         await update.message.reply_text(f"Maaf, terjadi kesalahan dalam memproses pesan suara: {e}")
+
+# Fungsi untuk memproses audio
+def process_audio(input_file, output_file):
+    try:
+        # Membaca file audio
+        sound = AudioSegment.from_mp3(input_file) # Atau format audio lainnya
+
+        # Melakukan beberapa operasi pada audio (contoh)
+        sound = sound + 3  # Menambah volume 3dB
+
+        # Menyimpan file audio yang telah diproses
+        sound.export(output_file, format="wav")
+
+        print(f"File audio berhasil diproses dan disimpan di {output_file}")
+    except Exception as e:
+        print(f"Terjadi kesalahan: {e}")
+
+# Main program (bagian yang dieksekusi saat script dijalankan)
+if __name__ == "__main__":
+    input_file = "audio.mp3"  # Ganti dengan nama file input Anda
+    output_file = "output.wav" # Ganti dengan nama file output yang diinginkan
+
+    # Pastikan file input ada
+    if os.path.exists(input_file):
+      process_audio(input_file, output_file)
+    else:
+      print(f"File {input_file} tidak ditemukan")
 
 def process_with_mistral(text):
     headers = {
