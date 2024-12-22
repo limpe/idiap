@@ -1,36 +1,49 @@
-import telegram
-import requests # Untuk berinteraksi dengan Mistral.ai API
+import os
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import requests
 
-# Ganti dengan token dan API key Anda
-BOT_TOKEN = "7644424168:AAEiozQG2CXHI4cFV1sTh2kidhbxobCe3sk"
-MISTRAL_API_KEY = "ocFb4UFEr0OLSJdj7VBShdFFuH5Wjlf9"
+# Environment variables
+TELEGRAM_TOKEN = os.getenv('7644424168:AAEiozQG2CXHI4cFV1sTh2kidhbxobCe3sk')
+MISTRAL_API_KEY = os.getenv('ocFb4UFEr0OLSJdj7VBShdFFuH5Wjlf9')
 
-bot = telegram.Bot(token=BOT_TOKEN)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('Hello! I am your AI assistant. Send me a message and I will respond using Mistral.ai')
 
-def handle_message(update, context):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-
-    # Kirim pesan ke Mistral.ai API
+    
+    # Call Mistral.ai API
     headers = {
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
+    
     data = {
-        "prompt": user_message
+        "model": "mistral-tiny",  # or another available model
+        "messages": [{"role": "user", "content": user_message}]
     }
-    response = requests.post("MISTRAL_API_ENDPOINT", headers=headers, json=data) # Ganti dengan endpoint Mistral.ai yang sesuai
-
-    ai_response = response.json().get("response", "Maaf, ada kesalahan.") # Ekstrak respon dari Mistral.ai
-    update.message.reply_text(ai_response)
+    
+    response = requests.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers=headers,
+        json=data
+    )
+    
+    ai_response = response.json()['choices'][0]['message']['content']
+    await update.message.reply_text(ai_response)
 
 def main():
-    updater = telegram.Updater(BOT_TOKEN, use_context=True)
-    dispatcher = updater.dispatcher
-
-    dispatcher.add_handler(telegram.MessageHandler(telegram.Filters.text & ~telegram.Filters.command, handle_message))
-
-    updater.start_polling()
-    updater.idle()
+    # Create application
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Run the bot
+    print("Bot is running...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
