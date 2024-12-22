@@ -100,7 +100,7 @@ def process_with_mistral(text):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "mistral-tiny",
+        "model": "pixtral-large-latest",
         "messages": [{"role": "user", "content": text}]
     }
     try:
@@ -116,14 +116,10 @@ def process_with_mistral(text):
         logger.info(f"Respon JSON dari Mistral: {json_response}")
         return json_response['choices'][0]['message']['content']
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error memanggil Mistral API: {e}")
-        if 'response' in locals() and response is not None:
-            logger.error(f"Response text from mistral : {response.text}")
+        logger.error(f"Error memanggil Mistral API: {e} - Response Text: {getattr(response, 'text', 'No response text')}")
         return f"Terjadi kesalahan saat berkomunikasi dengan Mistral API: {e}"
     except (KeyError, IndexError, TypeError) as e:
-        logger.error(f"Format respon Mistral tidak sesuai: {e}")
-        if 'json_response' in locals():
-            logger.error(f"Full JSON Response : {json_response}")
+        logger.error(f"Format respon Mistral tidak sesuai: {e} - JSON Response: {json_response if 'json_response' in locals() else 'No JSON response'}")
         return "Terjadi kesalahan dalam memproses respon dari Mistral API."
     except Exception as e:
         logger.exception(f"Error tak terduga pada process_with_mistral: {e}")
