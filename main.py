@@ -28,9 +28,9 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 
 # Konstanta konfigurasi
-CHUNK_DURATION = 30  # Durasi chunk dalam detik
-SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
-MAX_RETRIES = 3  # Jumlah maksimal percobaan untuk API calls
+CHUNK_DURATION = 120  # Durasi chunk dalam detik
+SPEECH_RECOGNITION_TIMEOUT = 120  # Timeout untuk speech recognition dalam detik
+MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 
 # Dictionary untuk menyimpan histori percakapan
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -82,7 +82,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         recognizer = sr.Recognizer()
         with sr.AudioFile(temp_wav.name) as source:
             text_chunks = []
-            duration_seconds = len(audio) / 1000.0
+            duration_seconds = len(audio) / 100000.0
             total_chunks = int(duration_seconds / CHUNK_DURATION) + 1
             
             for i in range(total_chunks):
@@ -131,7 +131,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     data = {
         "model": "mistral-large-latest",
         "messages": messages,
-        "max_tokens": 10000
+        "max_tokens": 1000000
     }
 
     for attempt in range(MAX_RETRIES):
