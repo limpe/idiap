@@ -138,45 +138,77 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
 
 async def process_with_mistral(text: str) -> Optional[str]:
     """
-    Memproses teks menggunakan Mistral API dengan penanganan error yang lebih baik
-    dan sistem retry.
+    Processes text using the Mistral API with improved error handling and request formatting.
+    
+    Args:
+        text: The input text to be processed
+        
+    Returns:
+        Optional[str]: The processed response or an error message
     """
     headers = {
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # Ensure the text is not empty and is properly formatted
+    if not text or not text.strip():
+        return "Maaf, tidak ada teks yang dapat diproses."
+    
+    # Prepare the request data with the correct model name
     data = {
-        "model": "mixtral-large-latest",
-        "messages": [{"role": "user", "content": text}]
+        "model": "mistral-medium",  # Changed from pixtral-large-latest
+        "messages": [
+            {
+                "role": "user",
+                "content": text.strip()
+            }
+        ],
+        "max_tokens": 1000  # Add reasonable limit
     }
 
     for attempt in range(MAX_RETRIES):
         try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as session:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     "https://api.mistral.ai/v1/chat/completions",
                     headers=headers,
                     json=data
                 ) as response:
+                    # Log the response status for debugging
+                    logger.info(f"Mistral API response status: {response.status}")
+                    
+                    if response.status == 400:
+                        error_body = await response.text()
+                        logger.error(f"Mistral API 400 error: {error_body}")
+                        return "Maaf, terjadi kesalahan dalam memformat permintaan ke AI."
+                    
                     response.raise_for_status()
                     json_response = await response.json()
-                    return json_response['choices'][0]['message']['content']
+                    
+                    # Verify the response structure
+                    if 'choices' in json_response and json_response['choices']:
+                        return json_response['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"Unexpected response structure: {json_response}")
+                        return "Maaf, respons dari AI tidak sesuai format yang diharapkan."
 
-        except aiohttp.ClientTimeout:
-            logger.warning(f"Timeout pada attempt {attempt + 1}")
+        except aiohttp.ClientTimeout as e:
+            logger.warning(f"Timeout pada attempt {attempt + 1}: {str(e)}")
             if attempt == MAX_RETRIES - 1:
                 return "Maaf, server sedang sibuk. Mohon coba lagi nanti."
             await asyncio.sleep(1)
-
+            
         except aiohttp.ClientError as e:
-            logger.error(f"Error API: {e}")
-            return "Maaf, terjadi masalah koneksi dengan server."
-
+            logger.error(f"Error koneksi API: {str(e)}")
+            return "Maaf, terjadi masalah koneksi dengan server AI."
+            
         except Exception as e:
-            logger.exception("Error tak terduga")
-            return "Terjadi kesalahan yang tidak terduga."
+            logger.exception("Error tak terduga dalam process_with_mistral")
+            return "Maaf, terjadi kesalahan yang tidak terduga saat memproses permintaan Anda."
+
+    return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
 async def send_voice_response(update: Update, text: str):
     """
