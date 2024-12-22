@@ -25,7 +25,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     response = requests.post(
-        "https://api.mistral.ai/v1/chat/completions",
+        "https://chat.mistral.ai/chat?model=ag:30fef39f:20241222:mistral-large-2-1:127fdd78",
         headers=headers,
         json=data
     )
