@@ -80,21 +80,21 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
 
         text_chunks: List[str] = []
         
+        # Hitung durasi menggunakan pydub
+        duration_seconds = len(audio) / 1000.0  # Convert milliseconds to seconds
+        total_chunks = int(duration_seconds / CHUNK_DURATION) + 1
+        
+        logger.info(f"Durasi audio: {duration_seconds:.2f} detik, akan diproses dalam {total_chunks} chunk")
+        
         with sr.AudioFile(temp_wav.name) as source:
-            # Hitung total durasi
-            duration = source.audio_file.getnframes() / source.audio_file.getframerate()
-            total_chunks = int(duration / CHUNK_DURATION) + 1
-            
-            logger.info(f"Memulai pemrosesan {total_chunks} chunk...")
-            
             for i in range(total_chunks):
-                source.audio_file.seek(0)
                 offset = i * CHUNK_DURATION
-                chunk_duration = min(CHUNK_DURATION, duration - offset)
+                chunk_duration = min(CHUNK_DURATION, duration_seconds - offset)
                 
                 if chunk_duration <= 0:
                     break
                 
+                # Record dari posisi yang tepat
                 audio_chunk = recognizer.record(source, duration=chunk_duration)
                 
                 # Coba recognize dengan beberapa percobaan
@@ -146,7 +146,7 @@ async def process_with_mistral(text: str) -> Optional[str]:
         "Content-Type": "application/json"
     }
     data = {
-        "model": "pixtral-large-latest",
+        "model": "mixtral-large-latest",
         "messages": [{"role": "user", "content": text}]
     }
 
