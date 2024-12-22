@@ -5,7 +5,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-RUN apt-get update && apt-get install -y ffmpeg libavcodec-extra
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libavcodec-extra \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
