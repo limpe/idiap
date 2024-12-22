@@ -3,9 +3,21 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
 
+# Tambahkan logging untuk debug
+import logging
+logging.basicConfig(level=logging.INFO)
+
+
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('7644424168:AAEiozQG2CXHI4cFV1sTh2kidhbxobCe3sk')
 MISTRAL_API_KEY = os.getenv('ocFb4UFEr0OLSJdj7VBShdFFuH5Wjlf9')
+
+# Pengecekan token
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN tidak ditemukan dalam environment variables!")
+
+print(f"Token length: {len(TELEGRAM_TOKEN) if TELEGRAM_TOKEN else 'Token not found'}")
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Hello! I am your AI assistant. Send me a message and I will respond using Mistral.ai')
