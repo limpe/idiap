@@ -8,7 +8,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Hello! I am your AI assistant. Send me a message and I will respond using Mistral.ai')
+    await update.message.reply_text('Halo! Saya asisten AI Anda. Kirimi saya pesan dan saya akan merespons')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
