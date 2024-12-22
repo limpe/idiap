@@ -1,0 +1,5 @@
+python-telegram-bot==20.7a0
+speechrecognition
+requests
+gTTS
+pydub
