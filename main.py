@@ -188,6 +188,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = await process_voice_to_text(update)
 
         if text:
+            await update.message.reply_text(f"Teks hasil transkripsi suara Anda: \n{text}")
+
             if chat_id not in user_sessions:
                 user_sessions[chat_id] = []
 
