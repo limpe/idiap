@@ -107,7 +107,7 @@ async def process_with_mistral(text):
                 return json_response['choices'][0]['message']['content']
     except aiohttp.ClientTimeout as e:
         logger.error(f"Timeout saat memanggil Mistral API: {e}")
-        return "Maaf, permintaan ke Mistral API terlalu lama. Coba lagi nanti."
+    return "Maaf, permintaan ke Mistral API terlalu lama. Coba lagi nanti."
     except aiohttp.ClientError as e:
         logger.error(f"Error aiohttp: {e}")
         return "Maaf, terjadi kesalahan saat berkomunikasi dengan Mistral API."
