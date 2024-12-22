@@ -2,11 +2,11 @@ FROM python:3.11-slim-bullseye
 
 WORKDIR /app
 
-COPY requirements.txt .  # Salin requirements.txt terlebih dahulu
-RUN pip install -r requirements.txt # Instal dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-RUN apt-get update && apt-get install -y ffmpeg libavcodec-extra # Instal ffmpeg (penting untuk pydub)
+RUN apt-get update && apt-get install -y ffmpeg libavcodec-extra
 
-COPY . . # Baru salin kode aplikasi Anda
+COPY . .
 
 CMD ["python", "main.py"]
