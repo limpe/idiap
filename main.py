@@ -122,7 +122,7 @@ def process_with_mistral(text):
         return f"Terjadi kesalahan saat berkomunikasi dengan Mistral API: {e}"
     except (KeyError, IndexError, TypeError) as e:
         logger.error(f"Format respon Mistral tidak sesuai: {e}")
-        if 'json_response' in locals():
+         if 'json_response' in locals():
             logger.error(f"Full JSON Response : {json_response}")
         return "Terjadi kesalahan dalam memproses respon dari Mistral API."
     except Exception as e:
