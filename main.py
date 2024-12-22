@@ -48,6 +48,51 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
 
+async def process_voice_to_text(update: Update) -> Optional[str]:
+    """Proses file suara menjadi teks dengan penanganan error"""
+    temp_files = []  # Daftar file sementara untuk dibersihkan
+
+    try:
+        logger.info("Memulai pemrosesan pesan suara...")
+        voice_file = await update.message.voice.get_file()
+
+        # Buat file sementara untuk audio OGG
+        temp_ogg = tempfile.NamedTemporaryFile(suffix='.ogg', delete=False)
+        temp_files.append(temp_ogg.name)
+
+        # Download file suara
+        await voice_file.download_to_drive(temp_ogg.name)
+        logger.info(f"File suara didownload ke {temp_ogg.name}")
+
+        # Buat file sementara untuk WAV
+        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_files.append(temp_wav.name)
+
+        # Konversi OGG ke WAV
+        audio = AudioSegment.from_ogg(temp_ogg.name)
+        audio.export(temp_wav.name, format='wav')
+        logger.info("Konversi file OGG ke WAV berhasil")
+
+        # Proses WAV dengan SpeechRecognition
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(temp_wav.name) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="id-ID")
+            logger.info(f"Text dari suara: {text}")
+            return text
+
+    except Exception as e:
+        logger.exception("Error dalam pemrosesan suara")
+        raise AudioProcessingError(f"Gagal memproses audio: {str(e)}")
+
+    finally:
+        # Hapus file sementara
+        for temp_file in temp_files:
+            try:
+                os.remove(temp_file)
+            except Exception as e:
+                logger.warning(f"Gagal menghapus file sementara: {temp_file}")
+
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     """
     Processes text using the Mistral API with context support.
@@ -185,6 +230,7 @@ def main():
 
         # Tambahkan handlers
         application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             handle_text
