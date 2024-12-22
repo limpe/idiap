@@ -5,12 +5,20 @@ import tempfile
 import asyncio
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 import requests
 import speech_recognition as sr
 from pydub import AudioSegment
 import gtts
 import aiohttp
+
+from integrations import IntegrationsManager
 
 # Konfigurasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -24,8 +32,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = """Halo! Saya asisten Anda. Saya dapat:
     - Memproses pesan suara
     - Menanggapi dengan suara
-    - Membantu dengan berbagai tugas
-
+    - Mengakses kalender (/calendar)
+    - Melihat tugas (/tasks)
+    - Membaca email (/emails)
+    
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
 
@@ -150,14 +160,67 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception(f"Error tak terduga di handle_text: {e}")
         await update.message.reply_text(f"Maaf, terjadi kesalahan: {e}")
 
+async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle bot commands"""
+    command = update.message.text.split()[0].lower()
+    
+    try:
+        if command == '/calendar':
+            events = await context.bot_data['integrations'].get_calendar_events()
+            if events:
+                response = "Upcoming events:\n\n"
+                for event in events:
+                    response += f"📅 {event['summary']} - {event['start']}\n"
+            else:
+                response = "No upcoming events found."
+                
+        elif command == '/tasks':
+            tasks = await context.bot_data['integrations'].get_tasks()
+            if tasks:
+                response = "Your tasks:\n\n"
+                for task in tasks:
+                    status = "✅" if task['status'] == 'completed' else "⭕"
+                    response += f"{status} {task['title']}"
+                    if task['due']:
+                        response += f" (Due: {task['due']})"
+                    response += "\n"
+            else:
+                response = "No tasks found."
+                
+        elif command == '/emails':
+            emails = await context.bot_data['integrations'].get_unread_emails()
+            if emails:
+                response = "Unread emails:\n\n"
+                for email in emails:
+                    response += f"📧 From: {email['from']}\nSubject: {email['subject']}\n\n"
+            else:
+                response = "No unread emails."
+        
+        await update.message.reply_text(response)
+        # Also convert response to voice and send
+        await send_voice_response(update, response)
+        
+    except Exception as e:
+        logger.exception(f"Error handling command {command}")
+        await update.message.reply_text(f"Sorry, there was an error processing your request: {str(e)}")
+
 def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-
+    
+    # Initialize integrations
+    integrations = IntegrationsManager()
+    application.bot_data['integrations'] = integrations
+    
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("calendar", handle_command))
+    application.add_handler(CommandHandler("tasks", handle_command))
+    application.add_handler(CommandHandler("emails", handle_command))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    print("JARVIS sedang berjalan...")
+    
+    # Start the bot
+    print("JARVIS is running...")
     application.run_polling()
 
 if __name__ == '__main__':
