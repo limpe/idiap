@@ -2,6 +2,8 @@ import os
 import logging
 import io
 import tempfile
+import pydub.utils
+
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -13,6 +15,7 @@ import gtts
 # Konfigurasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+pydub.utils.register_audio_codec("ffmpeg", "/usr/bin/ffmpeg")
 
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
