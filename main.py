@@ -43,6 +43,8 @@ bot_statistics = {
     "errors": 0
 }
 
+message_queue = asyncio.Queue()  # Antrian untuk pesan
+
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
@@ -87,7 +89,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
             
             for i in range(total_chunks):
                 offset = i * CHUNK_DURATION
-                chunk_duration = min(CHUNK_DURATION, duration_seconds - offset)
+                chunk_duration = min(CHUNK_DURATION, max(5, duration_seconds - offset))
 
                 if chunk_duration <= 0:
                     break
@@ -235,13 +237,30 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
+async def queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tambahkan pesan ke dalam antrian."""
+    await message_queue.put((update, context))
+
+async def message_worker():
+    """Worker untuk memproses pesan dari antrian."""
+    while True:
+        update, context = await message_queue.get()
+        try:
+            if update.message.voice:
+                await handle_voice(update, context)
+            elif update.message.text:
+                await handle_text(update, context)
+        except Exception as e:
+            logger.exception(f"Error dalam worker: {e}")
+        finally:
+            message_queue.task_done()
+
 def main():
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        application.add_handler(MessageHandler(filters.ALL, queue_message))
 
         # Statistik command
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -256,6 +275,7 @@ def main():
 
         application.add_handler(CommandHandler("stats", stats))
 
+        asyncio.create_task(message_worker())
         application.run_polling()
 
     except Exception as e:
@@ -263,4 +283,4 @@ def main():
         raise
 
 if __name__ == '__main__':
-    asyncio.run
+    asyncio.run(main())
