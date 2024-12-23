@@ -1,10 +1,8 @@
 python-telegram-bot[job-queue]
+speechrecognition
 pydub
-SpeechRecognition
-gTTS
+gtts
 aiohttp
-requests
-python-dateutil
 langdetect
 python-dotenv
 Pillow
