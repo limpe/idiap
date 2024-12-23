@@ -134,7 +134,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     data = {
-        "model": "pixtral-large-latest",
+        "model": "open-mistral-nemo",
         "messages": messages,
         "max_tokens": 10000
     }
