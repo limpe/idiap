@@ -6,3 +6,4 @@ aiohttp
 langdetect
 python-dotenv
 Pillow
+aiohttp[speedups]
