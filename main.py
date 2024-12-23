@@ -99,11 +99,29 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
 
                 audio_chunk = recognizer.record(source, duration=chunk_duration)
                 for attempt in range(MAX_RETRIES):
-                    try:
-                        chunk_text = recognizer.recognize_google(audio_chunk, language="id-ID")
-                        text_chunks.append(chunk_text)
-                        break
-                    except sr.UnknownValueError:
+    try:
+        form = aiohttp.FormData()  # Buat form baru setiap percobaan
+        form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
+
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.mistral.ai/v1/vision/analyze",
+                headers=headers,
+                data=form
+            ) as response:
+                response.raise_for_status()
+                json_response = await response.json()
+
+                if 'description' in json_response:
+                    image_description = json_response['description']
+                    break
+    except aiohttp.ClientError as e:
+        logger.error(f"Percobaan {attempt + 1} gagal karena error HTTP: {str(e)}")
+    except asyncio.TimeoutError:
+        logger.error(f"Percobaan {attempt + 1} gagal karena timeout")
+    except Exception as e:
+        logger.error(f"Percobaan {attempt + 1} gagal: {str(e)}")
                         continue
                     except sr.RequestError as e:
                         if attempt == MAX_RETRIES - 1:
@@ -261,16 +279,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_file = await update.message.photo[-1].get_file()
         image_bytes = await photo_file.download_as_bytearray()
 
-        # Mengirim gambar ke Mistral API
         headers = {
             "Authorization": f"Bearer {MISTRAL_API_KEY}",
         }
 
-        form = aiohttp.FormData()
-        form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
+        image_description = "Gambar tidak dapat diproses."  # Inisialisasi default
 
         for attempt in range(MAX_RETRIES):
             try:
+                form = aiohttp.FormData()
+                form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
+
                 timeout = aiohttp.ClientTimeout(total=30)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(
@@ -312,19 +331,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
-        image_description = "Tidak dapat memproses gambar."
-
-        if chat_id not in user_sessions:
-            user_sessions[chat_id] = []
-
-        user_sessions[chat_id].append({"role": "user", "content": image_description})
-        mistral_messages = user_sessions[chat_id][-10:]
-        response = await process_with_mistral(mistral_messages)
-
-        if response:
-            user_sessions[chat_id].append({"role": "assistant", "content": response})
-            response = await filter_text(response)
-            await update.message.reply_text(response)
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
