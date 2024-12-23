@@ -43,8 +43,6 @@ bot_statistics = {
     "errors": 0
 }
 
-message_queue = asyncio.Queue()  # Antrian untuk pesan
-
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
@@ -89,7 +87,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
             
             for i in range(total_chunks):
                 offset = i * CHUNK_DURATION
-                chunk_duration = min(CHUNK_DURATION, max(5, duration_seconds - offset))
+                chunk_duration = min(CHUNK_DURATION, duration_seconds - offset)
 
                 if chunk_duration <= 0:
                     break
@@ -138,7 +136,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
     for attempt in range(MAX_RETRIES):
         try:
-            timeout = aiohttp.ClientTimeout(total=60)  # Timeout ditingkatkan
+            timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     "https://api.mistral.ai/v1/chat/completions",
@@ -153,10 +151,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
         except aiohttp.ClientError as e:
             logger.error(f"Error koneksi API: {str(e)}")
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(2 ** attempt)  # Eksponensial backoff
-            else:
-                return "Maaf, terjadi masalah koneksi dengan server AI."
+            return "Maaf, terjadi masalah koneksi dengan server AI."
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
@@ -237,6 +232,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
-async def queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tambahkan pesan ke dalam antrian."""
-    await message_queue.put((update
+def main():
+    try:
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+        # Statistik command
+        async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            stats_message = (
+                f"Statistik Bot:\n"
+                f"- Total Pesan: {bot_statistics['total_messages']}\n"
+                f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+                f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+                f"- Kesalahan: {bot_statistics['errors']}"
+            )
+            await update.message.reply_text(stats_message)
+
+        application.add_handler(CommandHandler("stats", stats))
+
+        application.run_polling()
+
+    except Exception as e:
+        logger.critical(f"Error fatal saat menjalankan bot: {e}")
+        raise
+
+if __name__ == '__main__':
+    asyncio.run(main())
