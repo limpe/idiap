@@ -47,11 +47,6 @@ class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
 
-def clean_text(text: str) -> str:
-    """Membersihkan teks dengan menghapus kata yang mengandung karakter tertentu."""
-    import re
-    return re.sub(r'[\*#]', '', text)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
     welcome_text = """Halo! Saya asisten Anda. Saya dapat:
@@ -113,7 +108,6 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
                 raise AudioProcessingError("Tidak ada teks yang berhasil dikenali")
 
             final_text = " ".join(text_chunks)
-            final_text = clean_text(final_text)  # Bersihkan teks sebelum dikembalikan
             logger.info("Pemrosesan suara selesai")
             return final_text
 
@@ -127,6 +121,10 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
                 os.remove(temp_file)
             except Exception as e:
                 logger.warning(f"Gagal menghapus file sementara: {temp_file}")
+
+async def filter_text(text: str) -> str:
+    """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
+    return text.replace("*", "").replace("#", "").replace("Mistral", "")
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     headers = {
@@ -181,8 +179,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["text_messages"] += 1
 
         chat_id = update.message.chat_id
-        text = update.message.text
-        text = clean_text(text)  # Bersihkan teks sebelum diproses
+        text = await filter_text(update.message.text)
 
         # Deteksi bahasa teks
         detected_language = detect(text)
@@ -215,6 +212,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = await process_voice_to_text(update)
 
         if text:
+            text = await filter_text(text)
             await update.message.reply_text(f"Teks hasil transkripsi suara Anda: \n{text}")
 
             if chat_id not in user_sessions:
