@@ -259,10 +259,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat_id = update.message.chat_id
         photo_file = await update.message.photo[-1].get_file()
-        await photo_file.download(out=BytesIO())
-
-        image = Image.open(BytesIO(await photo_file.download(out=BytesIO())))
-        image_description = "Deskripsi gambar: " + f"Gambar dengan resolusi {image.size}."
+        image_bytes = await photo_file.download_as_bytearray()
+        image = Image.open(BytesIO(image_bytes))
+        image_description = f"Deskripsi gambar: Gambar dengan resolusi {image.size}."
 
         if chat_id not in user_sessions:
             user_sessions[chat_id] = []
@@ -281,7 +280,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
-async def cleanup_sessions():
+async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
     for chat_id in list(user_sessions.keys()):
         if len(user_sessions[chat_id]) > 300:
@@ -310,6 +309,7 @@ def main():
 
         application.add_handler(CommandHandler("stats", stats))
 
+        # Memastikan JobQueue diaktifkan
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
         application.run_polling()
