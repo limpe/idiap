@@ -47,6 +47,11 @@ class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
 
+def clean_text(text: str) -> str:
+    """Membersihkan teks dengan menghapus kata yang mengandung karakter tertentu."""
+    import re
+    return re.sub(r'[\*#]', '', text)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
     welcome_text = """Halo! Saya asisten Anda. Saya dapat:
@@ -108,6 +113,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
                 raise AudioProcessingError("Tidak ada teks yang berhasil dikenali")
 
             final_text = " ".join(text_chunks)
+            final_text = clean_text(final_text)  # Bersihkan teks sebelum dikembalikan
             logger.info("Pemrosesan suara selesai")
             return final_text
 
@@ -176,6 +182,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat_id = update.message.chat_id
         text = update.message.text
+        text = clean_text(text)  # Bersihkan teks sebelum diproses
 
         # Deteksi bahasa teks
         detected_language = detect(text)
