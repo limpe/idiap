@@ -239,48 +239,4 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tambahkan pesan ke dalam antrian."""
-    await message_queue.put((update, context))
-
-async def message_worker():
-    """Worker untuk memproses pesan dari antrian."""
-    while True:
-        update, context = await message_queue.get()
-        try:
-            if update.message.voice:
-                await handle_voice(update, context)
-            elif update.message.text:
-                await handle_text(update, context)
-        except Exception as e:
-            logger.exception(f"Error dalam worker: {e}")
-        finally:
-            message_queue.task_done()
-
-def main():
-    try:
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.ALL, queue_message))
-
-        # Statistik command
-        async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            stats_message = (
-                f"Statistik Bot:\n"
-                f"- Total Pesan: {bot_statistics['total_messages']}\n"
-                f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
-                f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-                f"- Kesalahan: {bot_statistics['errors']}"
-            )
-            await update.message.reply_text(stats_message)
-
-        application.add_handler(CommandHandler("stats", stats))
-
-        asyncio.create_task(message_worker())
-        application.run_polling()
-
-    except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        raise
-
-if __name__ == '__main__':
-    asyncio.run(main())
+    await message_queue.put((update
