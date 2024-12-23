@@ -134,9 +134,9 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     data = {
-        "model": "open-mistral-nemo",
+        "model": "pixtral-large-latest",
         "messages": messages,
-        "max_tokens": 10000
+        "max_tokens": 100000
     }
 
     for attempt in range(MAX_RETRIES):
