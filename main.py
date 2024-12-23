@@ -4,13 +4,15 @@ import tempfile
 import asyncio
 from typing import Optional, List, Dict
 
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
 import gtts
 import aiohttp
 from langdetect import detect
+from PIL import Image
+from io import BytesIO
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -41,6 +43,7 @@ bot_statistics = {
     "total_messages": 0,
     "voice_messages": 0,
     "text_messages": 0,
+    "photo_messages": 0,
     "errors": 0
 }
 
@@ -54,6 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - Memproses pesan suara (termasuk yang panjang)
     - Menanggapi dengan suara
     - Membantu dengan berbagai tugas
+    - Memproses gambar
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
@@ -75,7 +79,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         # Buat file sementara untuk WAV
         temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_files.append(temp_wav.name)
-        
+
         audio = AudioSegment.from_ogg(temp_ogg.name).set_channels(1).set_frame_rate(16000)
         audio.export(temp_wav.name, format='wav')
         logger.info("Konversi file OGG ke WAV berhasil")
@@ -85,7 +89,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
             text_chunks = []
             duration_seconds = len(audio) / 1000.0
             total_chunks = int(duration_seconds / CHUNK_DURATION) + 1
-            
+
             for i in range(total_chunks):
                 offset = i * CHUNK_DURATION
                 chunk_duration = min(CHUNK_DURATION, duration_seconds - offset)
@@ -248,16 +252,40 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        bot_statistics["total_messages"] += 1
+        bot_statistics["photo_messages"] += 1
+
+        chat_id = update.message.chat_id
+        photo_file = await update.message.photo[-1].get_file()
+        await photo_file.download(out=BytesIO())
+
+        image = Image.open(BytesIO(await photo_file.download(out=BytesIO())))
+        image_description = "Deskripsi gambar: " + f"Gambar dengan resolusi {image.size}."
+
+        if chat_id not in user_sessions:
+            user_sessions[chat_id] = []
+
+        user_sessions[chat_id].append({"role": "user", "content": image_description})
+        mistral_messages = user_sessions[chat_id][-10:]
+        response = await process_with_mistral(mistral_messages)
+
+        if response:
+            user_sessions[chat_id].append({"role": "assistant", "content": response})
+            response = await filter_text(response)
+            await update.message.reply_text(response)
+
+    except Exception as e:
+        bot_statistics["errors"] += 1
+        logger.exception("Error dalam handle_photo")
+        await update.message.reply_text("Maaf, terjadi kesalahan.")
+
 async def cleanup_sessions():
     """Bersihkan sesi lama untuk menghemat memori"""
     for chat_id in list(user_sessions.keys()):
         if len(user_sessions[chat_id]) > 300:
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
-
-# Fallback response
-async def fallback_response():
-    return "Mohon maaf, saya mengalami kesulitan memahami permintaan Anda saat ini. Silakan coba lagi."
-
 
 def main():
     try:
@@ -266,6 +294,7 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
         # Statistik command
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -274,11 +303,14 @@ def main():
                 f"- Total Pesan: {bot_statistics['total_messages']}\n"
                 f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
                 f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+                f"- Pesan Gambar: {bot_statistics['photo_messages']}\n"
                 f"- Kesalahan: {bot_statistics['errors']}"
             )
             await update.message.reply_text(stats_message)
 
         application.add_handler(CommandHandler("stats", stats))
+
+        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
         application.run_polling()
 
