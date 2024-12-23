@@ -31,6 +31,7 @@ MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
+RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 
 # Dictionary untuk menyimpan histori percakapan
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -155,9 +156,15 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                         return await filter_text(json_response['choices'][0]['message']['content'])
 
         except aiohttp.ClientError as e:
+            logger.error(f"Percobaan {attempt + 1} gagal karena error HTTP: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error(f"Percobaan {attempt + 1} gagal karena timeout")
+        except Exception as e:
             logger.error(f"Percobaan {attempt + 1} gagal: {str(e)}")
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(5)  # Tambah jeda 5 detik sebelum mencoba lagi
+
+        if attempt < MAX_RETRIES - 1:
+            logger.info(f"Menunggu {RETRY_DELAY} detik sebelum percobaan berikutnya...")
+            await asyncio.sleep(RETRY_DELAY)
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
