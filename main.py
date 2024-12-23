@@ -13,7 +13,6 @@ import aiohttp
 from langdetect import detect
 from PIL import Image
 from io import BytesIO
-import aiohttp.FormData
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
