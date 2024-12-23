@@ -124,7 +124,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    return text.replace("*", "").replace("#", "").replace("Mistral", "")
+    return text.replace("*", "").replace("#", "").replace("Mistral", "").replace("**", "").replace("Mistral AI", "Paidi")
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     headers = {
