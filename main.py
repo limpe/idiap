@@ -259,26 +259,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat_id = update.message.chat_id
         photo_file = await update.message.photo[-1].get_file()
-        image = Image.open(BytesIO(await photo_file.download_as_bytearray()))
+        image_bytes = await photo_file.download_as_bytearray()
 
-        # Simpan gambar secara sementara
-        temp_image_path = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
-        image.save(temp_image_path)
-
-        # Unggah gambar ke Telegram untuk mendapatkan URL
-        uploaded_photo = await update.message.reply_photo(photo=InputFile(temp_image_path))
-        image_url = uploaded_photo.photo[-1].get_url()
-
-        # Mengirim URL gambar ke Mistral API
+        # Mengirim gambar ke Mistral API
         headers = {
             "Authorization": f"Bearer {MISTRAL_API_KEY}",
-            "Content-Type": "application/json"
         }
 
-        data = {
-            "model": "pixtral-large-latest",
-            "image_url": image_url
-        }
+        form = aiohttp.FormData()
+        form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -287,7 +276,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     async with session.post(
                         "https://api.mistral.ai/v1/vision/analyze",
                         headers=headers,
-                        json=data
+                        data=form
                     ) as response:
                         response.raise_for_status()
                         json_response = await response.json()
@@ -323,10 +312,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
-    finally:
-        # Hapus file sementara
-        if os.path.exists(temp_image_path):
-            os.remove(temp_image_path)
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
