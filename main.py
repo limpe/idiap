@@ -267,11 +267,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Authorization": f"Bearer {MISTRAL_API_KEY}",
         }
 
-        form = FormData()
-        form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
-
         for attempt in range(MAX_RETRIES):
             try:
+                form = FormData()
+                form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
+
                 timeout = aiohttp.ClientTimeout(total=30)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(
