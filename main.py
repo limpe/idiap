@@ -136,7 +136,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     data = {
         "model": "pixtral-large-latest",
         "messages": messages,
-        "max_tokens": 100000
+        "max_tokens": 10000
     }
 
     for attempt in range(MAX_RETRIES):
@@ -155,8 +155,9 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                         return await filter_text(json_response['choices'][0]['message']['content'])
 
         except aiohttp.ClientError as e:
-            logger.error(f"Error koneksi API: {str(e)}")
-            return "Maaf, terjadi masalah koneksi dengan server AI."
+            logger.error(f"Percobaan {attempt + 1} gagal: {str(e)}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(5)  # Tambah jeda 5 detik sebelum mencoba lagi
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
