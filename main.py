@@ -13,6 +13,7 @@ import aiohttp
 from langdetect import detect
 from PIL import Image
 from io import BytesIO
+import aiohttp.FormData
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -312,6 +313,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
+        image_description = "Tidak dapat memproses gambar."
+
+        if chat_id not in user_sessions:
+            user_sessions[chat_id] = []
+
+        user_sessions[chat_id].append({"role": "user", "content": image_description})
+        mistral_messages = user_sessions[chat_id][-10:]
+        response = await process_with_mistral(mistral_messages)
+
+        if response:
+            user_sessions[chat_id].append({"role": "assistant", "content": response})
+            response = await filter_text(response)
+            await update.message.reply_text(response)
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
