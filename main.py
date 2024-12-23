@@ -136,7 +136,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
     for attempt in range(MAX_RETRIES):
         try:
-            timeout = aiohttp.ClientTimeout(total=30)
+            timeout = aiohttp.ClientTimeout(total=60)  # Timeout ditingkatkan
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     "https://api.mistral.ai/v1/chat/completions",
@@ -151,7 +151,10 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
         except aiohttp.ClientError as e:
             logger.error(f"Error koneksi API: {str(e)}")
-            return "Maaf, terjadi masalah koneksi dengan server AI."
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(2 ** attempt)  # Eksponensial backoff
+            else:
+                return "Maaf, terjadi masalah koneksi dengan server AI."
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
