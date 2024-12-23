@@ -124,7 +124,8 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    return text.replace("*", "").replace("#", "").replace("Mistral", "").replace("**", "").replace("Mistral AI", "Paidi")
+    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI")
+    return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     headers = {
@@ -151,7 +152,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                     json_response = await response.json()
 
                     if 'choices' in json_response and json_response['choices']:
-                        return json_response['choices'][0]['message']['content']
+                        return await filter_text(json_response['choices'][0]['message']['content'])
 
         except aiohttp.ClientError as e:
             logger.error(f"Error koneksi API: {str(e)}")
@@ -194,6 +195,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if response:
             user_sessions[chat_id].append({"role": "assistant", "content": response})
+            response = await filter_text(response)
             await update.message.reply_text(response)
 
     except Exception as e:
@@ -224,6 +226,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if response:
                 user_sessions[chat_id].append({"role": "assistant", "content": response})
+                response = await filter_text(response)
                 await update.message.reply_text(response)
                 await send_voice_response(update, response)
 
