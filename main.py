@@ -248,6 +248,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
+async def cleanup_sessions():
+    """Bersihkan sesi lama untuk menghemat memori"""
+    for chat_id in list(user_sessions.keys()):
+        if len(user_sessions[chat_id]) > 300:
+            user_sessions[chat_id] = user_sessions[chat_id][-100:]
+
+# Fallback response
+async def fallback_response():
+    return "Mohon maaf, saya mengalami kesulitan memahami permintaan Anda saat ini. Silakan coba lagi."
+
+
 def main():
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
