@@ -342,7 +342,7 @@ async def send_voice_response(update, text: str):
         }
     }
 
-    logger.info(f"Payload: {payload}")
+    logger.info(f"Payload: {json.dumps(payload, indent=2)}")
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -356,9 +356,11 @@ async def send_voice_response(update, text: str):
                 # Proses respons jika sukses
                 audio_data = await response.read()
                 logger.info(f"Audio data received: {len(audio_data)} bytes")
-                if len(audio_data) == 0:
-                    logger.error("Audio data kosong. Periksa respons API.")
-                    await update.message.reply_text("Audio yang dihasilkan kosong. Periksa konfigurasi API.")
+
+                if len(audio_data) < 1000:  # Jika audio terlalu kecil
+                    logger.error(f"Audio data terlalu kecil: {len(audio_data)} bytes")
+                    logger.error(f"Content: {audio_data[:100]}")
+                    await update.message.reply_text("Audio yang dihasilkan tidak valid. Periksa konfigurasi API.")
                     return
 
                 # Simpan file audio sementara
@@ -366,14 +368,6 @@ async def send_voice_response(update, text: str):
                 logger.info(f"Menyimpan file audio sementara di {temp_file.name}")
                 with open(temp_file.name, "wb") as f:
                     f.write(audio_data)
-
-                # Pastikan file tidak kosong
-                file_size = os.path.getsize(temp_file.name)
-                logger.info(f"Ukuran file audio: {file_size} bytes")
-                if file_size == 0:
-                    logger.error("File audio kosong setelah disimpan.")
-                    await update.message.reply_text("Audio yang dihasilkan kosong. Periksa respons API.")
-                    return
 
                 # Kirim file audio ke pengguna
                 with open(temp_file.name, "rb") as voice_file:
