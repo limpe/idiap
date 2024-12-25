@@ -340,19 +340,28 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses gambar"""
+    """Handler untuk memproses gambar dengan mention di grup atau pribadi."""
     chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
 
+    # Periksa apakah ada mention pada caption atau reply
+    mention_found = False
     if chat_type in ["group", "supergroup"]:  # Jika chat di grup
-        if update.message.caption and context.bot.username in update.message.caption:  # Periksa mention
+        if update.message.caption and context.bot.username in update.message.caption:
+            mention_found = True
             caption = update.message.caption.replace(f'@{context.bot.username}', '').strip()
-        else:
-            logger.info("Gambar di grup tanpa mention diabaikan.")
-            return  # Abaikan gambar tanpa mention
+        elif update.message.reply_to_message and context.bot.username in update.message.reply_to_message.text:
+            mention_found = True
+            caption = update.message.reply_to_message.text.strip()
     else:  # Jika chat pribadi
-        caption = update.message.caption or ""  # Ambil seluruh caption (jika ada)
+        caption = update.message.caption or ""
 
-    image_description = "Tidak dapat memproses gambar."  # Default deskripsi
+    # Jika tidak ada mention pada gambar, abaikan
+    if not mention_found and chat_type in ["group", "supergroup"]:
+        logger.info("Gambar di grup tanpa mention diabaikan.")
+        return
+
+    # Default deskripsi jika gambar gagal diproses
+    image_description = "Tidak dapat memproses gambar."
 
     try:
         bot_statistics["total_messages"] += 1
