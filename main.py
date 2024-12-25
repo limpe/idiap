@@ -229,10 +229,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-    if update.message.voice.file_size > MAX_AUDIO_SIZE:
+   try:
+        # Perhatikan semua kode setelah try: harus diberi indentasi 4 spasi/1 tab
+        if update.message.voice.file_size > MAX_AUDIO_SIZE:
             await update.message.reply_text("Maaf, file audio terlalu besar (maksimal 20MB)")
             return
+            
         bot_statistics["total_messages"] += 1
         bot_statistics["voice_messages"] += 1
 
@@ -267,7 +269,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
-
+        
+        
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         bot_statistics["total_messages"] += 1
