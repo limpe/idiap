@@ -15,6 +15,18 @@ from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 
+# Konstanta untuk batasan ukuran file
+MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
+
+def check_required_settings():
+    if not TELEGRAM_TOKEN:
+        print("Error: TELEGRAM_TOKEN tidak ditemukan!")
+        return False
+    if not MISTRAL_API_KEY:
+        print("Error: MISTRAL_API_KEY tidak ditemukan!")
+        return False
+    return True
+
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -218,6 +230,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+    if update.message.voice.file_size > MAX_AUDIO_SIZE:
+            await update.message.reply_text("Maaf, file audio terlalu besar (maksimal 20MB)")
+            return
         bot_statistics["total_messages"] += 1
         bot_statistics["voice_messages"] += 1
 
@@ -334,6 +349,10 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
 def main():
+    if not check_required_settings():
+        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+        return
+        
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
