@@ -201,15 +201,17 @@ async def send_voice_response(update: Update, text: str):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # Cek apakah pesan mention bot
+        if context.bot.username in update.message.text:
+            text = update.message.text.replace(f'@{context.bot.username}', '').strip()
+        else:
+            text = update.message.text
+            
         bot_statistics["total_messages"] += 1
         bot_statistics["text_messages"] += 1
 
         chat_id = update.message.chat_id
-        text = await filter_text(update.message.text)
-
-        # Deteksi bahasa teks
-        detected_language = detect(text)
-        await update.message.reply_text(f"Bahasa yang terdeteksi: {detected_language}")
+        text = await filter_text(text)
 
         if chat_id not in user_sessions:
             user_sessions[chat_id] = []
@@ -366,7 +368,7 @@ def main():
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Entity("mention"), handle_mention))
+
 
 
         
