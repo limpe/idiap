@@ -349,6 +349,11 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
         if len(user_sessions[chat_id]) > 300:
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
+async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+    if message:
+        await handle_text(update, context)
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
@@ -361,6 +366,10 @@ def main():
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler(filters.Mention & filters.TEXT, handle_mention))
+
+
+        
 
         # Statistik command
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
