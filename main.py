@@ -84,6 +84,25 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
+def split_message(text: str, max_length: int = 4096) -> List[str]:
+    """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
+    parts = []
+    while len(text) > max_length:
+        # Cari posisi pemotongan terdekat (misalnya, setelah baris baru atau spasi)
+        split_index = text.rfind("\n", 0, max_length)
+        if split_index == -1:
+            split_index = text.rfind(" ", 0, max_length)
+        if split_index == -1:  # Jika tidak ada baris baru atau spasi, potong langsung
+            split_index = max_length
+
+        # Tambahkan bagian ke daftar
+        parts.append(text[:split_index].strip())
+        text = text[split_index:].strip()
+
+    # Tambahkan sisa teks
+    parts.append(text)
+    return parts
+
 async def process_image_with_groq(image_path: str) -> str:
     try:
         base64_image = encode_image(image_path)
