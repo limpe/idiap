@@ -310,19 +310,30 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
 async def send_voice_response(update, text: str):
     """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
-    group_id = os.getenv("MINIMAXI_GROUP_ID")
-    api_key = os.getenv("MINIMAXI_API_KEY")
+    group_id = os.getenv("MINIMAXI_GROUP_ID", "").strip()
+    api_key = os.getenv("MINIMAXI_API_KEY", "").strip()
 
     if not group_id or not api_key:
         logger.error(f"Group ID atau API Key tidak ditemukan. Group ID: {group_id}, API Key: {api_key}")
         await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
         return
 
+    # Validasi URL
     url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
+    if "\n" in url or "\r" in url:
+        logger.error("URL mengandung karakter tidak valid.")
+        await update.message.reply_text("URL API tidak valid.")
+        return
+
+    # Validasi Header
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
+    if "\n" in headers["Authorization"] or "\r" in headers["Authorization"]:
+        logger.error("API Key mengandung karakter tidak valid.")
+        await update.message.reply_text("API Key tidak valid.")
+        return
 
     payload = {
         "model": "speech-01-turbo",
@@ -366,7 +377,7 @@ async def send_voice_response(update, text: str):
 
     except Exception as e:
         logger.error(f"Error occurred: {e}")
-        await update.message.reply_text("An error occurred while processing your request.")
+        await update.message.reply_text(f"An error occurred while processing your request: {e}")
     finally:
         if 'temp_file' in locals() and temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
