@@ -415,23 +415,36 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk memproses mention di grup."""
     if context.bot.username in update.message.text:
         message = update.message.text.replace(f'@{context.bot.username}', '').strip()
         if message:
+            # Memanggil handler teks dengan pesan yang di-mention
             await handle_text(update, context)
 
-def main():
+if not check_required_settings():
+        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+        return
+
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+        # Command handlers
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+        application.add_handler(CommandHandler("stats", stats))
 
-        application.add_handler(CommandHandler("stats", stats))  # Pindahkan definisi fungsi ke luar blok try
+        # Message handlers
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+        # Mention handler untuk teks
+        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
+
+        # Cleanup session setiap jam
+        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
         application.run_polling()
+
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
