@@ -1,7 +1,6 @@
 import os
 import logging
 import tempfile
-import json
 import asyncio
 import base64
 from typing import Optional, List, Dict
@@ -309,79 +308,51 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
-async def send_voice_response(update, text: str):
-    """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
-    group_id = os.getenv("MINIMAXI_GROUP_ID", "").strip()
-    api_key = os.getenv("MINIMAXI_API_KEY", "").strip()
-
-    if not group_id or not api_key:
-        logger.error("Group ID atau API Key tidak ditemukan.")
-        await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
-        return
-
-    url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-
-    payload = {
-        "model": "speech-01-turbo",
-        "text": text,
-        "stream": False,  # Non-streaming untuk file lengkap
-        "voice_setting": {
-            "voice_id": "Indonesian_ConfidentWoman",
-            "speed": 1.0,
-            "vol": 1.0,
-            "pitch": 0
-        },
-        "audio_setting": {
-            "sample_rate": 32000,
-            "bitrate": 128000,
-            "format": "mp3",
-            "channel": 1
-        }
-    }
-
-    # Log payload
-    logger.info(f"Payload yang dikirim ke API: {json.dumps(payload, indent=2)}")
-
-
+async def send_voice_response(update: Update, text: str):
+    temp_file = None
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    error_message = await response.text()
-                    logger.error(f"API Error: {response.status} - {error_message}")
-                    await update.message.reply_text(f"API Error: {response.status} - {error_message}")
-                    return
+        tts = gtts.gTTS(text, lang="id")
+        temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+        tts.save(temp_file.name)
 
-                # Proses respons jika sukses
-                audio_data = await response.read()
-                logger.info(f"Audio data received: {len(audio_data)} bytes")
+        with open(temp_file.name, 'rb') as voice_file:
+            await update.message.reply_voice(voice=voice_file)
 
-                if len(audio_data) < 1000:  # Jika audio terlalu kecil
-                    logger.error(f"Audio data terlalu kecil: {len(audio_data)} bytes")
-                    logger.error(f"Content: {audio_data[:100]}")
-                    await update.message.reply_text("Audio yang dihasilkan tidak valid. Periksa konfigurasi API.")
-                    return
-
-                # Simpan file audio sementara
-                temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-                logger.info(f"Menyimpan file audio sementara di {temp_file.name}")
-                with open(temp_file.name, "wb") as f:
-                    f.write(audio_data)
-
-                # Kirim file audio ke pengguna
-                with open(temp_file.name, "rb") as voice_file:
-                    await update.message.reply_voice(voice=voice_file)
-
-    except Exception as e:
-        logger.error(f"Error occurred: {e}")
-        await update.message.reply_text(f"Terjadi kesalahan: {e}")
     finally:
-        if 'temp_file' in locals() and temp_file and os.path.exists(temp_file.name):
+        if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk pesan teks"""
+    chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
+
+    if chat_type in ["group", "supergroup"]:  # Jika chat di grup
+        if context.bot.username in update.message.text:  # Periksa mention
+            # Ambil teks tanpa mention
+            text = update.message.text.replace(f'@{context.bot.username}', '').strip()
+        else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
+            return  # Abaikan pesan tanpa mention
+    else:  # Jika chat pribadi
+        text = update.message.text.strip()  # Ambil seluruh teks
+
+    bot_statistics["total_messages"] += 1
+    bot_statistics["text_messages"] += 1
+
+    chat_id = update.message.chat_id
+    text = await filter_text(text)
+
+    if chat_id not in user_sessions:
+        user_sessions[chat_id] = []
+
+    user_sessions[chat_id].append({"role": "user", "content": text})
+    mistral_messages = user_sessions[chat_id][-10:]
+    response = await process_with_mistral(mistral_messages)
+
+    if response:
+        user_sessions[chat_id].append({"role": "assistant", "content": response})
+        response = await filter_text(response)
+        await update.message.reply_text(response)
         
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
