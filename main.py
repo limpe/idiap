@@ -111,6 +111,44 @@ async def process_image_with_groq(image_path: str) -> str:
     except Exception as e:
         logger.exception("Error in processing image with Groq")
         return "Terjadi kesalahan saat memproses gambar."
+        
+async def process_image_with_groq_multiple(image_path: str, repetitions: int = 5) -> List[str]:
+    """Proses gambar ke Groq API beberapa kali secara paralel."""
+    try:
+        base64_image = encode_image(image_path)
+        client = Groq()
+
+        async def single_request():
+            try:
+                chat_completion = client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                    model="llama-3.2-90b-vision-preview",
+                )
+                return chat_completion.choices[0].message.content
+            except Exception as e:
+                logger.exception("Error in single request to Groq")
+                return "Error processing this request."
+
+        # Jalankan `repetitions` permintaan secara paralel
+        results = await asyncio.gather(*[single_request() for _ in range(repetitions)])
+        return results
+
+    except Exception as e:
+        logger.exception("Error in processing image with Groq multiple")
+        return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for processing image uploads"""
@@ -340,33 +378,26 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses gambar yang di-reply atau disebut di caption."""
+    """Handler untuk memproses gambar dengan beberapa analisis paralel."""
     chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
 
-    # Periksa apakah ada mention pada caption atau reply
+    # Periksa mention di caption atau reply
     mention_found = False
     caption = ""
     
-    # Cek mention di caption atau pesan reply
     if chat_type in ["group", "supergroup"]:
-        # Mention di caption gambar
         if update.message.caption and context.bot.username in update.message.caption:
             mention_found = True
             caption = update.message.caption.replace(f'@{context.bot.username}', '').strip()
-        # Mention di pesan reply ke gambar
         elif update.message.reply_to_message and update.message.reply_to_message.caption and context.bot.username in update.message.reply_to_message.caption:
             mention_found = True
             caption = update.message.reply_to_message.caption.replace(f'@{context.bot.username}', '').strip()
     else:  # Chat pribadi
         caption = update.message.caption or ""
 
-    # Jika tidak ada mention, abaikan
     if not mention_found and chat_type in ["group", "supergroup"]:
         logger.info("Gambar di grup tanpa mention diabaikan.")
         return
-
-    # Default deskripsi jika gambar gagal diproses
-    image_description = "Tidak dapat memproses gambar."
 
     try:
         bot_statistics["total_messages"] += 1
@@ -377,11 +408,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
         await photo_file.download_to_drive(temp_image_path)
 
-        # Proses gambar dengan Groq
-        image_description = await process_image_with_groq(temp_image_path)
+        # Proses gambar dengan analisis paralel (5 kali)
+        results = await process_image_with_groq_multiple(temp_image_path, repetitions=5)
+
+        # Gabungkan hasil analisis
+        combined_results = "\n\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
 
         # Kirim hasil analisis
-        await update.message.reply_text(f"Hasil Analisa Gambar: {image_description}")
+        await update.message.reply_text(f"Hasil Analisa Gambar:\n\n{combined_results}")
 
         # Bersihkan file sementara
         os.remove(temp_image_path)
