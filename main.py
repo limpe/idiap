@@ -411,11 +411,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Proses gambar dengan analisis paralel (5 kali)
         results = await process_image_with_groq_multiple(temp_image_path, repetitions=5)
 
-        # Gabungkan hasil analisis
-        combined_results = "\n\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
-
-        # Kirim hasil analisis
-        await update.message.reply_text(f"Hasil Analisa Gambar:\n\n{combined_results}")
+        # Kirim setiap hasil analisis sebagai pesan terpisah
+        for i, result in enumerate(results):
+            await update.message.reply_text(f"Analisis {i+1}:\n{result}")
 
         # Bersihkan file sementara
         os.remove(temp_image_path)
