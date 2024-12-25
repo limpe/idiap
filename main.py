@@ -421,6 +421,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if message:
             # Memanggil handler teks dengan pesan yang di-mention
             await handle_text(update, context)
+def main():
 
 if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
