@@ -264,13 +264,11 @@ async def send_voice_response(update: Update, text: str):
             os.remove(temp_file.name)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Cek apakah pesan mention bot
-        if context.bot.username in update.message.text:
-            text = update.message.text.replace(f'@{context.bot.username}', '').strip()
-        else:
-            text = update.message.text
-            
+    """Handler untuk pesan teks"""
+    if context.bot.username in update.message.text:  # Cek apakah ada mention
+        # Ambil teks tanpa mention
+        text = update.message.text.replace(f'@{context.bot.username}', '').strip()
+        
         bot_statistics["total_messages"] += 1
         bot_statistics["text_messages"] += 1
 
@@ -288,7 +286,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_sessions[chat_id].append({"role": "assistant", "content": response})
             response = await filter_text(response)
             await update.message.reply_text(response)
-
+    else:
+        # Abaikan pesan tanpa mention
+        logger.info("Pesan teks tanpa mention diabaikan.")
+        
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_text")
@@ -336,45 +337,49 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses gambar yang diunggah"""
-    image_description = "Tidak dapat memproses gambar."  # Deklarasi awal
+    """Handler untuk memproses gambar"""
+    if update.message.caption and context.bot.username in update.message.caption:  # Cek caption untuk mention
+        image_description = "Tidak dapat memproses gambar."  # Default deskripsi
 
-    try:
-        bot_statistics["total_messages"] += 1
-        bot_statistics["photo_messages"] += 1
+        try:
+            bot_statistics["total_messages"] += 1
+            bot_statistics["photo_messages"] += 1
 
-        # Unduh file gambar
-        photo_file = await update.message.photo[-1].get_file()
-        temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-        await photo_file.download_to_drive(temp_image_path)
+            # Unduh file gambar
+            photo_file = await update.message.photo[-1].get_file()
+            temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
+            await photo_file.download_to_drive(temp_image_path)
 
-        # Proses gambar dengan Groq
-        image_description = await process_image_with_groq(temp_image_path)
+            # Proses gambar dengan Groq
+            image_description = await process_image_with_groq(temp_image_path)
 
-        # Kirim hasil analisis
-        await update.message.reply_text(f"Hasil Analisa Gambar: {image_description}")
+            # Kirim hasil analisis
+            await update.message.reply_text(f"Hasil Analisa Gambar: {image_description}")
 
-        # Bersihkan file sementara
-        os.remove(temp_image_path)
+            # Bersihkan file sementara
+            os.remove(temp_image_path)
 
-    except Exception as e:
-        bot_statistics["errors"] += 1
-        logger.exception("Error dalam handle_photo")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
+        except Exception as e:
+            bot_statistics["errors"] += 1
+            logger.exception("Error dalam handle_photo")
+            await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
 
-    # Simpan deskripsi ke sesi jika tersedia
-    chat_id = update.message.chat_id
-    if chat_id not in user_sessions:
-        user_sessions[chat_id] = []
+        # Simpan deskripsi ke sesi jika tersedia
+        chat_id = update.message.chat_id
+        if chat_id not in user_sessions:
+            user_sessions[chat_id] = []
 
-    user_sessions[chat_id].append({"role": "user", "content": image_description})
-    mistral_messages = user_sessions[chat_id][-10:]
-    response = await process_with_mistral(mistral_messages)
+        user_sessions[chat_id].append({"role": "user", "content": image_description})
+        mistral_messages = user_sessions[chat_id][-10:]
+        response = await process_with_mistral(mistral_messages)
 
-    if response:
-        user_sessions[chat_id].append({"role": "assistant", "content": response})
-        response = await filter_text(response)
-        await update.message.reply_text(response)
+        if response:
+            user_sessions[chat_id].append({"role": "assistant", "content": response})
+            response = await filter_text(response)
+            await update.message.reply_text(response)
+    else:
+        # Abaikan gambar tanpa mention
+        logger.info("Gambar tanpa mention diabaikan.")
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
