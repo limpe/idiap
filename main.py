@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
+BOT_USERNAME = ""  # Akan diisi saat bot startup
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
