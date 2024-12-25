@@ -354,13 +354,12 @@ async def send_voice_response(update, text: str):
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    error_message = await response.text()
-                    logger.error(f"API Error: {error_message}")
-                    await update.message.reply_text("API Error.")
-                    return
+       audio_data = await response.read()
+    logger.info(f"Audio data received: {len(audio_data)} bytes")
+    if len(audio_data) == 0:
+        logger.error("Audio data kosong. Periksa respons API.")
+        await update.message.reply_text("Audio yang dihasilkan kosong. Periksa konfigurasi API.")
+        return
 
                 # Proses respons jika sukses
                 audio_data = await response.read()
