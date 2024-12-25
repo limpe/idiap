@@ -311,12 +311,12 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 async def send_voice_response(update, text: str):
     """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
     group_id = os.getenv("MINIMAXI_GROUP_ID")
-api_key = os.getenv("MINIMAXI_API_KEY")
+    api_key = os.getenv("MINIMAXI_API_KEY")
 
-if not group_id or not api_key:
-    logger.error(f"Group ID atau API Key tidak ditemukan. Group ID: {group_id}, API Key: {api_key}")
-    await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
-    return
+    if not group_id or not api_key:
+        logger.error(f"Group ID atau API Key tidak ditemukan. Group ID: {group_id}, API Key: {api_key}")
+        await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
+        return
 
     url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
     headers = {
@@ -343,64 +343,33 @@ if not group_id or not api_key:
     }
 
     try:
-    async with session.post(url, headers=headers, json=payload) as response:
-        if response.status != 200:
-            error_message = await response.text()
-            logger.error(f"API Error: {error_message}")
-            await update.message.reply_text("API Error.")
-            return
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    error_message = await response.text()
+                    logger.error(f"API Error: {error_message}")
+                    await update.message.reply_text("API Error.")
+                    return
 
-        # Proses respons jika sukses
-        audio_data = await response.read()
-        logger.info(f"Audio data received: {len(audio_data)} bytes")
+                # Proses respons jika sukses
+                audio_data = await response.read()
+                logger.info(f"Audio data received: {len(audio_data)} bytes")
 
-        # Simpan file audio sementara
-        temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-        with open(temp_file.name, "wb") as f:
-            f.write(audio_data)
+                # Simpan file audio sementara
+                temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                with open(temp_file.name, "wb") as f:
+                    f.write(audio_data)
 
-        # Kirim file audio ke pengguna
-        with open(temp_file.name, "rb") as voice_file:
-            await update.message.reply_voice(voice=voice_file)
+                # Kirim file audio ke pengguna
+                with open(temp_file.name, "rb") as voice_file:
+                    await update.message.reply_voice(voice=voice_file)
 
-except Exception as e:
-    logger.error(f"Error occurred: {e}")
-    await update.message.reply_text("An error occurred while processing your request.")
-finally:
-    if temp_file and os.path.exists(temp_file.name):
-        os.remove(temp_file.name)
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk pesan teks"""
-    chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
-
-    if chat_type in ["group", "supergroup"]:  # Jika chat di grup
-        if context.bot.username in update.message.text:  # Periksa mention
-            # Ambil teks tanpa mention
-            text = update.message.text.replace(f'@{context.bot.username}', '').strip()
-        else:
-            logger.info("Pesan di grup tanpa mention diabaikan.")
-            return  # Abaikan pesan tanpa mention
-    else:  # Jika chat pribadi
-        text = update.message.text.strip()  # Ambil seluruh teks
-
-    bot_statistics["total_messages"] += 1
-    bot_statistics["text_messages"] += 1
-
-    chat_id = update.message.chat_id
-    text = await filter_text(text)
-
-    if chat_id not in user_sessions:
-        user_sessions[chat_id] = []
-
-    user_sessions[chat_id].append({"role": "user", "content": text})
-    mistral_messages = user_sessions[chat_id][-10:]
-    response = await process_with_mistral(mistral_messages)
-
-    if response:
-        user_sessions[chat_id].append({"role": "assistant", "content": response})
-        response = await filter_text(response)
-        await update.message.reply_text(response)
+    except Exception as e:
+        logger.error(f"Error occurred: {e}")
+        await update.message.reply_text("An error occurred while processing your request.")
+    finally:
+        if 'temp_file' in locals() and temp_file and os.path.exists(temp_file.name):
+            os.remove(temp_file.name)
         
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
