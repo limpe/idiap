@@ -368,21 +368,21 @@ async def get_bot_info(application: Application):
     logger.info(f"Bot started as @{BOT_USERNAME}")
 
 async def main():
-    # Cek apakah konfigurasi lengkap
+    # Cek konfigurasi
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
-        
-    try:
-        # Buat aplikasi bot
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Daftarkan semua handler
+    # Buat aplikasi bot
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    try:
+        # Daftarkan handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        
+
         # Tambahkan command stats
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_message = (
@@ -397,15 +397,15 @@ async def main():
             
         application.add_handler(CommandHandler("stats", stats))
 
-        # Jalankan task untuk mendapatkan info bot
+        # Dapatkan informasi bot saat startup
         application.job_queue.run_once(get_bot_info, when=0)
         
         # Jalankan pembersihan sesi secara berkala
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
-        # Mulai bot
         print("Bot mulai berjalan...")
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Gunakan run_polling() tanpa await
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
         print(f"Error fatal saat menjalankan bot: {e}")
@@ -413,7 +413,10 @@ async def main():
         raise
 
 if __name__ == '__main__':
+    # Gunakan try-except untuk menangani kesalahan dengan lebih baik
     try:
+        # Jalankan bot dalam event loop yang baru
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Bot dihentikan oleh pengguna")
