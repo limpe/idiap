@@ -3,6 +3,7 @@ import logging
 import tempfile
 import asyncio
 import base64
+import json
 from typing import Optional, List, Dict
 
 from telegram import Update, InputFile
@@ -309,6 +310,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
 async def send_voice_response(update, text: str):
+    """Menggunasync def send_voice_response(update, text: str):
     """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
     group_id = os.getenv("MINIMAXI_GROUP_ID", "").strip()
     api_key = os.getenv("MINIMAXI_API_KEY", "").strip()
@@ -327,9 +329,9 @@ async def send_voice_response(update, text: str):
     payload = {
         "model": "speech-01-turbo",
         "text": text,
-        "stream": False,
+        "stream": False,  # Non-streaming untuk menghasilkan file lengkap
         "voice_setting": {
-            "voice_id": "moss_audio_65bbb317-c2fe-11ef-99ed-7a69a30470fc",
+            "voice_id": "sentot",
             "speed": 1.0,
             "vol": 1.0,
             "pitch": 0
