@@ -290,10 +290,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Abaikan pesan tanpa mention
         logger.info("Pesan teks tanpa mention diabaikan.")
         
-    except Exception as e:
-        bot_statistics["errors"] += 1
-        logger.exception("Error dalam handle_text")
-        await update.message.reply_text("Maaf, terjadi kesalahan.")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
