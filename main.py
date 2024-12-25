@@ -202,32 +202,42 @@ async def send_voice_response(update: Update, text: str):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # Tambah statistik
         bot_statistics["total_messages"] += 1
         bot_statistics["text_messages"] += 1
 
         chat_id = update.message.chat_id
         text = await filter_text(update.message.text)
+        
+        # Kirim pesan sedang memproses
+        processing_msg = await update.message.reply_text("Sedang memproses pesan Anda...")
 
-        # Deteksi bahasa teks
-        detected_language = detect(text)
-        await update.message.reply_text(f"Bahasa yang terdeteksi: {detected_language}")
+        try:
+            # Deteksi bahasa
+            detected_language = detect(text)
+            await update.message.reply_text(f"Bahasa yang terdeteksi: {detected_language}")
 
-        if chat_id not in user_sessions:
-            user_sessions[chat_id] = []
+            # Proses pesan dengan Mistral
+            if chat_id not in user_sessions:
+                user_sessions[chat_id] = []
 
-        user_sessions[chat_id].append({"role": "user", "content": text})
-        mistral_messages = user_sessions[chat_id][-10:]
-        response = await process_with_mistral(mistral_messages)
+            user_sessions[chat_id].append({"role": "user", "content": text})
+            mistral_messages = user_sessions[chat_id][-10:]  # Ambil 10 pesan terakhir
+            response = await process_with_mistral(mistral_messages)
 
-        if response:
-            user_sessions[chat_id].append({"role": "assistant", "content": response})
-            response = await filter_text(response)
-            await update.message.reply_text(response)
+            if response:
+                user_sessions[chat_id].append({"role": "assistant", "content": response})
+                response = await filter_text(response)
+                await update.message.reply_text(response)
+
+        finally:
+            # Hapus pesan "sedang memproses"
+            await processing_msg.delete()
 
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_text")
-        await update.message.reply_text("Maaf, terjadi kesalahan.")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat memproses pesan Anda.")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -357,30 +367,23 @@ async def get_bot_info(application: Application):
     BOT_USERNAME = bot.username
     logger.info(f"Bot started as @{BOT_USERNAME}")
 
-def main():
+async def main():
+    # Cek apakah konfigurasi lengkap
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
         
     try:
+        # Buat aplikasi bot
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+        # Daftarkan semua handler
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-        application.add_handler(MessageHandler(
-            filters.TEXT & (filters.MENTION | filters.Regex(f"@{BOT_USERNAME}")), 
-            handle_text
-        ))
-        
-        # Handler untuk pesan teks biasa (bukan mention)
-        application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & ~filters.MENTION, 
-            handle_text
-        ))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         
-        # Statistik command
+        # Tambahkan command stats
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_message = (
                 f"Statistik Bot:\n"
@@ -391,18 +394,28 @@ def main():
                 f"- Kesalahan: {bot_statistics['errors']}"
             )
             await update.message.reply_text(stats_message)
-        
-        application.job_queue.run_once(get_bot_info, when=0)
+            
         application.add_handler(CommandHandler("stats", stats))
 
-        # Memastikan JobQueue diaktifkan
+        # Jalankan task untuk mendapatkan info bot
+        application.job_queue.run_once(get_bot_info, when=0)
+        
+        # Jalankan pembersihan sesi secara berkala
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
-        application.run_polling()
+        # Mulai bot
+        print("Bot mulai berjalan...")
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
+        print(f"Error fatal saat menjalankan bot: {e}")
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot dihentikan oleh pengguna")
+    except Exception as e:
+        print(f"Error tidak terduga: {e}")
