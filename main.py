@@ -2,6 +2,7 @@ import os
 import logging
 import tempfile
 import asyncio
+import base64
 from typing import Optional, List, Dict
 
 from telegram import Update, InputFile
@@ -11,6 +12,7 @@ from pydub import AudioSegment
 import gtts
 import aiohttp
 from langdetect import detect
+from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
@@ -38,9 +40,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -56,7 +60,6 @@ bot_statistics = {
     "total_messages": 0,
     "voice_messages": 0,
     "text_messages": 0,
-    "photo_messages": 0,
     "errors": 0
 }
 
@@ -74,6 +77,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
+    
+def encode_image(image_path):
+    """Encode an image file to a base64 string"""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+async def process_image_with_groq(image_path: str) -> str:
+    """Process an image using Groq's API and return the response"""
+    try:
+        base64_image = encode_image(image_path)
+        client = Groq()
+
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What's in this image?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            model="llama-3.2-11b-vision-preview",
+        )
+
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        logger.exception("Error in processing image with Groq")
+        return "Error processing the image with Groq."
+
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for processing image uploads"""
+    try:
+        if not update.message.photo:
+            await update.message.reply_text("Please send a valid image.")
+            return
+
+        bot_statistics["total_messages"] += 1
+
+        # Download image to temporary file
+        photo_file = await update.message.photo[-1].get_file()
+        temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
+        await photo_file.download_to_drive(temp_image_path)
+
+        # Process image with Groq
+        result = await process_image_with_groq(temp_image_path)
+        await update.message.reply_text(f"Image analysis result: {result}")
+
+        # Cleanup temporary file
+        os.remove(temp_image_path)
+    except Exception as e:
+        bot_statistics["errors"] += 1
+        logger.exception("Error in handle_image")
+        await update.message.reply_text("An error occurred while processing the image.")
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan penanganan error"""
@@ -369,29 +431,19 @@ def main():
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        
-
-
-
-        
 
         # Statistik command
-        async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+               async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_message = (
                 f"Statistik Bot:\n"
                 f"- Total Pesan: {bot_statistics['total_messages']}\n"
                 f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
                 f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-                f"- Pesan Gambar: {bot_statistics['photo_messages']}\n"
                 f"- Kesalahan: {bot_statistics['errors']}"
             )
             await update.message.reply_text(stats_message)
 
         application.add_handler(CommandHandler("stats", stats))
-
-        # Memastikan JobQueue diaktifkan
-        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
-        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention") & ~filters.COMMAND, handle_mention))
 
         application.run_polling()
 
