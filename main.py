@@ -90,24 +90,22 @@ async def process_image_with_groq(image_path: str) -> str:
         client = Groq()
 
         chat_completion = client.chat.completions.create(
-    messages=[
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Apa isi gambar ini?"},
+            messages=[
                 {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                    },
-                },
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
             ],
-        }
-    ],
-    model="llama-3.2-90b-vision-preview",
-)
-
-
+            model="llama-3.2-90b-vision-preview",
+        )
 
         return chat_completion.choices[0].message.content
     except Exception as e:
@@ -215,6 +213,9 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
         "Content-Type": "application/json"
     }
 
+    # Tambahkan instruksi sistem agar respon default dalam Bahasa Indonesia
+    messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia."})
+
     data = {
         "model": "pixtral-large-latest",
         "messages": messages,
@@ -234,7 +235,8 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                     json_response = await response.json()
 
                     if 'choices' in json_response and json_response['choices']:
-                        return await filter_text(json_response['choices'][0]['message']['content'])
+                        content = json_response['choices'][0]['message']['content']
+                        return await filter_text(content)
 
         except aiohttp.ClientError as e:
             logger.error(f"Percobaan {attempt + 1} gagal karena error HTTP: {str(e)}")
