@@ -343,18 +343,21 @@ if not group_id or not api_key:
     }
 
     try:
-        async with session.post(url, headers=headers, json=payload) as response:
+       async with session.post(url, headers=headers, json=payload) as response:
     if response.status != 200:
         error_message = await response.text()
         logger.error(f"API Error: Status {response.status}, Message: {error_message}")
         await update.message.reply_text(f"API Error: {response.status}, {error_message}")
         return
-                
-                # Simpan file audio dari respons
-                audio_data = await response.read()
-                temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-                with open(temp_file.name, "wb") as f:
-                    f.write(audio_data)
+
+    # Jika respons berhasil (status 200), proses data audio
+    audio_data = await response.read()
+    logger.info(f"Audio data received: {len(audio_data)} bytes")
+
+    # Simpan file audio sementara
+    temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    with open(temp_file.name, "wb") as f:
+        f.write(audio_data)
 
         # Kirim file audio ke pengguna
         with open(temp_file.name, "rb") as voice_file:
