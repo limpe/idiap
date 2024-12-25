@@ -314,33 +314,22 @@ async def send_voice_response(update, text: str):
     api_key = os.getenv("MINIMAXI_API_KEY", "").strip()
 
     if not group_id or not api_key:
-        logger.error(f"Group ID atau API Key tidak ditemukan. Group ID: {group_id}, API Key: {api_key}")
+        logger.error("Group ID atau API Key tidak ditemukan.")
         await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
         return
 
-    # Validasi URL
     url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
-    if "\n" in url or "\r" in url:
-        logger.error("URL mengandung karakter tidak valid.")
-        await update.message.reply_text("URL API tidak valid.")
-        return
-
-    # Validasi Header
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    if "\n" in headers["Authorization"] or "\r" in headers["Authorization"]:
-        logger.error("API Key mengandung karakter tidak valid.")
-        await update.message.reply_text("API Key tidak valid.")
-        return
 
     payload = {
         "model": "speech-01-turbo",
         "text": text,
-        "stream": False,  # Non-streaming untuk menghasilkan file lengkap
+        "stream": False,
         "voice_setting": {
-            "voice_id": "moss_audio_65bbb317-c2fe-11ef-99ed-7a69a30470fc",
+            "voice_id": "sentot",
             "speed": 1.0,
             "vol": 1.0,
             "pitch": 0
@@ -353,22 +342,38 @@ async def send_voice_response(update, text: str):
         }
     }
 
+    logger.info(f"Payload: {payload}")
+
     try:
-       audio_data = await response.read()
-    logger.info(f"Audio data received: {len(audio_data)} bytes")
-    if len(audio_data) == 0:
-        logger.error("Audio data kosong. Periksa respons API.")
-        await update.message.reply_text("Audio yang dihasilkan kosong. Periksa konfigurasi API.")
-        return
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    error_message = await response.text()
+                    logger.error(f"API Error: {response.status} - {error_message}")
+                    await update.message.reply_text(f"API Error: {response.status} - {error_message}")
+                    return
 
                 # Proses respons jika sukses
                 audio_data = await response.read()
                 logger.info(f"Audio data received: {len(audio_data)} bytes")
+                if len(audio_data) == 0:
+                    logger.error("Audio data kosong. Periksa respons API.")
+                    await update.message.reply_text("Audio yang dihasilkan kosong. Periksa konfigurasi API.")
+                    return
 
                 # Simpan file audio sementara
                 temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                logger.info(f"Menyimpan file audio sementara di {temp_file.name}")
                 with open(temp_file.name, "wb") as f:
                     f.write(audio_data)
+
+                # Pastikan file tidak kosong
+                file_size = os.path.getsize(temp_file.name)
+                logger.info(f"Ukuran file audio: {file_size} bytes")
+                if file_size == 0:
+                    logger.error("File audio kosong setelah disimpan.")
+                    await update.message.reply_text("Audio yang dihasilkan kosong. Periksa respons API.")
+                    return
 
                 # Kirim file audio ke pengguna
                 with open(temp_file.name, "rb") as voice_file:
@@ -376,7 +381,7 @@ async def send_voice_response(update, text: str):
 
     except Exception as e:
         logger.error(f"Error occurred: {e}")
-        await update.message.reply_text(f"An error occurred while processing your request: {e}")
+        await update.message.reply_text(f"Terjadi kesalahan: {e}")
     finally:
         if 'temp_file' in locals() and temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
