@@ -350,6 +350,13 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
         if len(user_sessions[chat_id]) > 300:
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
+async def get_bot_info(application: Application):
+    """Mendapatkan informasi bot saat startup"""
+    global BOT_USERNAME
+    bot = await application.bot.get_me()
+    BOT_USERNAME = bot.username
+    logger.info(f"Bot started as @{BOT_USERNAME}")
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
@@ -361,8 +368,18 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        application.add_handler(MessageHandler(
+            filters.TEXT & (filters.MENTION | filters.Regex(f"@{BOT_USERNAME}")), 
+            handle_text
+        ))
+        
+        # Handler untuk pesan teks biasa (bukan mention)
+        application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND & ~filters.MENTION, 
+            handle_text
+        ))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
+        
         # Statistik command
         async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_message = (
@@ -374,7 +391,8 @@ def main():
                 f"- Kesalahan: {bot_statistics['errors']}"
             )
             await update.message.reply_text(stats_message)
-
+        
+        application.job_queue.run_once(get_bot_info, when=0)
         application.add_handler(CommandHandler("stats", stats))
 
         # Memastikan JobQueue diaktifkan
