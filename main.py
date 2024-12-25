@@ -343,32 +343,32 @@ if not group_id or not api_key:
     }
 
     try:
-       async with session.post(url, headers=headers, json=payload) as response:
-    if response.status != 200:
-        error_message = await response.text()
-        logger.error(f"API Error: Status {response.status}, Message: {error_message}")
-        await update.message.reply_text(f"API Error: {response.status}, {error_message}")
-        return
+    async with session.post(url, headers=headers, json=payload) as response:
+        if response.status != 200:
+            error_message = await response.text()
+            logger.error(f"API Error: Status {response.status}, Message: {error_message}")
+            await update.message.reply_text(f"API Error: {response.status}, {error_message}")
+            return
 
-    # Jika respons berhasil (status 200), proses data audio
-    audio_data = await response.read()
-    logger.info(f"Audio data received: {len(audio_data)} bytes")
+        # Proses respons jika sukses
+        audio_data = await response.read()
+        logger.info(f"Audio data received: {len(audio_data)} bytes")
 
-    # Simpan file audio sementara
-    temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-    with open(temp_file.name, "wb") as f:
-        f.write(audio_data)
+        # Simpan file audio sementara
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        with open(temp_file.name, "wb") as f:
+            f.write(audio_data)
 
         # Kirim file audio ke pengguna
         with open(temp_file.name, "rb") as voice_file:
             await update.message.reply_voice(voice=voice_file)
 
-    except Exception as e:
-        await update.message.reply_text(f"Terjadi kesalahan saat memproses teks ke audio: {e}")
-    finally:
-        # Hapus file sementara
-        if temp_file and os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
+except Exception as e:
+    logger.error(f"Error occurred: {e}")
+    await update.message.reply_text("An error occurred while processing your request.")
+finally:
+    if temp_file and os.path.exists(temp_file.name):
+        os.remove(temp_file.name)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan teks"""
