@@ -308,17 +308,59 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
-async def send_voice_response(update: Update, text: str):
-    temp_file = None
-    try:
-        tts = gtts.gTTS(text, lang="id")
-        temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
-        tts.save(temp_file.name)
+async def send_voice_response(update, text: str):
+    """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
+    group_id = os.getenv("MINIMAXI_GROUP_ID")  # Simpan di Environment Variables
+    api_key = os.getenv("MINIMAXI_API_KEY")   # Simpan di Environment Variables
 
-        with open(temp_file.name, 'rb') as voice_file:
+    if not group_id or not api_key:
+        await update.message.reply_text("Konfigurasi API tidak ditemukan. Periksa Group ID dan API Key.")
+        return
+
+    url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    payload = {
+        "model": "speech-01-turbo",
+        "text": text,
+        "stream": False,  # Non-streaming untuk menghasilkan file lengkap
+        "voice_setting": {
+            "voice_id": "sentot",
+            "speed": 1.0,
+            "vol": 1.0,
+            "pitch": 0
+        },
+        "audio_setting": {
+            "sample_rate": 32000,
+            "bitrate": 128000,
+            "format": "mp3",
+            "channel": 1
+        }
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    raise Exception(f"API Error: {response.status}, {await response.text()}")
+                
+                # Simpan file audio dari respons
+                audio_data = await response.read()
+                temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                with open(temp_file.name, "wb") as f:
+                    f.write(audio_data)
+
+        # Kirim file audio ke pengguna
+        with open(temp_file.name, "rb") as voice_file:
             await update.message.reply_voice(voice=voice_file)
 
+    except Exception as e:
+        await update.message.reply_text(f"Terjadi kesalahan saat memproses teks ke audio: {e}")
     finally:
+        # Hapus file sementara
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
 
