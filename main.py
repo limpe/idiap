@@ -89,22 +89,26 @@ async def process_image_with_groq(image_path: str) -> str:
         client = Groq()
 
         chat_completion = client.chat.completions.create(
-            messages=[
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Apa isi gambar ini?"},
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Apa yang ada dalam gambar ini? Berikan deskripsi dalam Bahasa Indonesia."},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}",
+                    },
+                },
             ],
-            model="llama-3.2-11b-vision-preview",
-        )
+        }
+    ],
+    model="llama-3.2-11b-vision-preview",
+)
+
+# Cetak hasil analisis
+print("Hasil analisis gambar:")
+print(chat_completion.choices[0].message.content)
 
         return chat_completion.choices[0].message.content
     except Exception as e:
