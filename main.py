@@ -60,6 +60,7 @@ bot_statistics = {
     "total_messages": 0,
     "voice_messages": 0,
     "text_messages": 0,
+    "photo_messages": 0,
     "errors": 0
 }
 
