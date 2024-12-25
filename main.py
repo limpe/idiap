@@ -84,7 +84,6 @@ def encode_image(image_path):
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 async def process_image_with_groq(image_path: str) -> str:
-    """Process an image using Groq's API and return the response"""
     try:
         base64_image = encode_image(image_path)
         client = Groq()
@@ -94,7 +93,7 @@ async def process_image_with_groq(image_path: str) -> str:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "What's in this image?"},
+                        {"type": "text", "text": "Apa yang ada dalam gambar ini? Berikan deskripsi dalam Bahasa Indonesia."},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -110,7 +109,7 @@ async def process_image_with_groq(image_path: str) -> str:
         return chat_completion.choices[0].message.content
     except Exception as e:
         logger.exception("Error in processing image with Groq")
-        return "Error processing the image with Groq."
+        return "Terjadi kesalahan saat memproses gambar."
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for processing image uploads"""
