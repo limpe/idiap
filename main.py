@@ -346,8 +346,8 @@ if not group_id or not api_key:
     async with session.post(url, headers=headers, json=payload) as response:
         if response.status != 200:
             error_message = await response.text()
-            logger.error(f"API Error: Status {response.status}, Message: {error_message}")
-            await update.message.reply_text(f"API Error: {response.status}, {error_message}")
+            logger.error(f"API Error: {error_message}")
+            await update.message.reply_text("API Error.")
             return
 
         # Proses respons jika sukses
