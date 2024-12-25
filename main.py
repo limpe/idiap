@@ -433,12 +433,13 @@ def main():
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
         # Statistik command
-               async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_message = (
                 f"Statistik Bot:\n"
                 f"- Total Pesan: {bot_statistics['total_messages']}\n"
                 f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
                 f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+                f"- Pesan Gambar: {bot_statistics['photo_messages']}\n"
                 f"- Kesalahan: {bot_statistics['errors']}"
             )
             await update.message.reply_text(stats_message)
