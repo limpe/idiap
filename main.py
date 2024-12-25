@@ -103,7 +103,7 @@ async def process_image_with_groq(image_path: str) -> str:
             ],
         }
     ],
-    model="llama-3.2-11b-vision-preview",
+    model="llama-3.2-90b-vision-preview",
 )
 
 
@@ -129,7 +129,7 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Process image with Groq
         result = await process_image_with_groq(temp_image_path)
-        await update.message.reply_text(f"Image analysis result: {result}")
+        await update.message.reply_text(f"Hasil Analisa Gambar: {result}")
 
         # Cleanup temporary file
         os.remove(temp_image_path)
