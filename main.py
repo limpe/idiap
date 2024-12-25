@@ -106,9 +106,7 @@ async def process_image_with_groq(image_path: str) -> str:
     model="llama-3.2-11b-vision-preview",
 )
 
-# Cetak hasil analisis
-print("Hasil analisis gambar:")
-print(chat_completion.choices[0].message.content)
+
 
         return chat_completion.choices[0].message.content
     except Exception as e:
