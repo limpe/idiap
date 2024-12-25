@@ -310,12 +310,13 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
 async def send_voice_response(update, text: str):
     """Menggunakan MiniMaxi T2A API untuk menghasilkan audio dari teks."""
-    group_id = os.getenv("MINIMAXI_GROUP_ID")  # Simpan di Environment Variables
-    api_key = os.getenv("MINIMAXI_API_KEY")   # Simpan di Environment Variables
+    group_id = os.getenv("MINIMAXI_GROUP_ID")
+api_key = os.getenv("MINIMAXI_API_KEY")
 
-    if not group_id or not api_key:
-        await update.message.reply_text("Konfigurasi API tidak ditemukan. Periksa Group ID dan API Key.")
-        return
+if not group_id or not api_key:
+    logger.error(f"Group ID atau API Key tidak ditemukan. Group ID: {group_id}, API Key: {api_key}")
+    await update.message.reply_text("Konfigurasi API tidak ditemukan. Pastikan Group ID dan API Key diatur.")
+    return
 
     url = f"https://api.minimaxi.chat/v1/t2a_v2?GroupId={group_id}"
     headers = {
@@ -342,10 +343,12 @@ async def send_voice_response(update, text: str):
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    raise Exception(f"API Error: {response.status}, {await response.text()}")
+        async with session.post(url, headers=headers, json=payload) as response:
+    if response.status != 200:
+        error_message = await response.text()
+        logger.error(f"API Error: Status {response.status}, Message: {error_message}")
+        await update.message.reply_text(f"API Error: {response.status}, {error_message}")
+        return
                 
                 # Simpan file audio dari respons
                 audio_data = await response.read()
