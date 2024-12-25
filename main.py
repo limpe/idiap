@@ -328,7 +328,7 @@ async def send_voice_response(update, text: str):
     payload = {
         "model": "speech-01-turbo",
         "text": text,
-        "stream": False,  # Non-streaming untuk menghasilkan file lengkap
+        "stream": False,  # Non-streaming untuk file lengkap
         "voice_setting": {
             "voice_id": "moss_audio_65bbb317-c2fe-11ef-99ed-7a69a30470fc",
             "speed": 1.0,
@@ -344,7 +344,8 @@ async def send_voice_response(update, text: str):
     }
 
     # Log payload
-    logger.info(f"Payload: {json.dumps(payload, indent=2)}")
+    logger.info(f"Payload yang dikirim ke API: {json.dumps(payload, indent=2)}")
+
 
     try:
         async with aiohttp.ClientSession() as session:
