@@ -420,37 +420,30 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_text(update, context)
 
 def main():
-    if not check_required_settings():
-        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
-        return
-        
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_image))
 
-        # Statistik command
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            stats_message = (
-                f"Statistik Bot:\n"
-                f"- Total Pesan: {bot_statistics['total_messages']}\n"
-                f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
-                f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-                f"- Pesan Gambar: {bot_statistics['photo_messages']}\n"
-                f"- Kesalahan: {bot_statistics['errors']}"
-            )
-            await update.message.reply_text(stats_message)
-
-        application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("stats", stats))  # Pindahkan definisi fungsi ke luar blok try
 
         application.run_polling()
-
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stats_message = (
+        f"Statistik Bot:\n"
+        f"- Total Pesan: {bot_statistics['total_messages']}\n"
+        f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+        f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+        f"- Kesalahan: {bot_statistics['errors']}"
+    )
+    await update.message.reply_text(stats_message)
 
 if __name__ == '__main__':
     asyncio.run(main())
