@@ -330,7 +330,7 @@ async def send_voice_response(update, text: str):
         "text": text,
         "stream": False,  # Non-streaming untuk file lengkap
         "voice_setting": {
-            "voice_id": "moss_audio_65bbb317-c2fe-11ef-99ed-7a69a30470fc",
+            "voice_id": "Indonesian_ConfidentWoman",
             "speed": 1.0,
             "vol": 1.0,
             "pitch": 0
