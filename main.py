@@ -335,78 +335,45 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk memproses gambar yang diunggah"""
+    image_description = "Tidak dapat memproses gambar."  # Deklarasi awal
+
     try:
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
 
-        chat_id = update.message.chat_id
+        # Unduh file gambar
         photo_file = await update.message.photo[-1].get_file()
-        image_bytes = await photo_file.download_as_bytearray()
+        temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
+        await photo_file.download_to_drive(temp_image_path)
 
-        # Mengirim gambar ke Mistral API
-        headers = {
-            "Authorization": f"Bearer {MISTRAL_API_KEY}",
-        }
+        # Proses gambar dengan Groq
+        image_description = await process_image_with_groq(temp_image_path)
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                form = FormData()
-                form.add_field('file', image_bytes, filename='image.png', content_type='image/png')
+        # Kirim hasil analisis
+        await update.message.reply_text(f"Hasil Analisa Gambar: {image_description}")
 
-                timeout = aiohttp.ClientTimeout(total=30)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(
-                        "https://api.mistral.ai/v1/vision/analyze",
-                        headers=headers,
-                        data=form
-                    ) as response:
-                        response.raise_for_status()
-                        json_response = await response.json()
-
-                        if 'description' in json_response:
-                            image_description = json_response['description']
-                            break
-
-            except aiohttp.ClientError as e:
-                logger.error(f"Percobaan {attempt + 1} gagal karena error HTTP: {str(e)}")
-            except asyncio.TimeoutError:
-                logger.error(f"Percobaan {attempt + 1} gagal karena timeout")
-            except Exception as e:
-                logger.error(f"Percobaan {attempt + 1} gagal: {str(e)}")
-
-            if attempt < MAX_RETRIES - 1:
-                logger.info(f"Menunggu {RETRY_DELAY} detik sebelum percobaan berikutnya...")
-                await asyncio.sleep(RETRY_DELAY)
-
-        if chat_id not in user_sessions:
-            user_sessions[chat_id] = []
-
-        user_sessions[chat_id].append({"role": "user", "content": image_description})
-        mistral_messages = user_sessions[chat_id][-10:]
-        response = await process_with_mistral(mistral_messages)
-
-        if response:
-            user_sessions[chat_id].append({"role": "assistant", "content": response})
-            response = await filter_text(response)
-            await update.message.reply_text(response)
+        # Bersihkan file sementara
+        os.remove(temp_image_path)
 
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
-        await update.message.reply_text("Maaf, terjadi kesalahan.")
-        image_description = "Tidak dapat memproses gambar."
+        await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
 
-        if chat_id not in user_sessions:
-            user_sessions[chat_id] = []
+    # Simpan deskripsi ke sesi jika tersedia
+    chat_id = update.message.chat_id
+    if chat_id not in user_sessions:
+        user_sessions[chat_id] = []
 
-        user_sessions[chat_id].append({"role": "user", "content": image_description})
-        mistral_messages = user_sessions[chat_id][-10:]
-        response = await process_with_mistral(mistral_messages)
+    user_sessions[chat_id].append({"role": "user", "content": image_description})
+    mistral_messages = user_sessions[chat_id][-10:]
+    response = await process_with_mistral(mistral_messages)
 
-        if response:
-            user_sessions[chat_id].append({"role": "assistant", "content": response})
-            response = await filter_text(response)
-            await update.message.reply_text(response)
+    if response:
+        user_sessions[chat_id].append({"role": "assistant", "content": response})
+        response = await filter_text(response)
+        await update.message.reply_text(response)
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
