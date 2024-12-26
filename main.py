@@ -325,7 +325,7 @@ async def send_voice_response(update: Update, text: str):
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.message.chat.type
 
-    if chat_type in ["group", "supergroup"]:
+if chat_type in ["group", "supergroup"]:
         if context.bot.username in update.message.text:
             # Hapus mention dari teks
             message = update.message.text.replace(f'@{context.bot.username}', '').strip()
