@@ -196,68 +196,33 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan penanganan error"""
-    temp_files = []  # Track temporary files for cleanup
-
     try:
         logger.info("Memulai pemrosesan pesan suara...")
+
+        # Unduh file suara
         voice_file = await update.message.voice.get_file()
 
-        # Buat file sementara untuk audio OGG
-        temp_ogg = tempfile.NamedTemporaryFile(suffix='.ogg', delete=False)
-        temp_files.append(temp_ogg.name)
-        await voice_file.download_to_drive(temp_ogg.name)
-        logger.info(f"File suara didownload ke {temp_ogg.name}")
+        # Gunakan `with` untuk file sementara
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=True) as temp_ogg:
+            await voice_file.download_to_drive(temp_ogg.name)
+            logger.info(f"File suara didownload ke {temp_ogg.name}")
 
-        # Buat file sementara untuk WAV
-        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        temp_files.append(temp_wav.name)
+            # Konversi OGG ke WAV
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as temp_wav:
+                audio = AudioSegment.from_ogg(temp_ogg.name).set_channels(1).set_frame_rate(16000)
+                audio.export(temp_wav.name, format='wav')
+                logger.info("Konversi file OGG ke WAV berhasil")
 
-        audio = AudioSegment.from_ogg(temp_ogg.name).set_channels(1).set_frame_rate(16000)
-        audio.export(temp_wav.name, format='wav')
-        logger.info("Konversi file OGG ke WAV berhasil")
-
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(temp_wav.name) as source:
-            text_chunks = []
-            duration_seconds = len(audio) / 1000.0
-            total_chunks = int(duration_seconds / CHUNK_DURATION) + 1
-
-            for i in range(total_chunks):
-                offset = i * CHUNK_DURATION
-                chunk_duration = min(CHUNK_DURATION, duration_seconds - offset)
-
-                if chunk_duration <= 0:
-                    break
-
-                audio_chunk = recognizer.record(source, duration=chunk_duration)
-                for attempt in range(MAX_RETRIES):
-                    try:
-                        chunk_text = recognizer.recognize_google(audio_chunk, language="id-ID")
-                        text_chunks.append(chunk_text)
-                        break
-                    except sr.UnknownValueError:
-                        continue
-                    except sr.RequestError as e:
-                        if attempt == MAX_RETRIES - 1:
-                            raise AudioProcessingError(f"Error pada speech recognition: {e}")
-
-            if not text_chunks:
-                raise AudioProcessingError("Tidak ada teks yang berhasil dikenali")
-
-            final_text = " ".join(text_chunks)
-            logger.info("Pemrosesan suara selesai")
-            return final_text
+                # Transkripsi suara
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(temp_wav.name) as source:
+                    text = recognizer.recognize_google(recognizer.record(source), language="id-ID")
+                    logger.info("Transkripsi selesai")
+                    return text
 
     except Exception as e:
         logger.exception("Error dalam pemrosesan audio")
-        raise AudioProcessingError(f"Gagal memproses audio: {str(e)}")
-
-    finally:
-        for temp_file in temp_files:
-            try:
-                os.remove(temp_file)
-            except Exception as e:
-                logger.warning(f"Gagal menghapus file sementara: {temp_file}")
+        raise
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
