@@ -456,8 +456,18 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
     """Handler untuk pesan teks"""
-    if not message:  # Jika tidak ada argumen message, gunakan teks dari update
-        message = update.message.text.strip()
+    chat_type = update.message.chat.type
+
+    if chat_type in ["group", "supergroup"]:  # Grup atau supergrup
+        if context.bot.username in update.message.text:
+            # Hapus mention dari teks
+            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+        else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
+            return  # Abaikan pesan tanpa mention
+    else:  # Chat pribadi
+        if not message:
+            message = update.message.text.strip()
 
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
@@ -497,7 +507,12 @@ def main():
         # Mention handler untuk teks
         application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
-        
+
+        # Handler untuk grup dengan mention
+        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_text))
+
+        # Handler untuk chat pribadi tanpa mention
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
