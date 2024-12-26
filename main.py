@@ -322,28 +322,21 @@ async def send_voice_response(update: Update, text: str):
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
-    # Gunakan teks langsung jika tidak ada argumen `message`
-    if not message:
+async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_type = update.message.chat.type
+
+    if chat_type in ["group", "supergroup"]:
+        if context.bot.username in update.message.text:
+            # Hapus mention dari teks
+            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+            if message:
+                await handle_text(update, context, message)
+        else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
+    elif chat_type == "private":  # Chat pribadi
         message = update.message.text.strip()
-
-    bot_statistics["total_messages"] += 1
-    bot_statistics["text_messages"] += 1
-
-    chat_id = update.message.chat_id
-    message = await filter_text(message)
-
-    if chat_id not in user_sessions:
-        user_sessions[chat_id] = []
-
-    user_sessions[chat_id].append({"role": "user", "content": message})
-    mistral_messages = user_sessions[chat_id][-10:]
-    response = await process_with_mistral(mistral_messages)
-
-    if response:
-        user_sessions[chat_id].append({"role": "assistant", "content": response})
-        response = await filter_text(response)
-        await update.message.reply_text(response)
+        if message:
+            await handle_text(update, context, message)
         
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
