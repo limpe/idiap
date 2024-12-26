@@ -123,7 +123,7 @@ async def process_image_with_groq(image_path: str) -> str:
                     ],
                 }
             ],
-            model="llama-3.2-90b-vision-preview",
+            model="llama-3.2-11b-vision-preview",
         )
 
         return chat_completion.choices[0].message.content
