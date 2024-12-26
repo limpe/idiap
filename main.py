@@ -454,6 +454,30 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if message:
             await handle_text(update, context, message)
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
+    """Handler untuk pesan teks"""
+    if not message:  # Jika tidak ada argumen message, gunakan teks dari update
+        message = update.message.text.strip()
+
+    bot_statistics["total_messages"] += 1
+    bot_statistics["text_messages"] += 1
+
+    chat_id = update.message.chat_id
+    message = await filter_text(message)
+
+    if chat_id not in user_sessions:
+        user_sessions[chat_id] = []
+
+    user_sessions[chat_id].append({"role": "user", "content": message})
+    mistral_messages = user_sessions[chat_id][-10:]
+    response = await process_with_mistral(mistral_messages)
+
+    if response:
+        user_sessions[chat_id].append({"role": "assistant", "content": response})
+        response = await filter_text(response)
+        await update.message.reply_text(response)
+
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
@@ -473,6 +497,7 @@ def main():
         # Mention handler untuk teks
         application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
+        
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
