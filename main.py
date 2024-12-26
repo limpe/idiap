@@ -325,18 +325,21 @@ async def send_voice_response(update: Update, text: str):
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.message.chat.type
 
-if chat_type in ["group", "supergroup"]:
+    # Jika di grup, hanya respon jika bot di-mention
+    if chat_type in ["group", "supergroup"]:
         if context.bot.username in update.message.text:
-            # Hapus mention dari teks
             message = update.message.text.replace(f'@{context.bot.username}', '').strip()
             if message:
                 await handle_text(update, context, message)
         else:
             logger.info("Pesan di grup tanpa mention diabaikan.")
-    elif chat_type == "private":  # Chat pribadi
+
+    # Jika di chat pribadi
+    elif chat_type == "private":
         message = update.message.text.strip()
         if message:
             await handle_text(update, context, message)
+
         
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
