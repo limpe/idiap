@@ -320,8 +320,12 @@ async def send_voice_response(update: Update, text: str):
             await update.message.reply_voice(voice=voice_file)
 
     finally:
-        if temp_file and os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
+    for temp_file in temp_files:
+        try:
+            os.remove(temp_file)
+            logger.info(f"File sementara dihapus: {temp_file}")
+        except Exception as e:
+            logger.warning(f"Gagal menghapus file sementara: {temp_file}. Error: {str(e)}")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan teks"""
