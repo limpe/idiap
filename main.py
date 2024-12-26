@@ -253,12 +253,13 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         raise AudioProcessingError(f"Gagal memproses audio: {str(e)}")
 
     finally:
-        for temp_file in temp_files:
-            try:
-                os.remove(temp_file)
-            except Exception as e:
-                logger.warning(f"Gagal menghapus file sementara: {temp_file}")
-
+    for temp_file in temp_files:
+        try:
+            os.remove(temp_file)
+            logger.info(f"File sementara dihapus: {temp_file}")
+        except Exception as e:
+            logger.warning(f"Gagal menghapus file sementara: {temp_file}. Error: {str(e)}")
+            
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
     filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI")
@@ -440,7 +441,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
+        await update.message.reply_text(f"Maaf, terjadi kesalahan saat memproses gambar: {str(e)}")
 
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
