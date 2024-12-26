@@ -322,30 +322,21 @@ async def send_voice_response(update: Update, text: str):
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk pesan teks"""
-    chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
-
-    if chat_type in ["group", "supergroup"]:  # Jika chat di grup
-        if context.bot.username in update.message.text:  # Periksa mention
-            # Ambil teks tanpa mention
-            text = update.message.text.replace(f'@{context.bot.username}', '').strip()
-        else:
-            logger.info("Pesan di grup tanpa mention diabaikan.")
-            return  # Abaikan pesan tanpa mention
-    else:  # Jika chat pribadi
-        text = update.message.text.strip()  # Ambil seluruh teks
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
+    # Gunakan teks langsung jika tidak ada argumen `message`
+    if not message:
+        message = update.message.text.strip()
 
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
     chat_id = update.message.chat_id
-    text = await filter_text(text)
+    message = await filter_text(message)
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = []
 
-    user_sessions[chat_id].append({"role": "user", "content": text})
+    user_sessions[chat_id].append({"role": "user", "content": message})
     mistral_messages = user_sessions[chat_id][-10:]
     response = await process_with_mistral(mistral_messages)
 
@@ -449,20 +440,17 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses mention di grup."""
     chat_type = update.message.chat.type
 
     # Jika di grup, hanya respon jika bot di-mention
-    if chat_type in ["group", "supergroup"]:
-        if context.bot.username in update.message.text:
-            # Hapus mention dari teks
-            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
-            if message:
-                # Proses pesan yang di-mention
-                await handle_text(update, context, message)
-        else:
-            logger.info("Pesan di grup tanpa mention diabaikan.")
-            return
+    if chat_type in ["group", "supergroup"] and context.bot.username in update.message.text:
+        # Hapus mention dari teks
+        message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+        if message:
+            # Proses pesan yang di-mention
+            await handle_text(update, context, message)
+    else:
+        logger.info("Pesan di grup tanpa mention diabaikan.")
 
     # Jika di chat pribadi, langsung tangani
     elif chat_type == "private":
