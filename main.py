@@ -443,17 +443,17 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.message.chat.type
 
     # Jika di grup, hanya respon jika bot di-mention
-    if chat_type in ["group", "supergroup"] and context.bot.username in update.message.text:
-        # Hapus mention dari teks
-        message = update.message.text.replace(f'@{context.bot.username}', '').strip()
-        if message:
-            # Proses pesan yang di-mention
-            await handle_text(update, context, message)
-    else:
-        logger.info("Pesan di grup tanpa mention diabaikan.")
+    if chat_type in ["group", "supergroup"]:
+        if context.bot.username in update.message.text:
+            # Hapus mention dari teks
+            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+            if message:
+                # Proses pesan yang di-mention
+                await handle_text(update, context, message)
+        else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
 
-    # Jika di chat pribadi, langsung tangani
-    elif chat_type == "private":
+    elif chat_type == "private":  # Untuk chat pribadi
         message = update.message.text.strip()
         if message:
             await handle_text(update, context, message)
