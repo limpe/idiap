@@ -488,7 +488,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text(response)
 
 
-def main():
+async def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
@@ -503,16 +503,8 @@ def main():
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND), handle_text))
 
-        # Mention handler untuk teks
-        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
-
-        # Handler untuk grup dengan mention
-        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_text))
-
-        # Handler untuk chat pribadi tanpa mention
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
