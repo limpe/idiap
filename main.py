@@ -450,11 +450,25 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk memproses mention di grup."""
-    if context.bot.username in update.message.text:
-        message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+    chat_type = update.message.chat.type
+
+    # Jika di grup, hanya respon jika bot di-mention
+    if chat_type in ["group", "supergroup"]:
+        if context.bot.username in update.message.text:
+            # Hapus mention dari teks
+            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
+            if message:
+                # Proses pesan yang di-mention
+                await handle_text(update, context, message)
+        else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
+            return
+
+    # Jika di chat pribadi, langsung tangani
+    elif chat_type == "private":
+        message = update.message.text.strip()
         if message:
-            # Memanggil handler teks dengan pesan yang di-mention
-            await handle_text(update, context)
+            await handle_text(update, context, message)
 
 def main():
     if not check_required_settings():
@@ -474,6 +488,7 @@ def main():
 
         # Mention handler untuk teks
         application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
