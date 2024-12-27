@@ -209,6 +209,16 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         logger.exception("Error dalam pemrosesan audio")
         raise
 
+# Potong audio besar
+def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str]:
+    audio = AudioSegment.from_file(audio_path)
+    chunks = []
+    for i in range(0, len(audio), chunk_duration * 1000):
+        chunk_path = f"{audio_path}_{i // (chunk_duration * 1000)}.wav"
+        audio[i:i + chunk_duration * 1000].export(chunk_path, format="wav")
+        chunks.append(chunk_path)
+    return chunks
+
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
     filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI")
@@ -413,11 +423,20 @@ user_sessions: Dict[int, Dict] = {}
 
 async def initialize_session(chat_id: int) -> None:
     """Inisialisasi sesi baru untuk chat"""
+    # Batasi jumlah sesi aktif
+    if len(user_sessions) >= MAX_CONCURRENT_SESSIONS:
+        # Hapus sesi pengguna paling lama berdasarkan waktu 'last_update'
+        oldest_session = min(user_sessions.items(), key=lambda x: x[1]['last_update'])[0]
+        del user_sessions[oldest_session]
+        logger.info(f"Sesi pengguna {oldest_session} dihapus untuk mengosongkan ruang.")
+
+    # Inisialisasi sesi baru
     user_sessions[chat_id] = {
         'messages': [],
         'last_update': asyncio.get_event_loop().time(),
         'conversation_id': str(uuid.uuid4())
     }
+
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     """Tentukan apakah konteks perlu direset"""
@@ -521,12 +540,13 @@ def main():
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_message = (
-        f"Statistik Bot:\n"
-        f"- Total Pesan: {bot_statistics['total_messages']}\n"
-        f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
-        f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-        f"- Kesalahan: {bot_statistics['errors']}"
-    )
+    f"Statistik Bot:\n"
+    f"- Total Pesan: {bot_statistics['total_messages']}\n"
+    f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+    f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+    f"- Kesalahan: {bot_statistics['errors']}\n"
+    f"- Sesi Aktif: {len(user_sessions)}"
+)
     await update.message.reply_text(stats_message)
 
 if __name__ == '__main__':
