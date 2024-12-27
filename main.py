@@ -334,9 +334,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["photo_messages"] += 1
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
-        photo_file = await update.message.photo[-1].get_file()
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-            await photo_file.download_to_drive(temp_file.name)
+        with BytesIO() as temp_file:
+    await photo_file.download(temp_file)
+    temp_file.seek(0)  # Pastikan pointer di awal file
+    # Proses gambar langsung dari BytesIO
 
             results = await process_image_with_pixtral_multiple(temp_file.name)
 
