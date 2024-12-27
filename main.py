@@ -353,10 +353,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             results = await process_image_with_pixtral_multiple(temp_file)
 
             if results and any(results):
-                # Kirim setiap hasil analisis sebagai pesan terpisah
+                # Kirim setiap hasil analisis sebagai pesan terpisah setelah difilter
                 for i, result in enumerate(results):
                     if result.strip():  # Pastikan tidak mengirim pesan kosong
-                        await update.message.reply_text(f"Analisis {i + 1}:\n{result}")
+                        filtered_result = await filter_text(result)  # Terapkan filter
+                        await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
