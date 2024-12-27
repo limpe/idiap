@@ -339,7 +339,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Proses gambar menggunakan BytesIO
         with BytesIO() as temp_file:
-            await photo_file.download(temp_file)  # Download file ke memori
+            # Unduh gambar ke memori
+            photo_bytes = await photo_file.download_as_bytearray()
+            temp_file.write(photo_bytes)
             temp_file.seek(0)  # Pastikan pointer di awal file
 
             # Proses gambar langsung dari BytesIO
