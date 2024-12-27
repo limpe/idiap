@@ -319,6 +319,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_type == "private":
         should_respond = True
     elif chat_type in ["group", "supergroup"]:
+        # Cek mention dalam caption atau reply ke bot
         if (update.message.caption and f'@{context.bot.username}' in update.message.caption) or \
            (update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id):
             should_respond = True
@@ -330,44 +331,29 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
-        
-        chat_id = update.message.chat_id
-        
-        # Inisialisasi sesi jika belum ada
-        if chat_id not in user_sessions:
-            user_sessions[chat_id] = []
 
+        # Kirim pesan sedang memproses
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
+        # Download dan proses gambar
         photo_file = await update.message.photo[-1].get_file()
         
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
             await photo_file.download_to_drive(temp_file.name)
             
+            # Proses dengan Pixtral (2 analisis)
             try:
                 results = await process_image_with_pixtral_multiple(temp_file.name)
                 
+                # Hapus pesan processing
                 await processing_msg.delete()
                 
+                # Kirim hasil analisis
                 if results and any(results):
-                    combined_analysis = "Analisis gambar:\n"
+                    await update.message.reply_text("Hasil Analisa Gambar:")
                     for i, result in enumerate(results, 1):
                         if result and result.strip():
-                            combined_analysis += f"\nAnalisis {i}:\n{result}\n"
-                            
-                    # Simpan hasil analisis ke dalam sesi sebagai pesan sistem
-                    user_sessions[chat_id].append({
-                        "role": "system",
-                        "content": f"Konteks gambar terakhir: {combined_analysis}"
-                    })
-                    
-                    # Simpan sebagai pesan asisten untuk konteks percakapan
-                    user_sessions[chat_id].append({
-                        "role": "assistant",
-                        "content": combined_analysis
-                    })
-                    
-                    await update.message.reply_text(combined_analysis)
+                            await update.message.reply_text(f"Analisis {i}:\n{result}")
                 else:
                     await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
             
@@ -376,6 +362,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("Terjadi kesalahan saat menganalisa gambar. Silakan coba lagi.")
             
             finally:
+                # Cleanup
                 if os.path.exists(temp_file.name):
                     os.remove(temp_file.name)
 
@@ -417,32 +404,31 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
-    """Handler untuk pesan teks dengan konteks gambar"""
+    """Handler untuk pesan teks"""
     chat_type = update.message.chat.type
-    chat_id = update.message.chat_id
 
-    if chat_type in ["group", "supergroup"]:
+    if chat_type in ["group", "supergroup"]:  # Grup atau supergrup
         if context.bot.username in update.message.text:
+            # Hapus mention dari teks
             message = update.message.text.replace(f'@{context.bot.username}', '').strip()
         else:
-            return
-
-    if not message:
-        message = update.message.text.strip()
+            logger.info("Pesan di grup tanpa mention diabaikan.")
+            return  # Abaikan pesan tanpa mention
+    else:  # Chat pribadi
+        if not message:
+            message = update.message.text.strip()
 
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
+    chat_id = update.message.chat_id
+    message = await filter_text(message)
+
     if chat_id not in user_sessions:
         user_sessions[chat_id] = []
 
-    # Tambahkan pesan user ke sesi
     user_sessions[chat_id].append({"role": "user", "content": message})
-    
-    # Ambil 10 pesan terakhir termasuk konteks gambar
     mistral_messages = user_sessions[chat_id][-10:]
-    
-    # Proses dengan Mistral
     response = await process_with_mistral(mistral_messages)
 
     if response:
