@@ -3,6 +3,7 @@ import logging
 import tempfile
 import asyncio
 import base64
+import uuid
 from typing import Optional, List, Dict
 
 from telegram import Update, InputFile
@@ -51,9 +52,11 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
+MAX_CONVERSATION_MESSAGES = 10
+#CONVERSATION_TIMEOUT = 300  # 5 menit dalam detik
 
 # Dictionary untuk menyimpan histori percakapan
-user_sessions: Dict[int, List[Dict[str, str]]] = {}
+#user_sessions: Dict[int, List[Dict[str, str]]] = {}
 
 # Statistik penggunaan
 bot_statistics = {
@@ -374,10 +377,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processing_msg.delete()
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
-    """Bersihkan sesi lama untuk menghemat memori"""
+    """Bersihkan sesi yang sudah tidak aktif"""
+    current_time = asyncio.get_event_loop().time()
+    
     for chat_id in list(user_sessions.keys()):
-        if len(user_sessions[chat_id]) > 300:
-            user_sessions[chat_id] = user_sessions[chat_id][-100:]
+        if current_time - user_sessions[chat_id]['last_update'] > CONVERSATION_TIMEOUT:
+            del user_sessions[chat_id]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
@@ -403,39 +408,78 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
-    """Handler untuk pesan teks"""
-    chat_type = update.message.chat.type
+# Struktur data baru untuk user_sessions
+user_sessions: Dict[int, Dict] = {}
 
-    if chat_type in ["group", "supergroup"]:  # Grup atau supergrup
+async def initialize_session(chat_id: int) -> None:
+    """Inisialisasi sesi baru untuk chat"""
+    user_sessions[chat_id] = {
+        'messages': [],
+        'last_update': asyncio.get_event_loop().time(),
+        'conversation_id': str(uuid.uuid4())
+    }
+
+async def should_reset_context(chat_id: int, message: str) -> bool:
+    """Tentukan apakah konteks perlu direset"""
+    if chat_id not in user_sessions:
+        return True
+        
+    current_time = asyncio.get_event_loop().time()
+    time_diff = current_time - user_sessions[chat_id]['last_update']
+    
+    keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', '?']
+    starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
+    
+    return time_diff > CONVERSATION_TIMEOUT or starts_with_keyword
+
+async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    """Update sesi chat dengan pesan baru"""
+    if chat_id not in user_sessions:
+        await initialize_session(chat_id)
+    
+    session = user_sessions[chat_id]
+    session['messages'].append(message)
+    session['last_update'] = asyncio.get_event_loop().time()
+    
+    if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
+        session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
+    """Handler untuk pesan teks dengan manajemen konteks yang lebih baik"""
+    chat_type = update.message.chat.type
+    chat_id = update.message.chat_id
+
+    # Tentukan pesan yang akan diproses
+    if chat_type in ["group", "supergroup"]:
         if context.bot.username in update.message.text:
-            # Hapus mention dari teks
             message = update.message.text.replace(f'@{context.bot.username}', '').strip()
         else:
             logger.info("Pesan di grup tanpa mention diabaikan.")
-            return  # Abaikan pesan tanpa mention
-    else:  # Chat pribadi
+            return
+    else:
         if not message:
             message = update.message.text.strip()
 
+    # Update statistik
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    chat_id = update.message.chat_id
+    # Cek apakah perlu reset konteks
+    if await should_reset_context(chat_id, message):
+        await initialize_session(chat_id)
+        
+    # Filter dan proses pesan
     message = await filter_text(message)
-
-    if chat_id not in user_sessions:
-        user_sessions[chat_id] = []
-
-    user_sessions[chat_id].append({"role": "user", "content": message})
-    mistral_messages = user_sessions[chat_id][-10:]
-    response = await process_with_mistral(mistral_messages)
+    await update_session(chat_id, {"role": "user", "content": message})
+    
+    # Ambil pesan-pesan dalam sesi untuk diproses
+    session_messages = user_sessions[chat_id]['messages']
+    response = await process_with_mistral(session_messages)
 
     if response:
-        user_sessions[chat_id].append({"role": "assistant", "content": response})
+        await update_session(chat_id, {"role": "assistant", "content": response})
         response = await filter_text(response)
         await update.message.reply_text(response)
-
 
 def main():
     if not check_required_settings():
