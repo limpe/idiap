@@ -78,11 +78,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
-    
-def encode_image(image_path):
-    """Encode an image file to a base64 string"""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
     """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
@@ -103,71 +98,57 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-async def process_image_with_groq(image_path: str) -> str:
+async def encode_image(image_path: str) -> str:
+    """Encode an image file to base64 string."""
     try:
-        base64_image = encode_image(image_path)
-        client = Groq()
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+    except Exception as e:
+        logger.exception("Error encoding image")
+        raise
 
-        chat_completion = client.chat.completions.create(
-            messages=[
+async def process_image_with_pixtral(image_path: str) -> str:
+    """Process image using Pixtral model."""
+    try:
+        base64_image = await encode_image(image_path)
+        
+        headers = {
+            "Authorization": f"Bearer {MISTRAL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "model": "pixtral-12b-2409",
+            "messages": [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."},
+                        {
+                            "type": "text",
+                            "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."
+                        },
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
-            model="llama-3.2-11b-vision-preview",
-        )
-
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        logger.exception("Error in processing image with Groq")
-        return "Terjadi kesalahan saat memproses gambar."
-        
-async def process_image_with_groq_multiple(image_path: str, repetitions: int = 5) -> List[str]:
-    """Proses gambar ke Groq API beberapa kali secara paralel."""
-    try:
-        base64_image = encode_image(image_path)
-        client = Groq()
-
-        async def single_request():
-            try:
-                chat_completion = client.chat.completions.create(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}",
-                                    },
-                                },
-                            ],
+                            "image_url": f"data:image/jpeg;base64,{base64_image}"
                         }
-                    ],
-                    model="llama-3.2-90b-vision-preview",
-                )
-                return chat_completion.choices[0].message.content
-            except Exception as e:
-                logger.exception("Error in single request to Groq")
-                return "Error processing this request."
+                    ]
+                }
+            ]
+        }
 
-        # Jalankan `repetitions` permintaan secara paralel
-        results = await asyncio.gather(*[single_request() for _ in range(repetitions)])
-        return results
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                headers=headers,
+                json=data
+            ) as response:
+                response.raise_for_status()
+                result = await response.json()
+                return result['choices'][0]['message']['content']
 
     except Exception as e:
-        logger.exception("Error in processing image with Groq multiple")
-        return ["Terjadi kesalahan saat memproses gambar."] * repetitions
+        logger.exception("Error in processing image with Pixtral")
+        return "Terjadi kesalahan saat memproses gambar."
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for processing image uploads"""
@@ -349,44 +330,37 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses gambar dengan beberapa analisis paralel."""
-    chat_type = update.message.chat.type  # Periksa tipe chat (grup atau pribadi)
-
-    # Periksa mention di caption atau reply
-    mention_found = False
-    caption = ""
+    """Handler untuk memproses foto menggunakan Pixtral."""
+    chat_type = update.message.chat.type
     
+    # Periksa mention di grup
     if chat_type in ["group", "supergroup"]:
-        if update.message.caption and context.bot.username in update.message.caption:
-            mention_found = True
-            caption = update.message.caption.replace(f'@{context.bot.username}', '').strip()
-        elif update.message.reply_to_message and update.message.reply_to_message.caption and context.bot.username in update.message.reply_to_message.caption:
-            mention_found = True
-            caption = update.message.reply_to_message.caption.replace(f'@{context.bot.username}', '').strip()
-    else:  # Chat pribadi
-        caption = update.message.caption or ""
-
-    if not mention_found and chat_type in ["group", "supergroup"]:
-        logger.info("Gambar di grup tanpa mention diabaikan.")
-        return
+        if not (update.message.caption and context.bot.username in update.message.caption):
+            logger.info("Gambar di grup tanpa mention diabaikan.")
+            return
 
     try:
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
 
-        # Unduh file gambar
+        # Kirim pesan sedang memproses
+        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
+
+        # Download dan proses gambar
         photo_file = await update.message.photo[-1].get_file()
         temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
         await photo_file.download_to_drive(temp_image_path)
 
-        # Proses gambar dengan analisis paralel (5 kali)
-        results = await process_image_with_groq_multiple(temp_image_path, repetitions=5)
+        # Proses dengan Pixtral
+        result = await process_image_with_pixtral(temp_image_path)
+        
+        # Hapus pesan processing
+        await processing_msg.delete()
+        
+        # Kirim hasil analisis
+        await update.message.reply_text(f"Hasil Analisa Gambar:\n{result}")
 
-        # Kirim setiap hasil analisis sebagai pesan terpisah
-        for i, result in enumerate(results):
-            await update.message.reply_text(f"Analisis {i+1}:\n{result}")
-
-        # Bersihkan file sementara
+        # Cleanup
         os.remove(temp_image_path)
 
     except Exception as e:
