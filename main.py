@@ -379,24 +379,24 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
     chat_type = update.message.chat.type
-    
+
     # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
         should_process = False
         message_text = update.message.text or update.message.caption or ""
-        
+
         # Cek mention
         if f'@{context.bot.username}' in message_text:
             message_text = message_text.replace(f'@{context.bot.username}', '').strip()
             should_process = True
-            
+
         # Cek reply
         elif update.message.reply_to_message and \
              update.message.reply_to_message.from_user.id == context.bot.id:
             should_process = True
-        
+
         if should_process and message_text:
-            await handle_text(update, context, message_text)
+            await handle_text(update, context, message_text=message_text)
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
@@ -451,19 +451,18 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
         session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     chat_id = update.message.chat_id  # Ambil chat ID
 
     # Pastikan sesi sudah diinisialisasi
     if chat_id not in user_sessions:
         await initialize_session(chat_id)
 
-    # Proses teks lainnya
-    message = update.message.text.strip()
+    # Proses teks
+    message = message_text or update.message.text.strip()
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    # Proses pesan
     user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
     response = await process_with_mistral(user_sessions[chat_id]['messages'])
 
