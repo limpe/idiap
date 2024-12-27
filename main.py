@@ -53,7 +53,7 @@ SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 MAX_CONVERSATION_MESSAGES = 10
-#CONVERSATION_TIMEOUT = 300  # 5 menit dalam detik
+CONVERSATION_TIMEOUT = 1000  #Durasi percakapan dalam detik 
 
 # Dictionary untuk menyimpan histori percakapan
 #user_sessions: Dict[int, List[Dict[str, str]]] = {}
