@@ -334,13 +334,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["photo_messages"] += 1
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
+        # Ambil file gambar
+        photo_file = await update.message.photo[-1].get_file()
+
+        # Proses gambar menggunakan BytesIO
         with BytesIO() as temp_file:
-    await photo_file.download(temp_file)
-    temp_file.seek(0)  # Pastikan pointer di awal file
-    # Proses gambar langsung dari BytesIO
+            await photo_file.download(temp_file)  # Download file ke memori
+            temp_file.seek(0)  # Pastikan pointer di awal file
 
-            results = await process_image_with_pixtral_multiple(temp_file.name)
+            # Proses gambar langsung dari BytesIO
+            results = await process_image_with_pixtral_multiple(temp_file)
 
+            # Kirim hasil analisis
             if results and any(results):
                 analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
                 user_sessions[chat_id]['last_image_analysis'] = analysis_text
