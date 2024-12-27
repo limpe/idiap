@@ -363,10 +363,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Kirim hasil analisis
                 if results and any(results):
-                    await update.message.reply_text("Hasil Analisa Gambar:")
-                    for i, result in enumerate(results, 1):
-                        if result and result.strip():
-                            await update.message.reply_text(f"Analisis {i}:\n{result}")
+                    analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
+                    user_sessions[chat_id]['last_image_analysis'] = analysis_text  # Simpan hasil analisis
+                    await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
                 else:
                     await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
             
@@ -422,6 +421,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 user_sessions: Dict[int, Dict] = {}
 
 async def initialize_session(chat_id: int) -> None:
+    user_sessions[chat_id] = {
+        'messages': [],
+        'last_update': asyncio.get_event_loop().time(),
+        'conversation_id': str(uuid.uuid4()),
+        'last_image_analysis': None  # Tambahkan ini
+    }
     """Inisialisasi sesi baru untuk chat"""
     # Batasi jumlah sesi aktif
     if len(user_sessions) >= MAX_CONCURRENT_SESSIONS:
@@ -467,7 +472,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     """Handler untuk pesan teks dengan manajemen konteks yang lebih baik"""
     chat_type = update.message.chat.type
     chat_id = update.message.chat_id
-
+# Cek apakah pengguna bertanya tentang analisis gambar
+if "gambar" in message.lower() or "hasil analisa" in message.lower():
+    if chat_id in user_sessions and user_sessions[chat_id].get('last_image_analysis'):
+        analysis = user_sessions[chat_id]['last_image_analysis']
+        mistral_messages = [
+            {"role": "system", "content": "Berikan jawaban dalam Bahasa Indonesia."},
+            {"role": "user", "content": f"Hasil analisa gambar: {analysis}"},
+            {"role": "user", "content": message}
+        ]
+        response = await process_with_mistral(mistral_messages)
+        await update.message.reply_text(response)
+    else:
+        await update.message.reply_text("Tidak ada analisis gambar terbaru yang ditemukan.")
+    return  # Keluar karena permintaan sudah dijawab
+    
     # Tentukan pesan yang akan diproses
     if chat_type in ["group", "supergroup"]:
         if context.bot.username in update.message.text:
