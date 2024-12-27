@@ -107,7 +107,7 @@ async def encode_image(image_path: str) -> str:
         logger.exception("Error encoding image")
         raise
 
-async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 5) -> List[str]:
+async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 2) -> List[str]:
     """Process image using Pixtral model multiple times with rate limiting."""
     try:
         base64_image = await encode_image(image_path)
