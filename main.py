@@ -120,7 +120,7 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
             }
 
             data = {
-                "model": "Mixtral-8x7B-Instruct-v0.1",
+                "model": "pixtral-12b-2409",
                 "messages": [
                     {
                         "role": "user",
