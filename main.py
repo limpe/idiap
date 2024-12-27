@@ -176,31 +176,6 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
         logger.exception("Error in processing image with Pixtral multiple")
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
-async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for processing image uploads"""
-    try:
-        if not update.message.photo:
-            await update.message.reply_text("Please send a valid image.")
-            return
-
-        bot_statistics["total_messages"] += 1
-
-        # Download image to temporary file
-        photo_file = await update.message.photo[-1].get_file()
-        temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-        await photo_file.download_to_drive(temp_image_path)
-
-        # Process image with Groq
-        result = await process_image_with_groq(temp_image_path)
-        await update.message.reply_text(f"Hasil Analisa Gambar: {result}")
-
-        # Cleanup temporary file
-        os.remove(temp_image_path)
-    except Exception as e:
-        bot_statistics["errors"] += 1
-        logger.exception("Error in handle_image")
-        await update.message.reply_text("An error occurred while processing the image.")
-
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan penanganan error"""
     try:
@@ -293,27 +268,7 @@ async def send_voice_response(update: Update, text: str):
     finally:
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
-
-async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_type = update.message.chat.type
-
-    # Jika di grup, hanya respon jika bot di-mention
-    if chat_type in ["group", "supergroup"]:
-        if context.bot.username in update.message.text:
-            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
-            if message:
-                await handle_text(update, context, message)
-        else:
-            logger.info("Pesan di grup tanpa mention diabaikan.")
-
-    # Jika di chat pribadi
-    elif chat_type == "private":
-        message = update.message.text.strip()
-        if message:
-            await handle_text(update, context, message)
-
         
-
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if update.message.voice.file_size > MAX_AUDIO_SIZE:
@@ -359,11 +314,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk memproses foto menggunakan Pixtral dengan multiple analisis."""
     chat_type = update.message.chat.type
     
-    # Periksa mention di grup
-    if chat_type in ["group", "supergroup"]:
-        if not (update.message.caption and context.bot.username in update.message.caption):
-            logger.info("Gambar di grup tanpa mention diabaikan.")
-            return
+    # Periksa apakah bot perlu merespons
+    should_respond = False
+    if chat_type == "private":
+        should_respond = True
+    elif chat_type in ["group", "supergroup"]:
+        # Cek mention dalam caption atau reply ke bot
+        if (update.message.caption and f'@{context.bot.username}' in update.message.caption) or \
+           (update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id):
+            should_respond = True
+    
+    if not should_respond:
+        logger.info("Gambar di grup tanpa mention diabaikan.")
+        return
 
     try:
         bot_statistics["total_messages"] += 1
@@ -374,27 +337,41 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Download dan proses gambar
         photo_file = await update.message.photo[-1].get_file()
-        temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-        await photo_file.download_to_drive(temp_image_path)
-
-        # Proses dengan Pixtral (5 analisis paralel)
-        results = await process_image_with_pixtral_multiple(temp_image_path)
         
-        # Hapus pesan processing
-        await processing_msg.delete()
-        
-        # Kirim hasil analisis
-        await update.message.reply_text("Hasil Analisa Gambar:")
-        for i, result in enumerate(results, 1):
-            await update.message.reply_text(f"Analisis {i}:\n{result}")
-
-        # Cleanup
-        os.remove(temp_image_path)
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+            await photo_file.download_to_drive(temp_file.name)
+            
+            # Proses dengan Pixtral (2 analisis)
+            try:
+                results = await process_image_with_pixtral_multiple(temp_file.name)
+                
+                # Hapus pesan processing
+                await processing_msg.delete()
+                
+                # Kirim hasil analisis
+                if results and any(results):
+                    await update.message.reply_text("Hasil Analisa Gambar:")
+                    for i, result in enumerate(results, 1):
+                        if result and result.strip():
+                            await update.message.reply_text(f"Analisis {i}:\n{result}")
+                else:
+                    await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+            
+            except Exception as e:
+                logger.error(f"Error dalam proses analisis gambar: {str(e)}")
+                await update.message.reply_text("Terjadi kesalahan saat menganalisa gambar. Silakan coba lagi.")
+            
+            finally:
+                # Cleanup
+                if os.path.exists(temp_file.name):
+                    os.remove(temp_file.name)
 
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
+        if processing_msg:
+            await processing_msg.delete()
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
@@ -403,23 +380,28 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
             user_sessions[chat_id] = user_sessions[chat_id][-100:]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk pesan yang di-mention atau reply di grup"""
     chat_type = update.message.chat.type
-
-    # Jika di grup, hanya respon jika bot di-mention
+    
+    # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
-        if context.bot.username in update.message.text:
-            # Hapus mention dari teks
-            message = update.message.text.replace(f'@{context.bot.username}', '').strip()
-            if message:
-                # Proses pesan yang di-mention
-                await handle_text(update, context, message)
+        should_process = False
+        message_text = update.message.text or update.message.caption or ""
+        
+        # Cek mention
+        if f'@{context.bot.username}' in message_text:
+            message_text = message_text.replace(f'@{context.bot.username}', '').strip()
+            should_process = True
+            
+        # Cek reply
+        elif update.message.reply_to_message and \
+             update.message.reply_to_message.from_user.id == context.bot.id:
+            should_process = True
+        
+        if should_process and message_text:
+            await handle_text(update, context, message_text)
         else:
-            logger.info("Pesan di grup tanpa mention diabaikan.")
-
-    elif chat_type == "private":  # Untuk chat pribadi
-        message = update.message.text.strip()
-        if message:
-            await handle_text(update, context, message)
+            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
     """Handler untuk pesan teks"""
@@ -467,19 +449,22 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
 
-        # Message handlers
+        # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
-        # Mention handler untuk teks
-        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_mention))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
-
-        # Handler untuk grup dengan mention
-        application.add_handler(MessageHandler(filters.TEXT & filters.Entity("mention"), handle_text))
-
-        # Handler untuk chat pribadi tanpa mention
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.Entity("mention"), handle_text))
+        
+        # Handler baru untuk text dengan mention di grup
+        application.add_handler(MessageHandler(
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
+            handle_mention
+        ))
+        
+        # Handler baru untuk chat pribadi
+        application.add_handler(MessageHandler(
+            filters.TEXT & filters.ChatType.PRIVATE,
+            handle_text
+        ))
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
