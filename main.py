@@ -108,9 +108,10 @@ async def encode_image(image_path: str) -> str:
         raise
 
 async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 5) -> List[str]:
-    """Process image using Pixtral model multiple times in parallel."""
+    """Process image using Pixtral model multiple times with rate limiting."""
     try:
         base64_image = await encode_image(image_path)
+        results = []
         
         async def single_request():
             headers = {
@@ -137,22 +138,38 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
                 ]
             }
 
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        "https://api.mistral.ai/v1/chat/completions",
-                        headers=headers,
-                        json=data
-                    ) as response:
-                        response.raise_for_status()
-                        result = await response.json()
-                        return result['choices'][0]['message']['content']
-            except Exception as e:
-                logger.exception("Error in single request")
-                return "Terjadi kesalahan dalam analisis ini."
+            max_retries = 3
+            retry_delay = 2  # seconds
 
-        # Jalankan multiple requests secara paralel
-        results = await asyncio.gather(*[single_request() for _ in range(repetitions)])
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            "https://api.mistral.ai/v1/chat/completions",
+                            headers=headers,
+                            json=data
+                        ) as response:
+                            if response.status == 429:  # Too Many Requests
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(retry_delay * (attempt + 1))
+                                    continue
+                            response.raise_for_status()
+                            result = await response.json()
+                            return result['choices'][0]['message']['content']
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (attempt + 1))
+                        continue
+                    logger.exception("Error in single request after all retries")
+                    return "Terjadi kesalahan dalam analisis ini."
+
+        # Proses requests secara sequential dengan delay
+        for i in range(repetitions):
+            result = await single_request()
+            results.append(result)
+            if i < repetitions - 1:  # Tidak perlu delay setelah request terakhir
+                await asyncio.sleep(1)  # Delay 1 detik antara requests
+
         return results
 
     except Exception as e:
@@ -369,7 +386,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Kirim hasil analisis
         await update.message.reply_text("Hasil Analisa Gambar:")
         for i, result in enumerate(results, 1):
-            await update.message.reply_text(f"Analisis #{i}:\n{result}")
+            await update.message.reply_text(f"Analisis {i}:\n{result}")
 
         # Cleanup
         os.remove(temp_image_path)
