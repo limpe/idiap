@@ -284,77 +284,73 @@ async def send_voice_response(update: Update, text: str):
         
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        chat_id = update.message.chat_id
+        
+        # Pastikan sesi sudah diinisialisasi
+        if chat_id not in user_sessions:
+            await initialize_session(chat_id)
+
         if update.message.voice.file_size > MAX_AUDIO_SIZE:
             await update.message.reply_text("Maaf, file audio terlalu besar (maksimal 20MB)")
             return
-            
+
         bot_statistics["total_messages"] += 1
         bot_statistics["voice_messages"] += 1
 
-        chat_id = update.message.chat_id
-if chat_id not in user_sessions:
-    await initialize_session(chat_id)
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
         text = await process_voice_to_text(update)
 
         if text:
             text = await filter_text(text)
             await update.message.reply_text(f"Teks hasil transkripsi suara Anda: \n{text}")
-
-            if chat_id not in user_sessions:
-                user_sessions[chat_id] = []
-
-            user_sessions[chat_id].append({"role": "user", "content": text})
-            mistral_messages = user_sessions[chat_id][-10:]
+            
+            user_sessions[chat_id]['messages'].append({"role": "user", "content": text})
+            mistral_messages = user_sessions[chat_id]['messages'][-10:]
             response = await process_with_mistral(mistral_messages)
 
             if response:
-                user_sessions[chat_id].append({"role": "assistant", "content": response})
+                user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
                 response = await filter_text(response)
                 await update.message.reply_text(response)
                 await send_voice_response(update, response)
 
         await processing_msg.delete()
 
-    except AudioProcessingError as e:
-        bot_statistics["errors"] += 1
-        await update.message.reply_text(f"Maaf, terjadi kesalahan: {str(e)}")
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id  # Pastikan chat_id didefinisikan di sini
-    chat_type = update.message.chat.type
+    chat_id = update.message.chat_id
 
     try:
-    if chat_id not in user_sessions:
-        await initialize_session(chat_id)
+        # Pastikan sesi sudah diinisialisasi
+        if chat_id not in user_sessions:
+            await initialize_session(chat_id)
 
-    # Proses lainnya
-    bot_statistics["total_messages"] += 1
-    bot_statistics["photo_messages"] += 1
-    processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
+        bot_statistics["total_messages"] += 1
+        bot_statistics["photo_messages"] += 1
+        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
-    photo_file = await update.message.photo[-1].get_file()
-    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-        await photo_file.download_to_drive(temp_file.name)
+        photo_file = await update.message.photo[-1].get_file()
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+            await photo_file.download_to_drive(temp_file.name)
 
-        results = await process_image_with_pixtral_multiple(temp_file.name)
+            results = await process_image_with_pixtral_multiple(temp_file.name)
 
-        if results and any(results):
-            analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
-            user_sessions[chat_id]['last_image_analysis'] = analysis_text
-            await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
-        else:
-            await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+            if results and any(results):
+                analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
+                user_sessions[chat_id]['last_image_analysis'] = analysis_text
+                await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
+            else:
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
-    await processing_msg.delete()
+        await processing_msg.delete()
 
-except Exception as e:
-    logger.exception("Error dalam proses analisis gambar")
-    await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+    except Exception as e:
+        logger.exception("Error dalam proses analisis gambar")
+        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi yang sudah tidak aktif"""
