@@ -18,86 +18,8 @@ from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 
-class BotConfig:
-    MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
-    MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
-    RATE_LIMIT_PERIOD = 60  # seconds
-    MAX_REQUESTS_PER_PERIOD = 10
-    SESSION_TTL = 3600  # 1 hour
-    MAX_QUEUE_SIZE = 100
-    MIN_IMAGE_DIMENSION = 100  # pixels
-
-class UserRateLimiter:
-    def __init__(self):
-        self.user_limits = {}
-    
-    async def check_rate_limit(self, user_id: int) -> bool:
-        current_time = asyncio.get_event_loop().time()
-        if user_id not in self.user_limits:
-            self.user_limits[user_id] = {
-                "count": 1, 
-                "reset_time": current_time + BotConfig.RATE_LIMIT_PERIOD
-            }
-            return True
-        
-        user_limit = self.user_limits[user_id]
-        if current_time > user_limit["reset_time"]:
-            user_limit["count"] = 1
-            user_limit["reset_time"] = current_time + BotConfig.RATE_LIMIT_PERIOD
-            return True
-            
-        if user_limit["count"] >= BotConfig.MAX_REQUESTS_PER_PERIOD:
-            return False
-            
-        user_limit["count"] += 1
-        return True
-
-class ConversationManager:
-    def __init__(self):
-        self.sessions = {}
-        
-    async def cleanup_old_sessions(self):
-        current_time = asyncio.get_event_loop().time()
-        expired_sessions = [
-            chat_id for chat_id, session in self.sessions.items()
-            if current_time - session['last_update'] > BotConfig.SESSION_TTL
-        ]
-        for chat_id in expired_sessions:
-            del self.sessions[chat_id]
-            
-    async def get_session(self, chat_id: int) -> dict:
-        if chat_id not in self.sessions:
-            self.sessions[chat_id] = {
-                'messages': [],
-                'last_update': asyncio.get_event_loop().time(),
-                'metadata': {
-                    'total_messages': 0,
-                    'last_intent': None,
-                    'language': None
-                }
-            }
-        return self.sessions[chat_id]
-
-class MessageQueue:
-    def __init__(self):
-        self.queue = asyncio.Queue()
-        self.processing = False
-        
-    async def add_message(self, message: dict) -> bool:
-        if self.queue.qsize() >= BotConfig.MAX_QUEUE_SIZE:
-            return False
-        await self.queue.put(message)
-        if not self.processing:
-            asyncio.create_task(self.process_queue())
-        return True
-        
-    async def process_queue(self):
-        self.processing = True
-        while not self.queue.empty():
-            message = await self.queue.get()
-            await self.process_message(message)
-            self.queue.task_done()
-        self.processing = False
+# Konstanta untuk batasan ukuran file
+MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
 def check_required_settings():
     if not TELEGRAM_TOKEN:
@@ -526,43 +448,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     """Handler untuk pesan teks dengan manajemen konteks yang lebih baik"""
     chat_type = update.message.chat.type
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
-
-    if not await rate_limiter.check_rate_limit(user_id):
-        await update.message.reply_text(
-            "Anda telah mencapai batas penggunaan. Silakan coba lagi nanti."
-        )
-        return
-
-        session = await conversation_manager.get_session(chat_id)
 
     # Tentukan pesan yang akan diproses
-   if chat_type in ["group", "supergroup"]:
+    if chat_type in ["group", "supergroup"]:
         if context.bot.username in update.message.text:
             message = update.message.text.replace(f'@{context.bot.username}', '').strip()
         else:
+            logger.info("Pesan di grup tanpa mention diabaikan.")
             return
     else:
-        message = update.message.text.strip()
-    
-    # Update statistics
+        if not message:
+            message = update.message.text.strip()
+
+    # Update statistik
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
-    session['metadata']['total_messages'] += 1
-    
-    # Add message to queue
-    message_data = {
-        "chat_id": chat_id,
-        "user_id": user_id,
-        "text": message,
-        "type": "text"
-    }
-if not await message_queue.add_message(message_data):
-        await update.message.reply_text(
-            "Sistem sedang sibuk. Silakan coba beberapa saat lagi."
-        )
-        return
-    
+
     # Cek apakah perlu reset konteks
     if await should_reset_context(chat_id, message):
         await initialize_session(chat_id)
@@ -584,12 +485,6 @@ def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
-
-    try:
-        # Initialize bot components
-        rate_limiter = UserRateLimiter()
-        conversation_manager = ConversationManager()
-        message_queue = MessageQueue()
 
     try:
         application = Application.builder().token(TELEGRAM_TOKEN).build()
