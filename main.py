@@ -102,11 +102,17 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-async def encode_image(image_path: str) -> str:
-    """Encode an image file to base64 string."""
+async def encode_image(image_source) -> str:
+    """Encode an image file or BytesIO object to base64 string."""
     try:
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
+        if isinstance(image_source, BytesIO):
+            image_source.seek(0)  # Pastikan pointer berada di awal file
+            return base64.b64encode(image_source.read()).decode('utf-8')
+        elif isinstance(image_source, str):
+            with open(image_source, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
+        else:
+            raise TypeError("Invalid image source type. Expected str or BytesIO.")
     except Exception as e:
         logger.exception("Error encoding image")
         raise
@@ -339,7 +345,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Proses gambar menggunakan BytesIO
         with BytesIO() as temp_file:
-            # Unduh gambar ke memori
             photo_bytes = await photo_file.download_as_bytearray()
             temp_file.write(photo_bytes)
             temp_file.seek(0)  # Pastikan pointer di awal file
