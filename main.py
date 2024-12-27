@@ -329,36 +329,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.message.chat.type
 
     try:
-        # Pastikan sesi untuk chat_id sudah diinisialisasi
-        if chat_id not in user_sessions:
-            await initialize_session(chat_id)
+    if chat_id not in user_sessions:
+        await initialize_session(chat_id)
 
-        # Proses gambar
-        bot_statistics["total_messages"] += 1
-        bot_statistics["photo_messages"] += 1
-        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
+    # Proses lainnya
+    bot_statistics["total_messages"] += 1
+    bot_statistics["photo_messages"] += 1
+    processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
-        photo_file = await update.message.photo[-1].get_file()
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-            await photo_file.download_to_drive(temp_file.name)
+    photo_file = await update.message.photo[-1].get_file()
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+        await photo_file.download_to_drive(temp_file.name)
 
-            results = await process_image_with_pixtral_multiple(temp_file.name)
+        results = await process_image_with_pixtral_multiple(temp_file.name)
 
-            if results and any(results):
-                analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
-                
-                # Simpan hasil analisis ke sesi pengguna
-                user_sessions[chat_id]['last_image_analysis'] = analysis_text
-                
-                await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+        if results and any(results):
+            analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
+            user_sessions[chat_id]['last_image_analysis'] = analysis_text
+            await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
+        else:
+            await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
-        await processing_msg.delete()
+    await processing_msg.delete()
 
-    except Exception as e:
-        logger.exception("Error dalam proses analisis gambar")
-        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+except Exception as e:
+    logger.exception("Error dalam proses analisis gambar")
+    await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi yang sudah tidak aktif"""
