@@ -331,6 +331,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
+    # Periksa apakah ini di grup
+    if update.message.chat.type in ["group", "supergroup"]:
+        message_text = update.message.caption or ""  # Caption pada gambar
+        if f"@{context.bot.username}" not in message_text:
+            logger.info("Gambar di grup diabaikan karena tidak ada mention.")
+            return  # Abaikan jika tidak ada mention
+
     try:
         # Pastikan sesi sudah diinisialisasi
         if chat_id not in user_sessions:
