@@ -354,12 +354,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
-    """Bersihkan sesi yang sudah tidak aktif"""
     current_time = asyncio.get_event_loop().time()
-    
-    for chat_id in list(user_sessions.keys()):
-        if current_time - user_sessions[chat_id]['last_update'] > CONVERSATION_TIMEOUT:
-            del user_sessions[chat_id]
+    expired_sessions = [
+        chat_id for chat_id, session in user_sessions.items()
+        if 'last_update' in session and current_time - session['last_update'] > CONVERSATION_TIMEOUT
+    ]
+    for chat_id in expired_sessions:
+        del user_sessions[chat_id]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
