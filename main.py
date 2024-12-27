@@ -292,7 +292,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["voice_messages"] += 1
 
         chat_id = update.message.chat_id
-
+if chat_id not in user_sessions:
+    await initialize_session(chat_id)
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
         text = await process_voice_to_text(update)
 
@@ -326,21 +327,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id  # Pastikan chat_id didefinisikan di sini
     chat_type = update.message.chat.type
-    
-    # Periksa apakah bot perlu merespons
-    should_respond = False
-    if chat_type == "private":
-        should_respond = True
-    elif chat_type in ["group", "supergroup"]:
-        if (update.message.caption and f'@{context.bot.username}' in update.message.caption) or \
-           (update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id):
-            should_respond = True
-
-    if not should_respond:
-        logger.info("Gambar di grup tanpa mention diabaikan.")
-        return
 
     try:
+        # Pastikan sesi untuk chat_id sudah diinisialisasi
+        if chat_id not in user_sessions:
+            await initialize_session(chat_id)
+
         # Proses gambar
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
@@ -349,16 +341,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_file = await update.message.photo[-1].get_file()
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
             await photo_file.download_to_drive(temp_file.name)
-            
+
             results = await process_image_with_pixtral_multiple(temp_file.name)
-            
+
             if results and any(results):
                 analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
-                user_sessions[chat_id]['last_image_analysis'] = analysis_text  # Simpan hasil analisis
+                
+                # Simpan hasil analisis ke sesi pengguna
+                user_sessions[chat_id]['last_image_analysis'] = analysis_text
+                
                 await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
-        
+
         await processing_msg.delete()
 
     except Exception as e:
@@ -450,7 +445,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message: Optional[str] = None):
     chat_id = update.message.chat_id  # Ambil chat ID
-
+if chat_id not in user_sessions:
+    await initialize_session(chat_id)
     # Filter dan proses teks
     if not message:
         message = update.message.text.strip()
