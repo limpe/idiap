@@ -107,48 +107,57 @@ async def encode_image(image_path: str) -> str:
         logger.exception("Error encoding image")
         raise
 
-async def process_image_with_pixtral(image_path: str) -> str:
-    """Process image using Pixtral model."""
+async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 5) -> List[str]:
+    """Process image using Pixtral model multiple times in parallel."""
     try:
         base64_image = await encode_image(image_path)
         
-        headers = {
-            "Authorization": f"Bearer {MISTRAL_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        async def single_request():
+            headers = {
+                "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                "Content-Type": "application/json"
+            }
 
-        data = {
-            "model": "pixtral-12b-2409",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Apa isi gambar ini? Mohon jawab dalam Bahasa Indonesia."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    ]
-                }
-            ]
-        }
+            data = {
+                "model": "pixtral-12b-2409",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Apa isi gambar ini? Mohon jelaskan dengan detail dalam Bahasa Indonesia."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        ]
+                    }
+                ]
+            }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.mistral.ai/v1/chat/completions",
-                headers=headers,
-                json=data
-            ) as response:
-                response.raise_for_status()
-                result = await response.json()
-                return result['choices'][0]['message']['content']
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        "https://api.mistral.ai/v1/chat/completions",
+                        headers=headers,
+                        json=data
+                    ) as response:
+                        response.raise_for_status()
+                        result = await response.json()
+                        return result['choices'][0]['message']['content']
+            except Exception as e:
+                logger.exception("Error in single request")
+                return "Terjadi kesalahan dalam analisis ini."
+
+        # Jalankan multiple requests secara paralel
+        results = await asyncio.gather(*[single_request() for _ in range(repetitions)])
+        return results
 
     except Exception as e:
-        logger.exception("Error in processing image with Pixtral")
-        return "Terjadi kesalahan saat memproses gambar."
+        logger.exception("Error in processing image with Pixtral multiple")
+        return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for processing image uploads"""
@@ -330,7 +339,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk memproses foto menggunakan Pixtral."""
+    """Handler untuk memproses foto menggunakan Pixtral dengan multiple analisis."""
     chat_type = update.message.chat.type
     
     # Periksa mention di grup
@@ -351,14 +360,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         temp_image_path = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
         await photo_file.download_to_drive(temp_image_path)
 
-        # Proses dengan Pixtral
-        result = await process_image_with_pixtral(temp_image_path)
+        # Proses dengan Pixtral (5 analisis paralel)
+        results = await process_image_with_pixtral_multiple(temp_image_path)
         
         # Hapus pesan processing
         await processing_msg.delete()
         
         # Kirim hasil analisis
-        await update.message.reply_text(f"Hasil Analisa Gambar:\n{result}")
+        await update.message.reply_text("Hasil Analisa Gambar:")
+        for i, result in enumerate(results, 1):
+            await update.message.reply_text(f"Analisis #{i}:\n{result}")
 
         # Cleanup
         os.remove(temp_image_path)
@@ -367,7 +378,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_photo")
         await update.message.reply_text("Maaf, terjadi kesalahan saat memproses gambar.")
-
+        
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     """Bersihkan sesi lama untuk menghemat memori"""
     for chat_id in list(user_sessions.keys()):
