@@ -352,11 +352,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Proses gambar langsung dari BytesIO
             results = await process_image_with_pixtral_multiple(temp_file)
 
-            # Kirim hasil analisis
             if results and any(results):
-                analysis_text = "\n".join([f"Analisis {i+1}: {result}" for i, result in enumerate(results)])
-                user_sessions[chat_id]['last_image_analysis'] = analysis_text
-                await update.message.reply_text(f"Hasil Analisa Gambar:\n{analysis_text}")
+                # Kirim setiap hasil analisis sebagai pesan terpisah
+                for i, result in enumerate(results):
+                    if result.strip():  # Pastikan tidak mengirim pesan kosong
+                        await update.message.reply_text(f"Analisis {i + 1}:\n{result}")
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
