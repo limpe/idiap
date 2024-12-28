@@ -493,13 +493,12 @@ def main():
 
     try:
         # Inisialisasi application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()  # <-- Tambahkan ini
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
