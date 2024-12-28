@@ -400,38 +400,33 @@ async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
-    chat_type = update.message.chat.type
-
-    # Log debugging
-    logger.info("Mention diterima.")
-    logger.info(f"Jenis pesan: {update.message}")
+    logger.info(f"Received mention in chat {update.message.chat_id}")
+    logger.info(f"Message text: {update.message.text}")
+    logger.info(f"Bot username: {context.bot.username}")
     
-    # Hanya proses jika di grup dan ada mention atau reply ke bot
+    chat_type = update.message.chat.type
+    
+    # Hanya proses jika di grup
     if chat_type in ["group", "supergroup"]:
         should_process = False
-        message_text = update.message.text or update.message.caption or ""
-
-        # Cek mention
-        if f'@{context.bot.username}' in message_text:
-            logger.info("Mention valid terdeteksi.")
-            should_process = True
-
-        # Cek reply
-        elif update.message.reply_to_message and \
-             update.message.reply_to_message.from_user.id == context.bot.id:
-            logger.info("Reply ke bot terdeteksi.")
-            should_process = True
-
-        # Proses mention
+        
+        # Cek mention dengan username bot
+        if update.message.text:
+            if context.bot.username in update.message.text:
+                should_process = True
+        
+        # Cek reply ke bot
+        if update.message.reply_to_message:
+            if update.message.reply_to_message.from_user.id == context.bot.id:
+                should_process = True
+        
         if should_process:
-            if update.message.photo:  # Jika ada foto
-                logger.info("Gambar ditemukan, memproses gambar.")
+            if update.message.photo:
                 await handle_photo(update, context)
-            elif message_text:  # Jika ada teks
-                logger.info("Teks ditemukan, memproses teks.")
+            elif update.message.text:
+                # Hapus mention dari pesan
+                message_text = update.message.text.replace(f'@{context.bot.username}', '').strip()
                 await handle_text(update, context, message_text=message_text)
-            else:
-                await update.message.reply_text("Kirimkan teks atau gambar untuk diproses.")
 
 
 
@@ -549,25 +544,13 @@ def main():
             handle_voice
         ))
 
-        # Group chat handlers - harus dengan mention/reply
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
+            (filters.TEXT | filters.CAPTION | filters.PHOTO) & 
             filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
+            (filters.Regex(rf"@{context.bot.username}") | filters.REPLY),
             handle_mention
         ))
-        application.add_handler(MessageHandler(
-            filters.PHOTO & 
-            filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
-            handle_photo
-        ))
-        application.add_handler(MessageHandler(
-            filters.VOICE & 
-            filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
-            handle_voice
-        ))
+
 
         logger.info("Semua handler berhasil ditambahkan.")  # Letakkan log di sini.
 
