@@ -49,6 +49,9 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
+# Struktur data baru untuk user_sessions
+user_sessions: Dict[int, Dict] = {}
+
 # Inisialisasi Redis client
 redis_url = os.getenv('REDIS_URL')
 if not redis_url:
@@ -409,8 +412,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
-# Struktur data baru untuk user_sessions
-user_sessions: Dict[int, Dict] = {}
+
 
 async def initialize_session(chat_id: int) -> None:
     user_sessions[chat_id] = {
@@ -489,6 +491,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
         await update.message.reply_text(response)
 
+sync def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /reset: Menghapus sesi pengguna."""
+    chat_id = update.message.chat_id
+
+    if chat_id in user_sessions:
+        del user_sessions[chat_id]
+        await update.message.reply_text("Sesi Anda telah direset.")
+    else:
+        await update.message.reply_text("Tidak ada sesi aktif yang ditemukan.")
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
@@ -496,12 +508,12 @@ def main():
 
     try:
         # Inisialisasi application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()  # <-- Tambahkan ini
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))
+        application.add_handler(CommandHandler("reset", reset_session))  # Tambahkan reset_session di sini
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Message handlers dengan prioritas
