@@ -491,7 +491,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
         await update.message.reply_text(response)
 
-sync def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset: Menghapus sesi pengguna."""
     chat_id = update.message.chat_id
 
