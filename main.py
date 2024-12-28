@@ -342,42 +342,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    photo_file = await update.message.photo[-1].get_file()
-    file_id = photo_file.file_id  # Gunakan file_id sebagai kunci unik
+    logger.info("Pesan foto diterima di grup.")
 
-    # Cek apakah hasil analisis sudah ada di Redis
-    cached_analysis = await get_image_analysis(chat_id, file_id)
-    if cached_analysis:
-        await update.message.reply_text("Hasil analisis gambar sebelumnya:")
-        for i, result in enumerate(cached_analysis):
-            await update.message.reply_text(f"Analisis {i + 1}:\n{result}")
+    # Filter mention dan reply
+    should_process = False
+    message_text = update.message.caption or ""
+    if f'@{context.bot.username}' in message_text:
+        should_process = True
+    elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+        should_process = True
+
+    if not should_process:
+        await update.message.reply_text("Silakan mention bot dengan benar untuk memproses gambar.")
         return
 
-    # Jika tidak ada di Redis, lakukan analisis baru
-    bot_statistics["total_messages"] += 1
-    bot_statistics["photo_messages"] += 1
+    # Proses gambar...
+    photo_file = await update.message.photo[-1].get_file()
     processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
-
-    # Proses gambar menggunakan BytesIO
+    
+    # Proses dan tampilkan hasil
     with BytesIO() as temp_file:
         photo_bytes = await photo_file.download_as_bytearray()
         temp_file.write(photo_bytes)
-        temp_file.seek(0)  # Pastikan pointer di awal file
-
-        # Proses gambar langsung dari BytesIO
+        temp_file.seek(0)
         results = await process_image_with_pixtral_multiple(temp_file)
-
-        if results and any(results):
-            # Simpan hasil analisis di Redis
-            await save_image_analysis(chat_id, file_id, results)
-            await update.message.reply_text("Hasil Analisa Gambar:")
-            for i, result in enumerate(results):
-                if result.strip():  # Pastikan tidak mengirim pesan kosong
-                    filtered_result = await filter_text(result)  # Terapkan filter
-                    await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
-        else:
-            await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
-
+        for result in results:
+            await update.message.reply_text(result)
     await processing_msg.delete()
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
@@ -400,7 +390,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cek mention
         if f'@{context.bot.username}' in message_text:
-            message_text = message_text.replace(f'@{context.bot.username}', '').strip()
             should_process = True
 
         # Cek reply
@@ -408,10 +397,13 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
              update.message.reply_to_message.from_user.id == context.bot.id:
             should_process = True
 
-        if should_process and message_text:
-            await handle_text(update, context, message_text=message_text)
-        else:
-            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
+        if should_process:
+            if update.message.photo:  # Jika ada foto
+                await handle_photo(update, context)
+            elif message_text:  # Jika ada teks
+                await handle_text(update, context, message_text=message_text)
+            else:
+                await update.message.reply_text("Kirimkan teks atau gambar untuk diproses.")
 
 
 
