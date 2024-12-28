@@ -342,32 +342,51 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    logger.info("Pesan foto diterima di grup.")
 
-    # Filter mention dan reply
-    should_process = False
-    message_text = update.message.caption or ""
-    if f'@{context.bot.username}' in message_text:
-        should_process = True
-    elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
-        should_process = True
+    # Debugging
+    logger.info("Masuk ke handler foto.")
+    logger.info(f"Pesan foto: {update.message}")
+    
+    photo_file = await update.message.photo[-1].get_file()
+    file_id = photo_file.file_id  # Gunakan file_id sebagai kunci unik
 
-    if not should_process:
-        await update.message.reply_text("Silakan mention bot dengan benar untuk memproses gambar.")
+    # Cek apakah hasil analisis sudah ada di Redis
+    cached_analysis = await get_image_analysis(chat_id, file_id)
+    if cached_analysis:
+        logger.info("Hasil analisis gambar ditemukan di Redis.")
+        await update.message.reply_text("Hasil analisis gambar sebelumnya:")
+        for i, result in enumerate(cached_analysis):
+            await update.message.reply_text(f"Analisis {i + 1}:\n{result}")
         return
 
-    # Proses gambar...
-    photo_file = await update.message.photo[-1].get_file()
+    # Jika tidak ada di Redis, lakukan analisis baru
+    bot_statistics["total_messages"] += 1
+    bot_statistics["photo_messages"] += 1
     processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
-    
-    # Proses dan tampilkan hasil
-    with BytesIO() as temp_file:
-        photo_bytes = await photo_file.download_as_bytearray()
-        temp_file.write(photo_bytes)
-        temp_file.seek(0)
-        results = await process_image_with_pixtral_multiple(temp_file)
-        for result in results:
-            await update.message.reply_text(result)
+
+    try:
+        # Proses gambar menggunakan BytesIO
+        with BytesIO() as temp_file:
+            photo_bytes = await photo_file.download_as_bytearray()
+            temp_file.write(photo_bytes)
+            temp_file.seek(0)
+            results = await process_image_with_pixtral_multiple(temp_file)
+
+            if results and any(results):
+                logger.info("Analisis gambar selesai.")
+                await save_image_analysis(chat_id, file_id, results)
+                await update.message.reply_text("Hasil Analisa Gambar:")
+                for i, result in enumerate(results):
+                    if result.strip():
+                        filtered_result = await filter_text(result)
+                        await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
+            else:
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+
+    except Exception as e:
+        logger.exception("Error saat memproses gambar.")
+        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+
     await processing_msg.delete()
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
@@ -383,6 +402,10 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
     chat_type = update.message.chat.type
 
+    # Log debugging
+    logger.info("Mention diterima.")
+    logger.info(f"Jenis pesan: {update.message}")
+    
     # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
         should_process = False
@@ -390,17 +413,22 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cek mention
         if f'@{context.bot.username}' in message_text:
+            logger.info("Mention valid terdeteksi.")
             should_process = True
 
         # Cek reply
         elif update.message.reply_to_message and \
              update.message.reply_to_message.from_user.id == context.bot.id:
+            logger.info("Reply ke bot terdeteksi.")
             should_process = True
 
+        # Proses mention
         if should_process:
             if update.message.photo:  # Jika ada foto
+                logger.info("Gambar ditemukan, memproses gambar.")
                 await handle_photo(update, context)
             elif message_text:  # Jika ada teks
+                logger.info("Teks ditemukan, memproses teks.")
                 await handle_text(update, context, message_text=message_text)
             else:
                 await update.message.reply_text("Kirimkan teks atau gambar untuk diproses.")
@@ -521,6 +549,8 @@ def main():
             handle_voice
         ))
 
+        
+
         # Group chat handlers - harus dengan mention/reply
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
@@ -534,12 +564,17 @@ def main():
             (filters.Entity("mention") | filters.REPLY),
             handle_photo
         ))
+
+logger.info("Handler untuk foto dengan mention telah ditambahkan.")
+
         application.add_handler(MessageHandler(
             filters.VOICE & 
             filters.ChatType.GROUPS &
             (filters.Entity("mention") | filters.REPLY),
             handle_voice
         ))
+
+        
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
