@@ -492,7 +492,9 @@ def main():
         return
 
     try:
-        
+        # Inisialisasi application
+        application = Application.builder().token(TELEGRAM_TOKEN).build()  # <-- Tambahkan ini
+
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
