@@ -338,45 +338,43 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
+    photo_file = await update.message.photo[-1].get_file()
+    file_id = photo_file.file_id  # Gunakan file_id sebagai kunci unik
 
-    # Periksa apakah ini di grup
-    if update.message.chat.type in ["group", "supergroup"]:
-        message_text = update.message.caption or ""  # Caption pada gambar
-        if f"@{context.bot.username}" not in message_text:
-            logger.info("Gambar di grup diabaikan karena tidak ada mention.")
-            return  # Abaikan jika tidak ada mention
+    # Cek apakah hasil analisis sudah ada di Redis
+    cached_analysis = await get_image_analysis(chat_id, file_id)
+    if cached_analysis:
+        await update.message.reply_text("Hasil analisis gambar sebelumnya:")
+        for i, result in enumerate(cached_analysis):
+            await update.message.reply_text(f"Analisis {i + 1}:\n{result}")
+        return
 
-    try:
-        # Pastikan sesi sudah diinisialisasi
-        if chat_id not in user_sessions:
-            await initialize_session(chat_id)
+    # Jika tidak ada di Redis, lakukan analisis baru
+    bot_statistics["total_messages"] += 1
+    bot_statistics["photo_messages"] += 1
+    processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
 
-        bot_statistics["total_messages"] += 1
-        bot_statistics["photo_messages"] += 1
-        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
+    # Proses gambar menggunakan BytesIO
+    with BytesIO() as temp_file:
+        photo_bytes = await photo_file.download_as_bytearray()
+        temp_file.write(photo_bytes)
+        temp_file.seek(0)  # Pastikan pointer di awal file
 
-        # Ambil file gambar
-        photo_file = await update.message.photo[-1].get_file()
+        # Proses gambar langsung dari BytesIO
+        results = await process_image_with_pixtral_multiple(temp_file)
 
-        # Proses gambar menggunakan BytesIO
-        with BytesIO() as temp_file:
-            photo_bytes = await photo_file.download_as_bytearray()
-            temp_file.write(photo_bytes)
-            temp_file.seek(0)  # Pastikan pointer di awal file
+        if results and any(results):
+            # Simpan hasil analisis di Redis
+            await save_image_analysis(chat_id, file_id, results)
+            await update.message.reply_text("Hasil Analisa Gambar:")
+            for i, result in enumerate(results):
+                if result.strip():  # Pastikan tidak mengirim pesan kosong
+                    filtered_result = await filter_text(result)  # Terapkan filter
+                    await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
+        else:
+            await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
-            # Proses gambar langsung dari BytesIO
-            results = await process_image_with_pixtral_multiple(temp_file)
-
-            if results and any(results):
-                # Kirim setiap hasil analisis sebagai pesan terpisah setelah difilter
-                for i, result in enumerate(results):
-                    if result.strip():  # Pastikan tidak mengirim pesan kosong
-                        filtered_result = await filter_text(result)  # Terapkan filter
-                        await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
-
-        await processing_msg.delete()
+    await processing_msg.delete()
 
     except Exception as e:
         logger.exception("Error dalam proses analisis gambar")
@@ -479,18 +477,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
+    # Cek apakah pesan adalah pertanyaan tentang gambar yang sudah dianalisis
+    if update.message.reply_to_message and update.message.reply_to_message.photo:
+        file_id = update.message.reply_to_message.photo[-1].file_id
+        cached_analysis = await get_image_analysis(chat_id, file_id)
+        if cached_analysis:
+            await update.message.reply_text(f"Hasil analisis gambar sebelumnya:\n{cached_analysis[0]}")  # Tampilkan hasil pertama
+            return
+
+    # Jika bukan pertanyaan tentang gambar, lanjutkan pemrosesan pesan biasa
     user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
     response = await process_with_mistral(user_sessions[chat_id]['messages'])
 
     if response:
         user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
         await update.message.reply_text(response)
-
-async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    if chat_id in user_sessions:
-        del user_sessions[chat_id]
-    await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
 def main():
     if not check_required_settings():
@@ -550,6 +551,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
+
+async def save_image_analysis(chat_id: int, file_id: str, analysis: List[str]):
+    """Simpan hasil analisis gambar di Redis."""
+    redis_client.set(f"image_analysis_{chat_id}_{file_id}", json.dumps(analysis), ex=86400)  # TTL 24 jam
+
+async def get_image_analysis(chat_id: int, file_id: str) -> Optional[List[str]]:
+    """Ambil hasil analisis gambar dari Redis."""
+    cached_analysis = redis_client.get(f"image_analysis_{chat_id}_{file_id}")
+    if cached_analysis:
+        return json.loads(cached_analysis)
+    return None
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_message = (
