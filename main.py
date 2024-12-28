@@ -17,6 +17,7 @@ from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
+from telegram.ext import RateLimiter
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -459,6 +460,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
     chat_id = update.message.chat_id  # Ambil chat ID
 
     # Pastikan sesi sudah diinisialisasi
@@ -477,17 +479,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
         await update.message.reply_text(response)
 
+async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    if chat_id in user_sessions:
+        del user_sessions[chat_id]
+    await update.message.reply_text("Sesi percakapan Anda telah direset.")
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
 
     try:
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        application = Application.builder().token(TELEGRAM_TOKEN).rate_limiter(RateLimiter()).build()
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("reset", reset_session))
 
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
