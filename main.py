@@ -544,15 +544,15 @@ def main():
             handle_voice
         ))
 
+        # Group chat handlers
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION | filters.PHOTO) & 
             filters.ChatType.GROUPS &
-            (filters.Regex(rf"@{context.bot.username}") | filters.REPLY),
+            (filters.Entity("mention") | filters.REPLY),
             handle_mention
         ))
 
-
-        logger.info("Semua handler berhasil ditambahkan.")  # Letakkan log di sini.
+        logger.info("Semua handler berhasil ditambahkan.")
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
