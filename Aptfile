@@ -1,0 +1,7 @@
+ffmpeg
+libespeak1
+python3-espeak
+portaudio19-dev
+python3-all-dev
+python3-pyaudio
+webrtcvad
