@@ -528,8 +528,6 @@ def main():
         return
 
     try:
-
-        
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
@@ -551,8 +549,6 @@ def main():
             handle_voice
         ))
 
-        
-
         # Group chat handlers - harus dengan mention/reply
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
@@ -566,11 +562,6 @@ def main():
             (filters.Entity("mention") | filters.REPLY),
             handle_photo
         ))
-try:
-    logger.info("Handler untuk foto dengan mention telah ditambahkan.")
-except Exception as e:
-    logger.error(f"Error saat mencoba log: {e}")
-
         application.add_handler(MessageHandler(
             filters.VOICE & 
             filters.ChatType.GROUPS &
@@ -578,7 +569,7 @@ except Exception as e:
             handle_voice
         ))
 
-        
+        logger.info("Semua handler berhasil ditambahkan.")  # Letakkan log di sini.
 
         # Cleanup session setiap jam
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
