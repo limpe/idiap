@@ -189,30 +189,58 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
-    """Proses file suara menjadi teks dengan penanganan error"""
+    """Proses file suara menjadi teks dengan optimasi untuk Railway"""
     try:
         logger.info("Memulai pemrosesan pesan suara...")
-
-        # Unduh file suara
         voice_file = await update.message.voice.get_file()
 
-        # Gunakan `with` untuk file sementara
-        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=True) as temp_ogg:
-            await voice_file.download_to_drive(temp_ogg.name)
-            logger.info(f"File suara didownload ke {temp_ogg.name}")
-
-            # Konversi OGG ke WAV
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as temp_wav:
-                audio = AudioSegment.from_ogg(temp_ogg.name).set_channels(1).set_frame_rate(16000)
-                audio.export(temp_wav.name, format='wav')
-                logger.info("Konversi file OGG ke WAV berhasil")
-
-                # Transkripsi suara
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(temp_wav.name) as source:
-                    text = recognizer.recognize_google(recognizer.record(source), language="id-ID")
-                    logger.info("Transkripsi selesai")
+        # Gunakan BytesIO untuk mengurangi penggunaan disk
+        with BytesIO() as ogg_bytes, BytesIO() as wav_bytes:
+            # Download file langsung ke memory
+            ogg_data = await voice_file.download_as_bytearray()
+            ogg_bytes.write(ogg_data)
+            ogg_bytes.seek(0)
+            
+            # Preprocessing audio dalam memory
+            audio = AudioSegment.from_ogg(ogg_bytes)
+            audio = (audio
+                    .set_channels(1)  # Convert to mono
+                    .set_frame_rate(16000)  # Set to 16kHz
+                    .normalize())  # Normalize volume
+            
+            # Export ke WAV dalam memory
+            audio.export(wav_bytes, format='wav')
+            wav_bytes.seek(0)
+            
+            # Recognize dengan multiple engines
+            recognizer = sr.Recognizer()
+            
+            # Konfigurasi recognizer
+            recognizer.energy_threshold = 300
+            recognizer.dynamic_energy_threshold = True
+            recognizer.dynamic_energy_adjustment_damping = 0.15
+            recognizer.dynamic_energy_ratio = 1.5
+            
+            with sr.AudioFile(wav_bytes) as source:
+                # Adjust for ambient noise
+                recognizer.adjust_for_ambient_noise(source)
+                audio_data = recognizer.record(source)
+                
+                # Try Google Speech Recognition
+                try:
+                    text = recognizer.recognize_google(
+                        audio_data, 
+                        language="id-ID",
+                        show_all=False
+                    )
+                    logger.info("Transkripsi berhasil")
                     return text
+                except sr.UnknownValueError:
+                    logger.warning("Google Speech Recognition tidak dapat memahami audio")
+                    return None
+                except sr.RequestError as e:
+                    logger.error(f"Tidak dapat meminta hasil dari Google Speech Recognition; {e}")
+                    return None
 
     except Exception as e:
         logger.exception("Error dalam pemrosesan audio")
@@ -295,7 +323,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_id = update.message.chat_id
         
-        # Pastikan sesi sudah diinisialisasi
         if chat_id not in user_sessions:
             await initialize_session(chat_id)
 
@@ -307,28 +334,31 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["voice_messages"] += 1
 
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
-        text = await process_voice_to_text(update)
+        
+        try:
+            text = await process_voice_to_text(update)
+            if text:
+                await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{text}")
+                
+                user_sessions[chat_id]['messages'].append({"role": "user", "content": text})
+                mistral_messages = user_sessions[chat_id]['messages'][-10:]
+                response = await process_with_mistral(mistral_messages)
 
-        if text:
-            text = await filter_text(text)
-            await update.message.reply_text(f"Teks hasil transkripsi suara Anda: \n{text}")
-            
-            user_sessions[chat_id]['messages'].append({"role": "user", "content": text})
-            mistral_messages = user_sessions[chat_id]['messages'][-10:]
-            response = await process_with_mistral(mistral_messages)
-
-            if response:
-                user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
-                response = await filter_text(response)
-                await update.message.reply_text(response)
-                await send_voice_response(update, response)
-
-        await processing_msg.delete()
+                if response:
+                    user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
+                    response = await filter_text(response)
+                    await update.message.reply_text(response)
+                    await send_voice_response(update, response)
+            else:
+                await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
+        
+        finally:
+            await processing_msg.delete()
 
     except Exception as e:
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
-        await update.message.reply_text("Maaf, terjadi kesalahan.")
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
