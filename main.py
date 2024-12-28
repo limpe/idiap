@@ -408,25 +408,25 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Hanya proses jika di grup
     if chat_type in ["group", "supergroup"]:
-    should_process = False
-    
-    # Cek mention dengan username bot
-    if update.message.text:
-        if context.bot.username in update.message.text:
-            should_process = True
-    
-    # Cek reply ke bot
-    if update.message.reply_to_message:
-        if update.message.reply_to_message.from_user.id == context.bot.id:
-            should_process = True
-    
-    if should_process:
-        if update.message.photo:
-            await handle_photo(update, context)
-        elif update.message.text:
-            # Hapus mention dari pesan
-            message_text = update.message.text.replace(f'@{context.bot.username}', '').strip()
-            await handle_text(update, context, message_text=message_text)
+        should_process = False
+        
+        # Cek mention dengan username bot
+        if update.message.text:
+            if context.bot.username in update.message.text:
+                should_process = True
+        
+        # Cek reply ke bot
+        if update.message.reply_to_message:
+            if update.message.reply_to_message.from_user.id == context.bot.id:
+                should_process = True
+        
+        if should_process:
+            if update.message.photo:
+                await handle_photo(update, context)
+            elif update.message.text:
+                # Hapus mention dari pesan
+                message_text = update.message.text.replace(f'@{context.bot.username}', '').strip()
+                await handle_text(update, context, message_text=message_text)
 
 
 
