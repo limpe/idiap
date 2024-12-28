@@ -130,7 +130,6 @@ async def encode_image(image_source) -> str:
         raise
 
 async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 2) -> List[str]:
-    """Process image using Pixtral model multiple times with rate limiting."""
     try:
         base64_image = await encode_image(image_path)
         results = []
@@ -177,6 +176,7 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
                                     continue
                             response.raise_for_status()
                             result = await response.json()
+                            logger.info(f"Respons dari API Mistral: {result}")
                             return result['choices'][0]['message']['content']
                 except Exception as e:
                     if attempt < max_retries - 1:
@@ -343,12 +343,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
-    # Debugging
-    logger.info("Masuk ke handler foto.")
-    logger.info(f"Pesan foto: {update.message}")
-    
+    # Debugging: Log penerimaan gambar
+    logger.info("Pesan foto diterima.")
+    logger.info(f"File ID foto: {update.message.photo[-1].file_id}")
+
+    # Unduh file foto
     photo_file = await update.message.photo[-1].get_file()
-    file_id = photo_file.file_id  # Gunakan file_id sebagai kunci unik
+    file_id = photo_file.file_id
 
     # Cek apakah hasil analisis sudah ada di Redis
     cached_analysis = await get_image_analysis(chat_id, file_id)
@@ -369,7 +370,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with BytesIO() as temp_file:
             photo_bytes = await photo_file.download_as_bytearray()
             temp_file.write(photo_bytes)
-            temp_file.seek(0)
+            temp_file.seek(0)  # Pastikan pointer di awal file
+
+            # Proses gambar langsung dari BytesIO
             results = await process_image_with_pixtral_multiple(temp_file)
 
             if results and any(results):
