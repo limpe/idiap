@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 import tempfile
 import asyncio
@@ -508,45 +507,30 @@ def main():
         return
 
     try:
+        # Inisialisasi application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))
-
-        # Private chat handlers
-        application.add_handler(MessageHandler(
-            filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
-            handle_text
-        ))
-        application.add_handler(MessageHandler(
-            filters.PHOTO & filters.ChatType.PRIVATE,
-            handle_photo
-        ))
-        application.add_handler(MessageHandler(
-            filters.VOICE & filters.ChatType.PRIVATE,
-            handle_voice
-        ))
-
-        # Group chat handlers - harus dengan mention/reply
+        application.add_handler(CommandHandler("reset", reset_session))  # Tambahkan reset_session di sini
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Message handlers dengan prioritas
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        
+        # Handler baru untuk text dengan mention di grup
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
-            filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
+            (filters.Entity("mention") | filters.REPLY), 
             handle_mention
         ))
+        
+        # Handler baru untuk chat pribadi
         application.add_handler(MessageHandler(
-            filters.PHOTO & 
-            filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
-            handle_photo
-        ))
-        application.add_handler(MessageHandler(
-            filters.VOICE & 
-            filters.ChatType.GROUPS &
-            (filters.Entity("mention") | filters.REPLY),
-            handle_voice
+            filters.TEXT & filters.ChatType.PRIVATE,
+            handle_text
         ))
 
         # Cleanup session setiap jam
