@@ -4,6 +4,7 @@ import tempfile
 import asyncio
 import base64
 import uuid
+import redis
 from typing import Optional, List, Dict
 
 from telegram import Update, InputFile
@@ -17,7 +18,7 @@ from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
-from telegram.ext import RateLimiter
+from datetime import datetime, timedelta
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -491,8 +492,7 @@ def main():
         return
 
     try:
-        application = Application.builder().token(TELEGRAM_TOKEN).rate_limiter(RateLimiter()).build()
-
+        
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
@@ -523,6 +523,24 @@ def main():
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
+    user_id = update.message.from_user.id
+    current_time = datetime.now()
+
+    # Cek kapan terakhir pengguna mengirim pesan
+    last_message_time = redis_client.get(f"last_message_time_{user_id}")
+    if last_message_time:
+        last_message_time = datetime.fromtimestamp(float(last_message_time))
+        if current_time - last_message_time < timedelta(seconds=5):  # Batasan: 1 pesan per 5 detik
+            await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
+            return
+
+    # Update waktu terakhir pengguna mengirim pesan
+    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+
+    # Lanjutkan pemrosesan pesan
+    await handle_text(update, context)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_message = (
