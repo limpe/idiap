@@ -375,10 +375,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
     await processing_msg.delete()
-
-    except Exception as e:
-        logger.exception("Error dalam proses analisis gambar")
-        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     current_time = asyncio.get_event_loop().time()
