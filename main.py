@@ -50,7 +50,10 @@ MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
 # Inisialisasi Redis client
-redis_client = redis.Redis.from_url(os.getenv('REDIS_URL'))
+redis_url = os.getenv('REDIS_URL')
+if not redis_url:
+    raise ValueError("Variabel environment 'REDIS_URL' tidak ditemukan. Pastikan sudah diatur di Railway.")
+redis_client = redis.Redis.from_url(redis_url)
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -535,7 +538,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_time = datetime.now()
 
     # Cek kapan terakhir pengguna mengirim pesan
-    last_message_time = redis_client.get(f"last_message_time_{user_id}")  # <-- Pastikan ini menggunakan redis_client yang sudah diinisialisasi
+    last_message_time = redis_client.get(f"last_message_time_{user_id}")
     if last_message_time:
         last_message_time = datetime.fromtimestamp(float(last_message_time))
         if current_time - last_message_time < timedelta(seconds=5):  # Batasan: 1 pesan per 5 detik
