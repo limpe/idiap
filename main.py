@@ -528,6 +528,8 @@ def main():
         return
 
     try:
+
+        
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
@@ -564,8 +566,10 @@ def main():
             (filters.Entity("mention") | filters.REPLY),
             handle_photo
         ))
-
-logger.info("Handler untuk foto dengan mention telah ditambahkan.")
+try:
+    logger.info("Handler untuk foto dengan mention telah ditambahkan.")
+except Exception as e:
+    logger.error(f"Error saat mencoba log: {e}")
 
         application.add_handler(MessageHandler(
             filters.VOICE & 
