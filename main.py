@@ -22,7 +22,7 @@ from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
-from datetime import datetime, timedeltaf
+from datetime import datetime, timedelta
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
