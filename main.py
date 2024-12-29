@@ -28,28 +28,21 @@ from datetime import datetime, timedelta
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
 def check_required_settings():
-    required_settings = {
-        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
-        'MISTRAL_API_KEY': MISTRAL_API_KEY,
-        'REDIS_URL': REDIS_URL
-    }
-    
-    missing_settings = []
-    for name, value in required_settings.items():
-        if not value:
-            missing_settings.append(name)
-            print(f"Error: {name} tidak ditemukan!")
-    
-    if missing_settings:
+    if not TELEGRAM_TOKEN:
+        print("Error: TELEGRAM_TOKEN tidak ditemukan!")
         return False
-    
+    if not MISTRAL_API_KEY:
+        print("Error: MISTRAL_API_KEY tidak ditemukan!")
+        return False
+        
     # Test Redis connection
     try:
         redis_client.ping()
     except Exception as e:
         print(f"Error: Tidak dapat terhubung ke Redis: {e}")
         return False
-            return True
+    
+    return True
 
 
 
