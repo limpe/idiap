@@ -7,11 +7,11 @@ import uuid
 import redis
 import gtts
 import aiohttp
-import gc  # untuk garbage collection
-import psutil  # untuk monitoring sistem
+import gc
+import psutil
 import json
 
-from redis import Redis  # untuk database Redis
+from redis import Redis
 from typing import Optional, List, Dict
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -22,7 +22,7 @@ from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
-from datetime import datetime, timedelta
+from datetime import datetime, timedeltaf
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -658,20 +658,44 @@ async def monitor_system_resources(context: ContextTypes.DEFAULT_TYPE):
     finally:
         # Hapus lock setelah selesai
         redis_client.delete(lock_key)
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /stats command"""
+    try:
+        # Get stats from global dictionary since Redis might be unavailable
+        stats_message = (
+            f"📊 Statistik Bot:\n"
+            f"├─ Total Pesan: {bot_statistics['total_messages']}\n"
+            f"├─ Pesan Suara: {bot_statistics['voice_messages']}\n"
+            f"├─ Pesan Teks: {bot_statistics['text_messages']}\n"
+            f"├─ Pesan Foto: {bot_statistics['photo_messages']}\n"
+            f"└─ Kesalahan: {bot_statistics['errors']}"
+        )
+        
+        await update.message.reply_text(stats_message)
+        
+    except Exception as e:
+        logger.error(f"Error dalam stats: {e}")
+        await update.message.reply_text("Gagal mengambil statistik. Silakan coba lagi.")
         
 
 async def main():
-    # Initialize the bot
+    """Main function to run the bot"""
     application = None
     try:
-        if not check_required_settings():
-            print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+        # Check required settings
+        if not TELEGRAM_TOKEN:
+            logger.error("TELEGRAM_TOKEN tidak ditemukan!")
+            return
+            
+        if not MISTRAL_API_KEY:
+            logger.error("MISTRAL_API_KEY tidak ditemukan!")
             return
 
-        # Inisialisasi application
+        # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Command handlers
+        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
@@ -689,70 +713,43 @@ async def main():
             handle_text
         ))
 
-        # Tambahkan job monitoring
-        application.job_queue.run_repeating(
-            monitor_system_resources, 
-            interval=300,
-            first=10
-        )
-
+        # Start the bot
         print("Starting bot...")
-        # Start the bot without running the event loop
         await application.initialize()
         await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         
-        print("Bot is running...")
+        # Start polling without using updater.running
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
         
-        # Keep the bot running
-        try:
-            await application.updater.running
-        except Exception as e:
-            logger.error(f"Error while running: {e}")
-        finally:
-            if application.updater.running:
-                await application.updater.stop()
-            if application.running:
-                await application.stop()
-
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        if application:
-            try:
-                if application.updater and application.updater.running:
-                    await application.updater.stop()
-                if application.running:
-                    await application.stop()
-            except Exception as shutdown_error:
-                logger.error(f"Error during shutdown: {shutdown_error}")
+        if application and application.running:
+            await application.stop()
         raise
 
 def run_bot():
-    """Run the bot with proper event loop handling"""
+    """Run the bot with proper error handling"""
     try:
-        # Get or create an event loop
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # Run the main function
+        # Set up event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(main())
-        
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped!")
     except Exception as e:
         logger.critical(f"Fatal error in run_bot: {e}")
     finally:
         try:
+            loop = asyncio.get_event_loop()
             # Clean up pending tasks
             pending = asyncio.all_tasks(loop)
             for task in pending:
                 task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             
-            # Close the loop
+            # Wait for all tasks to be cancelled
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            
             loop.close()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
@@ -777,31 +774,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
 
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Ambil metrics dari Redis
-        metrics_data = redis_client.get('bot_metrics')
-        metrics = json.loads(metrics_data) if metrics_data else {}
-        
-        active_sessions = redis_client.get('active_sessions')
-        active_sessions = int(active_sessions) if active_sessions else 0
-        
-        stats_message = (
-            f"📊 Statistik Bot:\n"
-            f"├─ Total Pesan: {metrics.get('total_messages', 0)}\n"
-            f"├─ Pesan Suara: {metrics.get('voice_messages', 0)}\n"
-            f"├─ Pesan Teks: {metrics.get('text_messages', 0)}\n"
-            f"├─ Kesalahan: {metrics.get('errors', 0)}\n"
-            f"├─ Sesi Aktif: {active_sessions}\n"
-            f"└─ Penggunaan Memory: {metrics.get('memory_usage', 0):.1f}MB"
-        )
-        
-        await update.message.reply_text(stats_message)
-        
-    except Exception as e:
-        logger.error(f"Error dalam stats: {e}")
-        await update.message.reply_text("Gagal mengambil statistik. Silakan coba lagi.")
 
 if __name__ == '__main__':
     asyncio.run(main())
