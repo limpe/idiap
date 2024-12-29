@@ -132,14 +132,14 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
             }
 
             data = {
-                "model": "open-mistral-nemo",
+                "model": "pixtral-large-latest",
                 "messages": [
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Apa isi gambar ini? Mohon jelaskan dengan detail dalam Bahasa Indonesia."
+                                "text": "Apa isi gambar ini? Tolong Analisa Secara Mendalam Mohon jelaskan dengan Super detail dalam Bahasa Indonesia."
                             },
                             {
                                 "type": "image_url",
