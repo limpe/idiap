@@ -54,8 +54,8 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-MAX_CONVERSATION_MESSAGES = 10
-CONVERSATION_TIMEOUT = 1000  # Durasi percakapan dalam detik
+MAX_CONVERSATION_MESSAGES = 20
+CONVERSATION_TIMEOUT = 2000  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 100
 
 # Dictionary untuk menyimpan histori percakapan
@@ -119,8 +119,7 @@ async def encode_image(image_source) -> str:
         logger.exception("Error encoding image")
         raise
 
-async def process_image_with_pixtral_multiple(image_path: str, repetitions: int = 2) -> List[str]:
-    """Process image using Pixtral model multiple times with rate limiting."""
+async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
         base64_image = await encode_image(image_path)
         results = []
@@ -131,6 +130,9 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
                 "Content-Type": "application/json"
             }
 
+            # Use custom prompt if provided, otherwise use default
+            user_prompt = prompt if prompt else "Apa isi gambar ini? Tolong Analisa Dan jelaskan dengan Super detail dalam Bahasa Indonesia."
+
             data = {
                 "model": "pixtral-large-latest",
                 "messages": [
@@ -139,7 +141,7 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Apa isi gambar ini? Tolong Analisa Dan jelaskan dengan Super detail dalam Bahasa Indonesia."
+                                "text": user_prompt
                             },
                             {
                                 "type": "image_url",
@@ -362,13 +364,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+    caption = update.message.caption or ""
 
     # Periksa apakah ini di grup
-    if update.message.chat.type in ["group", "supergroup"]:
-        message_text = update.message.caption or ""  # Caption pada gambar
-        if f"@{context.bot.username}" not in message_text:
+    if chat_type in ["group", "supergroup"]:
+        if f"@{context.bot.username}" not in caption:
             logger.info("Gambar di grup diabaikan karena tidak ada mention.")
-            return  # Abaikan jika tidak ada mention
+            return  # Abaikan jika tidak ada mention di grup
 
     try:
         # Pastikan sesi sudah diinisialisasi
@@ -386,16 +389,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with BytesIO() as temp_file:
             photo_bytes = await photo_file.download_as_bytearray()
             temp_file.write(photo_bytes)
-            temp_file.seek(0)  # Pastikan pointer di awal file
+            temp_file.seek(0)
 
-            # Proses gambar langsung dari BytesIO
-            results = await process_image_with_pixtral_multiple(temp_file)
+            # Prepare the prompt based on caption
+            if caption:
+                # Remove bot mention from caption if present
+                prompt = caption.replace(f"@{context.bot.username}", "").strip()
+                if not prompt:  # If caption only contained mention
+                    prompt = None  # Will use default prompt
+            else:
+                prompt = None  # Will use default prompt
+
+            # Process image with the determined prompt
+            results = await process_image_with_pixtral_multiple(temp_file, prompt=prompt)
 
             if results and any(results):
-                # Kirim setiap hasil analisis sebagai pesan terpisah setelah difilter
+                # Send each analysis result as a separate message after filtering
                 for i, result in enumerate(results):
-                    if result.strip():  # Pastikan tidak mengirim pesan kosong
-                        filtered_result = await filter_text(result)  # Terapkan filter
+                    if result.strip():  # Make sure not to send empty messages
+                        filtered_result = await filter_text(result)
                         await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
