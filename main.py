@@ -404,11 +404,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             results = await process_image_with_pixtral_multiple(temp_file, prompt=prompt)
 
             if results and any(results):
+                combined_analysis = ""
                 # Send each analysis result as a separate message after filtering
                 for i, result in enumerate(results):
                     if result.strip():  # Make sure not to send empty messages
                         filtered_result = await filter_text(result)
                         await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
+                        combined_analysis += f"\nAnalisis {i + 1}:\n{filtered_result}\n"
+                
+                # Simpan hasil analisis ke dalam sesi percakapan
+                user_sessions[chat_id]['messages'].append({
+                    "role": "user", 
+                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
+                })
+                user_sessions[chat_id]['messages'].append({
+                    "role": "assistant",
+                    "content": combined_analysis
+                })
+                # Simpan informasi bahwa percakapan terakhir adalah tentang gambar
+                user_sessions[chat_id]['last_image_analysis'] = combined_analysis
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
@@ -459,7 +473,7 @@ async def initialize_session(chat_id: int) -> None:
         'messages': [],
         'last_update': asyncio.get_event_loop().time(),
         'conversation_id': str(uuid.uuid4()),
-        'last_image_analysis': None  # Tambahkan ini
+        'last_image_analysis': None 
     }
     """Inisialisasi sesi baru untuk chat"""
     # Batasi jumlah sesi aktif
@@ -504,7 +518,14 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
-    chat_id = update.message.chat_id  # Ambil chat ID
+    chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+
+    # Periksa apakah ini di grup dan perlu mention
+    if chat_type in ["group", "supergroup"]:
+        if not message_text:  # Jika bukan dari handle_mention
+            if f"@{context.bot.username}" not in update.message.text:
+                return  # Abaikan jika tidak ada mention di grup
 
     # Pastikan sesi sudah diinisialisasi
     if chat_id not in user_sessions:
@@ -512,10 +533,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Proses teks
     message = message_text or update.message.text.strip()
+    if chat_type in ["group", "supergroup"]:
+        message = message.replace(f"@{context.bot.username}", "").strip()
+    
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
+    # Tambahkan konteks gambar jika ada dan pertanyaan tampaknya terkait
+    image_related_keywords = ['gambar', 'foto', 'image', 'analisis', 'jelaskan', 'tersebut', 'itu']
+    has_image_context = any(keyword in message.lower() for keyword in image_related_keywords)
+    
+    if has_image_context and 'last_image_analysis' in user_sessions[chat_id]:
+        # Tambahkan konteks gambar ke dalam pesan
+        context_message = (
+            f"Konteks sebelumnya: {user_sessions[chat_id]['last_image_analysis']}\n"
+            f"Pertanyaan user: {message}"
+        )
+        user_sessions[chat_id]['messages'].append({"role": "user", "content": context_message})
+    else:
+        user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
+
     response = await process_with_mistral(user_sessions[chat_id]['messages'])
 
     if response:
