@@ -132,7 +132,7 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
             }
 
             data = {
-                "model": "mistral-moderation-latest",
+                "model": "open-mistral-nemo",
                 "messages": [
                     {
                         "role": "user",
