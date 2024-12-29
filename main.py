@@ -681,35 +681,12 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     try:
-        # Check required settings
         if not TELEGRAM_TOKEN:
             logger.error("TELEGRAM_TOKEN tidak ditemukan!")
             return
-            
-        if not MISTRAL_API_KEY:
-            logger.error("MISTRAL_API_KEY tidak ditemukan!")
-            return
 
-        # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Tambahkan handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
-        ))
-        application.add_handler(MessageHandler(
-            filters.TEXT & filters.ChatType.PRIVATE,
-            handle_text
-        ))
-
-        # Start the bot
         print("Starting bot...")
         await application.initialize()
         await application.start()
@@ -718,16 +695,14 @@ async def main():
         if application:
             await application.stop()
             await application.shutdown()
-
+            
 def run_bot():
     """Run the bot with proper error handling."""
     try:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("Bot dihentikan!")
     except Exception as e:
-        logger.critical(f"Error fatal di run_bot: {e}")
+        logger.critical(f"Error saat menjalankan bot: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
