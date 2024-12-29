@@ -680,8 +680,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 
 async def main():
-    """Main function to run the bot"""
-    application = None
     try:
         # Check required settings
         if not TELEGRAM_TOKEN:
@@ -695,12 +693,10 @@ async def main():
         # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Add handlers
+        # Tambahkan handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
-        
-        # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
@@ -717,45 +713,21 @@ async def main():
         print("Starting bot...")
         await application.initialize()
         await application.start()
-        
-        # Start polling without using updater.running
         await application.run_polling(allowed_updates=Update.ALL_TYPES)
-        
-    except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        if application and application.running:
+    finally:
+        if application:
             await application.stop()
-        raise
+            await application.shutdown()
 
 def run_bot():
-    """Run the bot with proper error handling"""
+    """Run the bot with proper error handling."""
     try:
-        # Set up event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Bot stopped!")
+        print("Bot dihentikan!")
     except Exception as e:
-        logger.critical(f"Fatal error in run_bot: {e}")
-    finally:
-        try:
-            loop = asyncio.get_event_loop()
-            # Clean up pending tasks
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            
-            # Wait for all tasks to be cancelled
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            
-            loop.close()
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-
-if __name__ == '__main__':
-    run_bot()
+        logger.critical(f"Error fatal di run_bot: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
@@ -776,4 +748,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
     await handle_text(update, context)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except Exception as e:
+        logger.critical(f"Error saat menjalankan bot: {e}")
