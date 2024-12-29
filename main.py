@@ -5,18 +5,14 @@ import asyncio
 import base64
 import uuid
 import redis
-import gtts
-import aiohttp
-import gc
-import psutil
-import json
-
-from redis import Redis
 from typing import Optional, List, Dict
+
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
+import gtts
+import aiohttp
 from langdetect import detect
 from groq import Groq
 from PIL import Image
@@ -28,33 +24,13 @@ from datetime import datetime, timedelta
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
 def check_required_settings():
-    global redis_client
-    
     if not TELEGRAM_TOKEN:
         print("Error: TELEGRAM_TOKEN tidak ditemukan!")
         return False
     if not MISTRAL_API_KEY:
         print("Error: MISTRAL_API_KEY tidak ditemukan!")
         return False
-    
-    # Coba inisialisasi Redis jika belum ada
-    if redis_client is None:
-        try:
-            redis_client = redis.from_url(
-                REDIS_URL,
-                decode_responses=True,
-                socket_timeout=5,
-                retry_on_timeout=True
-            )
-            redis_client.ping()
-            print("Berhasil terhubung ke Redis")
-        except Exception as e:
-            print(f"Error: Tidak dapat terhubung ke Redis: {e}")
-            return False
-    
     return True
-
-
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -81,38 +57,6 @@ RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 MAX_CONVERSATION_MESSAGES = 10
 CONVERSATION_TIMEOUT = 1000  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 100
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-redis_client = None
-
-
-class InMemoryStorage:
-    def __init__(self):
-        self.data = {}
-        
-    def set(self, key, value, ex=None):
-        self.data[key] = value
-        
-    def get(self, key):
-        return self.data.get(key)
-        
-    def delete(self, key):
-        if key in self.data:
-            del self.data[key]
-            
-    def ping(self):
-        return True
-
-# Gunakan in-memory storage jika Redis gagal
-try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()
-    logger.info("Berhasil terhubung ke Redis")
-except Exception as e:
-    logger.warning(f"Gagal terhubung ke Redis, menggunakan in-memory storage: {e}")
-    redis_client = InMemoryStorage()
-
-
-
 
 # Dictionary untuk menyimpan histori percakapan
 #user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -461,6 +405,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error dalam proses analisis gambar")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+        
+async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
+    current_time = asyncio.get_event_loop().time()
+    expired_sessions = [
+        chat_id for chat_id, session in user_sessions.items()
+        if 'last_update' in session and current_time - session['last_update'] > CONVERSATION_TIMEOUT
+    ]
+    for chat_id in expired_sessions:
+        del user_sessions[chat_id]
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
@@ -486,53 +439,30 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
+# Struktur data baru untuk user_sessions
+user_sessions: Dict[int, Dict] = {}
+
 async def initialize_session(chat_id: int) -> None:
-    try:
-        if not redis_client:
-            logger.error("Redis client tidak tersedia")
-            return
-            
-        session_data = {
-            'messages': [],
-            'last_update': datetime.now().timestamp(),
-            'conversation_id': str(uuid.uuid4())
-        }
-        
-        session_key = f"session:{chat_id}"
-        redis_client.setex(
-            session_key,
-            CONVERSATION_TIMEOUT,
-            json.dumps(session_data)
-        )
-        logger.info(f"Session baru dibuat untuk chat_id: {chat_id}")
-        
-    except Exception as e:
-        logger.error(f"Error saat membuat session: {e}")
-        raise
+    user_sessions[chat_id] = {
+        'messages': [],
+        'last_update': asyncio.get_event_loop().time(),
+        'conversation_id': str(uuid.uuid4()),
+        'last_image_analysis': None  # Tambahkan ini
+    }
+    """Inisialisasi sesi baru untuk chat"""
+    # Batasi jumlah sesi aktif
+    if len(user_sessions) >= MAX_CONCURRENT_SESSIONS:
+        # Hapus sesi pengguna paling lama berdasarkan waktu 'last_update'
+        oldest_session = min(user_sessions.items(), key=lambda x: x[1]['last_update'])[0]
+        del user_sessions[oldest_session]
+        logger.info(f"Sesi pengguna {oldest_session} dihapus untuk mengosongkan ruang.")
 
-async def get_user_session(chat_id: int) -> dict:
-    """Ambil data session dari Redis"""
-    try:
-        session_key = f"session:{chat_id}"
-        session_data = redis_client.get(session_key)
-        if session_data:
-            return json.loads(session_data)
-        return None
-    except Exception as e:
-        logger.error(f"Error mengambil session: {e}")
-        return None
-
-async def save_user_session(chat_id: int, session_data: dict):
-    """Simpan data session ke Redis"""
-    try:
-        session_key = f"session:{chat_id}"
-        redis_client.setex(
-            session_key,
-            CONVERSATION_TIMEOUT,
-            json.dumps(session_data)
-        )
-    except Exception as e:
-        logger.error(f"Error menyimpan session: {e}")
+    # Inisialisasi sesi baru
+    user_sessions[chat_id] = {
+        'messages': [],
+        'last_update': asyncio.get_event_loop().time(),
+        'conversation_id': str(uuid.uuid4())
+    }
 
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
@@ -561,148 +491,70 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    chat_id = update.message.chat_id
-    
-    try:
-        # Rate limiting
-        rate_limit_key = f"rate_limit:{chat_id}"
-        if redis_client.get(rate_limit_key):
-            await update.message.reply_text("Mohon tunggu beberapa detik sebelum mengirim pesan baru.")
-            return
-        
-        # Set rate limit untuk 5 detik
-        redis_client.setex(rate_limit_key, 5, 1)
-        
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        
-        # Ambil session dari Redis
-        session = await get_user_session(chat_id)
-        if not session:
-            await initialize_session(chat_id)
-            session = await get_user_session(chat_id)
-        
-        # Proses pesan
-        message = message_text or update.message.text.strip()
-        bot_statistics["total_messages"] += 1
-        bot_statistics["text_messages"] += 1
-        
-        # Update messages di session
-        session['messages'].append({"role": "user", "content": message})
-        
-        # Proses dengan Mistral
-        response = await process_with_mistral(session['messages'])
-        
-        if response:
-            # Tambah response ke history
-            session['messages'].append({"role": "assistant", "content": response})
-            # Simpan session yang sudah diupdate
-            await save_user_session(chat_id, session)
-            # Kirim response
-            await update.message.reply_text(response)
-            
-    except Exception as e:
-        logger.error(f"Error dalam handle_text: {e}")
-        bot_statistics["errors"] += 1
-        await update.message.reply_text("Maaf, terjadi kesalahan. Silakan coba lagi.")
+    await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
+    chat_id = update.message.chat_id  # Ambil chat ID
+
+    # Pastikan sesi sudah diinisialisasi
+    if chat_id not in user_sessions:
+        await initialize_session(chat_id)
+
+    # Proses teks
+    message = message_text or update.message.text.strip()
+    bot_statistics["total_messages"] += 1
+    bot_statistics["text_messages"] += 1
+
+    user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
+    response = await process_with_mistral(user_sessions[chat_id]['messages'])
+
+    if response:
+        user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
+        await update.message.reply_text(response)
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    try:
-        # Hapus session dari Redis
-        session_key = f"session:{chat_id}"
-        redis_client.delete(session_key)
-        await update.message.reply_text("Sesi percakapan Anda telah direset.")
-    except Exception as e:
-        logger.error(f"Error dalam reset_session: {e}")
-        await update.message.reply_text("Gagal mereset sesi. Silakan coba lagi.")
+    if chat_id in user_sessions:
+        del user_sessions[chat_id]
+    await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
-async def monitor_system_resources(context: ContextTypes.DEFAULT_TYPE):
-    """Monitor penggunaan sistem dan simpan metrics"""
-    lock_key = 'monitor_system_resources_lock'
-    
-    try:
-        # Coba mendapatkan lock
-        if redis_client.get(lock_key):
-            logger.info("Monitor system resources already running")
-            return
-            
-        # Set lock dengan expiry 4 menit (lebih pendek dari interval 5 menit)
-        redis_client.setex(lock_key, 240, '1')
-        
-        # Cek penggunaan memory
-        memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # Konversi ke MB
-        
-        # Jika memory usage tinggi, jalankan garbage collection
-        if memory_usage > 500:  # Threshold 500MB
-            logger.warning(f"Penggunaan memory tinggi: {memory_usage}MB")
-            gc.collect()
-        
-        # Simpan metrics ke Redis
-        metrics = {
-            'memory_usage': memory_usage,
-            'total_messages': bot_statistics['total_messages'],
-            'voice_messages': bot_statistics['voice_messages'],
-            'text_messages': bot_statistics['text_messages'],
-            'errors': bot_statistics['errors'],
-            'timestamp': datetime.now().timestamp()
-        }
-        
-        redis_client.set('bot_metrics', json.dumps(metrics))
-        
-        # Update statistik di Redis
-        active_sessions = len(redis_client.keys('session:*'))
-        redis_client.set('active_sessions', active_sessions)
-        
-    except Exception as e:
-        logger.error(f"Error dalam monitoring: {e}")
-    finally:
-        # Hapus lock setelah selesai
-        redis_client.delete(lock_key)
+def main():
+    if not check_required_settings():
+        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+        return
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for /stats command"""
     try:
-        # Get stats from global dictionary since Redis might be unavailable
-        stats_message = (
-            f"📊 Statistik Bot:\n"
-            f"├─ Total Pesan: {bot_statistics['total_messages']}\n"
-            f"├─ Pesan Suara: {bot_statistics['voice_messages']}\n"
-            f"├─ Pesan Teks: {bot_statistics['text_messages']}\n"
-            f"├─ Pesan Foto: {bot_statistics['photo_messages']}\n"
-            f"└─ Kesalahan: {bot_statistics['errors']}"
-        )
-        
-        await update.message.reply_text(stats_message)
-        
-    except Exception as e:
-        logger.error(f"Error dalam stats: {e}")
-        await update.message.reply_text("Gagal mengambil statistik. Silakan coba lagi.")
-        
-
-async def main():
-    try:
-        if not TELEGRAM_TOKEN:
-            logger.error("TELEGRAM_TOKEN tidak ditemukan!")
-            return
-
+        # Inisialisasi application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        print("Starting bot...")
-        await application.initialize()
-        await application.start()
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
-    finally:
-        if application:
-            await application.stop()
-            await application.shutdown()
-            
-def run_bot():
-    """Run the bot with proper error handling."""
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
+        # Command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("reset", reset_session))
+        
+        # Message handlers dengan prioritas
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        
+        # Handler baru untuk text dengan mention di grup
+        application.add_handler(MessageHandler(
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
+            handle_mention
+        ))
+        
+        # Handler baru untuk chat pribadi
+        application.add_handler(MessageHandler(
+            filters.TEXT & filters.ChatType.PRIVATE,
+            handle_text
+        ))
+
+        # Cleanup session setiap jam
+        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
+
+        application.run_polling()
+
     except Exception as e:
-        logger.critical(f"Error saat menjalankan bot: {e}")
+        logger.critical(f"Error fatal saat menjalankan bot: {e}")
+        raise
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
@@ -722,9 +574,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
 
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stats_message = (
+    f"Statistik Bot:\n"
+    f"- Total Pesan: {bot_statistics['total_messages']}\n"
+    f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+    f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+    f"- Kesalahan: {bot_statistics['errors']}\n"
+    f"- Sesi Aktif: {len(user_sessions)}"
+)
+    await update.message.reply_text(stats_message)
+
 if __name__ == '__main__':
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except Exception as e:
-        logger.critical(f"Error saat menjalankan bot: {e}")
+    asyncio.run(main())
