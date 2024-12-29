@@ -28,13 +28,30 @@ from datetime import datetime, timedelta
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
 def check_required_settings():
-    if not TELEGRAM_TOKEN:
-        print("Error: TELEGRAM_TOKEN tidak ditemukan!")
+    required_settings = {
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'MISTRAL_API_KEY': MISTRAL_API_KEY,
+        'REDIS_URL': REDIS_URL
+    }
+    
+    missing_settings = []
+    for name, value in required_settings.items():
+        if not value:
+            missing_settings.append(name)
+            print(f"Error: {name} tidak ditemukan!")
+    
+    if missing_settings:
         return False
-    if not MISTRAL_API_KEY:
-        print("Error: MISTRAL_API_KEY tidak ditemukan!")
+    
+    # Test Redis connection
+    try:
+        redis_client.ping()
+    except Exception as e:
+        print(f"Error: Tidak dapat terhubung ke Redis: {e}")
         return False
-    return True
+            return True
+
+
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -63,6 +80,17 @@ CONVERSATION_TIMEOUT = 1000  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 100
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
 redis_client = Redis.from_url(REDIS_URL)
+
+
+try:
+    redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+    redis_client.ping()  # Test koneksi
+except Exception as e:
+    logger.error(f"Error koneksi Redis: {e}")
+    redis_client = None
+
+
+
 
 # Dictionary untuk menyimpan histori percakapan
 #user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -438,19 +466,21 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     try:
-        # Data sesi yang akan disimpan di Redis
+        if not redis_client:
+            logger.error("Redis client tidak tersedia")
+            return
+            
         session_data = {
             'messages': [],
             'last_update': datetime.now().timestamp(),
             'conversation_id': str(uuid.uuid4())
         }
         
-        # Simpan ke Redis dengan key 'session:{chat_id}'
         session_key = f"session:{chat_id}"
         redis_client.setex(
             session_key,
-            CONVERSATION_TIMEOUT,  # Gunakan timeout yang sudah ada
-            json.dumps(session_data)  # Convert dict ke string JSON
+            CONVERSATION_TIMEOUT,
+            json.dumps(session_data)
         )
         logger.info(f"Session baru dibuat untuk chat_id: {chat_id}")
         
@@ -608,7 +638,7 @@ async def monitor_system_resources(context: ContextTypes.DEFAULT_TYPE):
         redis_client.delete(lock_key)
         
 
-def main():
+async def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
@@ -642,8 +672,10 @@ def main():
             first=10  # Mulai setelah 10 detik bot berjalan
         )
 
-        # Jalankan bot
-        application.run_polling()
+        # Jalankan bot dengan mode async
+        await application.initialize()
+        await application.start()
+        await application.run_polling()
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
