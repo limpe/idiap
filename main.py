@@ -132,7 +132,7 @@ async def process_image_with_pixtral_multiple(image_path: str, repetitions: int 
             }
 
             data = {
-                "model": "ministral-8b-latest",
+                "model": "mistral-embed",
                 "messages": [
                     {
                         "role": "user",
