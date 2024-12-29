@@ -668,16 +668,12 @@ async def main():
             print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
             return
 
-        # Inisialisasi application dengan error handling
-        try:
-            application = Application.builder().token(TELEGRAM_TOKEN).build()
-        except Exception as e:
-            logger.critical(f"Failed to initialize application: {e}")
-            return
+        # Inisialisasi application
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))  # Now stats is defined
+        application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         
         # Message handlers
@@ -693,35 +689,76 @@ async def main():
             handle_text
         ))
 
-        # Tambahkan job monitoring dengan error handling
-        try:
-            application.job_queue.run_repeating(
-                monitor_system_resources, 
-                interval=300,  # Setiap 5 menit
-                first=10  # Mulai setelah 10 detik bot berjalan
-            )
-        except Exception as e:
-            logger.error(f"Failed to setup job queue: {e}")
+        # Tambahkan job monitoring
+        application.job_queue.run_repeating(
+            monitor_system_resources, 
+            interval=300,
+            first=10
+        )
 
         print("Starting bot...")
+        # Start the bot without running the event loop
         await application.initialize()
         await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
         print("Bot is running...")
-        await application.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
+        
+        # Keep the bot running
+        try:
+            await application.updater.running
+        except Exception as e:
+            logger.error(f"Error while running: {e}")
+        finally:
+            if application.updater.running:
+                await application.updater.stop()
+            if application.running:
+                await application.stop()
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        if application and application.running:
-            await application.stop()
+        if application:
+            try:
+                if application.updater and application.updater.running:
+                    await application.updater.stop()
+                if application.running:
+                    await application.stop()
+            except Exception as shutdown_error:
+                logger.error(f"Error during shutdown: {shutdown_error}")
         raise
 
 def run_bot():
+    """Run the bot with proper event loop handling"""
     try:
-        asyncio.run(main())
+        # Get or create an event loop
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Run the main function
+        loop.run_until_complete(main())
+        
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped!")
     except Exception as e:
         logger.critical(f"Fatal error in run_bot: {e}")
+    finally:
+        try:
+            # Clean up pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            
+            # Close the loop
+            loop.close()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+
+if __name__ == '__main__':
+    run_bot()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
