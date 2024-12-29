@@ -661,11 +661,13 @@ async def monitor_system_resources(context: ContextTypes.DEFAULT_TYPE):
         
 
 async def main():
-    if not check_required_settings():
-        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
-        return
-
+    # Initialize the bot
+    application = None
     try:
+        if not check_required_settings():
+            print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+            return
+
         # Inisialisasi application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -694,26 +696,26 @@ async def main():
             first=10  # Mulai setelah 10 detik bot berjalan
         )
 
-        # Jalankan bot
-        print("Bot started...")
+        print("Starting bot...")
         await application.initialize()
         await application.start()
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+        print("Bot is running...")
+        await application.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
+        if application:
+            await application.stop()
         raise
-    finally:
-        # Pastikan aplikasi berhenti dengan benar
-        await application.stop()
 
-if __name__ == '__main__':
+def run_bot():
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Bot stopped by user")
-    except Exception as e:
-        print(f"Bot stopped due to error: {e}")
+    except (KeyboardInterrupt, SystemExit):
+        print("Bot stopped!")
+
+if __name__ == '__main__':
+    run_bot()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
