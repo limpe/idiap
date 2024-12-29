@@ -131,7 +131,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
             }
 
             # Use custom prompt if provided, otherwise use default
-            user_prompt = prompt if prompt else "Apa isi gambar ini? Tolong Analisa Dan jelaskan dengan Super detail dalam Bahasa Indonesia."
+            user_prompt = prompt if prompt else "Apa isi gambar ini? Tolong Analisa Dengan Teliti Dan jelaskan dengan Super detail dalam Bahasa Indonesia."
 
             data = {
                 "model": "pixtral-large-latest",
@@ -270,7 +270,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     # Tambahkan instruksi sistem agar respon default dalam Bahasa Indonesia
-    messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia."})
+    messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia Yang Mudah Di pahami."})
 
     data = {
         "model": "pixtral-large-latest",
