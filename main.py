@@ -566,36 +566,46 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def monitor_system_resources(context: ContextTypes.DEFAULT_TYPE):
     """Monitor penggunaan sistem dan simpan metrics"""
-    while True:
-        try:
-            # Cek penggunaan memory
-            memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # Konversi ke MB
+    lock_key = 'monitor_system_resources_lock'
+    
+    try:
+        # Coba mendapatkan lock
+        if redis_client.get(lock_key):
+            logger.info("Monitor system resources already running")
+            return
             
-            # Jika memory usage tinggi, jalankan garbage collection
-            if memory_usage > 500:  # Threshold 500MB
-                logger.warning(f"Penggunaan memory tinggi: {memory_usage}MB")
-                gc.collect()
-            
-            # Simpan metrics ke Redis
-            metrics = {
-                'memory_usage': memory_usage,
-                'total_messages': bot_statistics['total_messages'],
-                'voice_messages': bot_statistics['voice_messages'],
-                'text_messages': bot_statistics['text_messages'],
-                'errors': bot_statistics['errors'],
-                'timestamp': datetime.now().timestamp()
-            }
-            
-            redis_client.set('bot_metrics', json.dumps(metrics))
-            
-            # Update statistik di Redis
-            active_sessions = len(redis_client.keys('session:*'))
-            redis_client.set('active_sessions', active_sessions)
-            
-        except Exception as e:
-            logger.error(f"Error dalam monitoring: {e}")
+        # Set lock dengan expiry 4 menit (lebih pendek dari interval 5 menit)
+        redis_client.setex(lock_key, 240, '1')
         
-        await asyncio.sleep(300)  # Check setiap 5 menit
+        # Cek penggunaan memory
+        memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # Konversi ke MB
+        
+        # Jika memory usage tinggi, jalankan garbage collection
+        if memory_usage > 500:  # Threshold 500MB
+            logger.warning(f"Penggunaan memory tinggi: {memory_usage}MB")
+            gc.collect()
+        
+        # Simpan metrics ke Redis
+        metrics = {
+            'memory_usage': memory_usage,
+            'total_messages': bot_statistics['total_messages'],
+            'voice_messages': bot_statistics['voice_messages'],
+            'text_messages': bot_statistics['text_messages'],
+            'errors': bot_statistics['errors'],
+            'timestamp': datetime.now().timestamp()
+        }
+        
+        redis_client.set('bot_metrics', json.dumps(metrics))
+        
+        # Update statistik di Redis
+        active_sessions = len(redis_client.keys('session:*'))
+        redis_client.set('active_sessions', active_sessions)
+        
+    except Exception as e:
+        logger.error(f"Error dalam monitoring: {e}")
+    finally:
+        # Hapus lock setelah selesai
+        redis_client.delete(lock_key)
         
 
 def main():
@@ -629,8 +639,7 @@ def main():
         application.job_queue.run_repeating(
             monitor_system_resources, 
             interval=300,  # Setiap 5 menit
-            first=10,  # Mulai setelah 10 detik bot berjalan
-            max_instances=1  # Tambahkan ini untuk membatasi instance
+            first=10  # Mulai setelah 10 detik bot berjalan
         )
 
         # Jalankan bot
