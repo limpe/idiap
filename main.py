@@ -694,14 +694,26 @@ async def main():
             first=10  # Mulai setelah 10 detik bot berjalan
         )
 
-        # Jalankan bot dengan mode async
+        # Jalankan bot
+        print("Bot started...")
         await application.initialize()
         await application.start()
-        await application.run_polling()
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
+    finally:
+        # Pastikan aplikasi berhenti dengan benar
+        await application.stop()
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped by user")
+    except Exception as e:
+        print(f"Bot stopped due to error: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
