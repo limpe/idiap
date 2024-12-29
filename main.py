@@ -668,12 +668,16 @@ async def main():
             print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
             return
 
-        # Inisialisasi application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        # Inisialisasi application dengan error handling
+        try:
+            application = Application.builder().token(TELEGRAM_TOKEN).build()
+        except Exception as e:
+            logger.critical(f"Failed to initialize application: {e}")
+            return
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("stats", stats))  # Now stats is defined
         application.add_handler(CommandHandler("reset", reset_session))
         
         # Message handlers
@@ -689,12 +693,15 @@ async def main():
             handle_text
         ))
 
-        # Tambahkan job monitoring
-        application.job_queue.run_repeating(
-            monitor_system_resources, 
-            interval=300,  # Setiap 5 menit
-            first=10  # Mulai setelah 10 detik bot berjalan
-        )
+        # Tambahkan job monitoring dengan error handling
+        try:
+            application.job_queue.run_repeating(
+                monitor_system_resources, 
+                interval=300,  # Setiap 5 menit
+                first=10  # Mulai setelah 10 detik bot berjalan
+            )
+        except Exception as e:
+            logger.error(f"Failed to setup job queue: {e}")
 
         print("Starting bot...")
         await application.initialize()
@@ -704,7 +711,7 @@ async def main():
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        if application:
+        if application and application.running:
             await application.stop()
         raise
 
@@ -713,9 +720,8 @@ def run_bot():
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped!")
-
-if __name__ == '__main__':
-    run_bot()
+    except Exception as e:
+        logger.critical(f"Fatal error in run_bot: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
