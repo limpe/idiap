@@ -85,20 +85,31 @@ REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
 redis_client = None
 
 
+class InMemoryStorage:
+    def __init__(self):
+        self.data = {}
+        
+    def set(self, key, value, ex=None):
+        self.data[key] = value
+        
+    def get(self, key):
+        return self.data.get(key)
+        
+    def delete(self, key):
+        if key in self.data:
+            del self.data[key]
+            
+    def ping(self):
+        return True
+
+# Gunakan in-memory storage jika Redis gagal
 try:
-    redis_client = redis.from_url(
-        REDIS_URL,
-        decode_responses=True,
-        socket_timeout=5,  # Timeout untuk koneksi
-        retry_on_timeout=True,  # Retry jika timeout
-        max_connections=10  # Batasi jumlah koneksi
-    )
-    # Test koneksi
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()
     logger.info("Berhasil terhubung ke Redis")
 except Exception as e:
-    logger.error(f"Error koneksi Redis: {e}")
-    redis_client = None
+    logger.warning(f"Gagal terhubung ke Redis, menggunakan in-memory storage: {e}")
+    redis_client = InMemoryStorage()
 
 
 
