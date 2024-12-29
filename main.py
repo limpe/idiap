@@ -28,19 +28,29 @@ from datetime import datetime, timedelta
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
 def check_required_settings():
+    global redis_client
+    
     if not TELEGRAM_TOKEN:
         print("Error: TELEGRAM_TOKEN tidak ditemukan!")
         return False
     if not MISTRAL_API_KEY:
         print("Error: MISTRAL_API_KEY tidak ditemukan!")
         return False
-        
-    # Test Redis connection
-    try:
-        redis_client.ping()
-    except Exception as e:
-        print(f"Error: Tidak dapat terhubung ke Redis: {e}")
-        return False
+    
+    # Coba inisialisasi Redis jika belum ada
+    if redis_client is None:
+        try:
+            redis_client = redis.from_url(
+                REDIS_URL,
+                decode_responses=True,
+                socket_timeout=5,
+                retry_on_timeout=True
+            )
+            redis_client.ping()
+            print("Berhasil terhubung ke Redis")
+        except Exception as e:
+            print(f"Error: Tidak dapat terhubung ke Redis: {e}")
+            return False
     
     return True
 
@@ -72,12 +82,20 @@ MAX_CONVERSATION_MESSAGES = 10
 CONVERSATION_TIMEOUT = 1000  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 100
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-redis_client = Redis.from_url(REDIS_URL)
+redis_client = None
 
 
 try:
-    redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()  # Test koneksi
+    redis_client = redis.from_url(
+        REDIS_URL,
+        decode_responses=True,
+        socket_timeout=5,  # Timeout untuk koneksi
+        retry_on_timeout=True,  # Retry jika timeout
+        max_connections=10  # Batasi jumlah koneksi
+    )
+    # Test koneksi
+    redis_client.ping()
+    logger.info("Berhasil terhubung ke Redis")
 except Exception as e:
     logger.error(f"Error koneksi Redis: {e}")
     redis_client = None
