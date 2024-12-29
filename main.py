@@ -9,6 +9,7 @@ import gtts
 import aiohttp
 import gc  # untuk garbage collection
 import psutil  # untuk monitoring sistem
+import json
 
 from redis import Redis  # untuk database Redis
 from typing import Optional, List, Dict
@@ -628,7 +629,8 @@ def main():
         application.job_queue.run_repeating(
             monitor_system_resources, 
             interval=300,  # Setiap 5 menit
-            first=10  # Mulai setelah 10 detik bot berjalan
+            first=10,  # Mulai setelah 10 detik bot berjalan
+            max_instances=1  # Tambahkan ini untuk membatasi instance
         )
 
         # Jalankan bot
