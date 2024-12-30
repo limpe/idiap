@@ -19,6 +19,9 @@ from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
+from filters import MathFilter, TextFilter
+from together import Together
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -29,6 +32,10 @@ def check_required_settings():
         return False
     if not MISTRAL_API_KEY:
         print("Error: MISTRAL_API_KEY tidak ditemukan!")
+        return False
+    # Tambahkan ini
+    if not TOGETHER_API_KEY:
+        print("Error: TOGETHER_API_KEY tidak ditemukan!")
         return False
     return True
 
@@ -48,6 +55,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -76,11 +84,12 @@ class AudioProcessingError(Exception):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
-    welcome_text = """Halo! Saya asisten Anda. Saya dapat:
+    welcome_text = """Halo! Saya PAIDI asisten Anda. Saya dapat:
     - Memproses pesan suara (termasuk yang panjang)
     - Menanggapi dengan suara
     - Membantu dengan berbagai tugas
     - Memproses gambar
+    - Generate gambar (gunakan /gambar atau /image diikuti dengan prompt)
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
@@ -118,6 +127,41 @@ async def encode_image(image_source) -> str:
     except Exception as e:
         logger.exception("Error encoding image")
         raise
+
+async def generate_image(prompt: str) -> Optional[str]:
+    try:
+        headers = {
+            "Authorization": f"Bearer {TOGETHER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "black-forest-labs/FLUX.1-schnell-Free",
+            "prompt": prompt,
+            "width": 1344,
+            "height": 768,
+            "steps": 1,
+            "n": 1,
+            "response_format": "b64_json"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.together.xyz/v1/images/generations",
+                headers=headers,
+                json=data
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"Error generating image: {await response.text()}")
+                    return None
+                
+                result = await response.json()
+                if 'data' in result and len(result['data']) > 0:
+                    return result['data'][0]['b64_json']
+                return None
+    except Exception as e:
+        logger.exception("Error in generate_image")
+        return None
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -535,6 +579,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     message = message_text or update.message.text.strip()
     if chat_type in ["group", "supergroup"]:
         message = message.replace(f"@{context.bot.username}", "").strip()
+
+ # Check if this is an image generation request
+    if message.lower().startswith(('/gambar', '/image')):
+        # Extract the prompt
+        prompt = message.split(' ', 1)[1] if len(message.split(' ', 1)) > 1 else None
+        
+        if not prompt:
+            await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
+            return
+
+        processing_msg = await update.message.reply_text("Sedang membuat gambar...")
+        
+        try:
+            image_data = await generate_image(prompt)
+            if image_data:
+                # Convert base64 to image
+                image_bytes = base64.b64decode(image_data)
+                bio = BytesIO(image_bytes)
+                bio.seek(0)
+                
+                # Send the image
+                await update.message.reply_photo(
+                    photo=bio,
+                    caption=f"Hasil generate gambar untuk prompt: {prompt}"
+                )
+            else:
+                await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
+        except Exception as e:
+            logger.exception("Error generating image")
+            await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
+        finally:
+            await processing_msg.delete()
+        return
     
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
