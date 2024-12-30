@@ -383,8 +383,9 @@ async def send_voice_response(update: Update, text: str):
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_id = update.message.chat_id
-        
-        if chat_id not in user_sessions:
+
+        # Periksa apakah sesi sudah ada
+        if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
 
         if update.message.voice.file_size > MAX_AUDIO_SIZE:
@@ -395,24 +396,28 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["voice_messages"] += 1
 
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
-        
+
         try:
             text = await process_voice_to_text(update)
             if text:
                 await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{text}")
-                
-                user_sessions[chat_id]['messages'].append({"role": "user", "content": text})
-                mistral_messages = user_sessions[chat_id]['messages'][-10:]
+
+                session = json.loads(redis_client.get(f"session:{chat_id}"))
+                session['messages'].append({"role": "user", "content": text})
+                redis_client.set(f"session:{chat_id}", json.dumps(session))
+
+                mistral_messages = session['messages'][-10:]
                 response = await process_with_mistral(mistral_messages)
 
                 if response:
-                    user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
+                    session['messages'].append({"role": "assistant", "content": response})
+                    redis_client.set(f"session:{chat_id}", json.dumps(session))
                     response = await filter_text(response)
                     await update.message.reply_text(response)
                     await send_voice_response(update, response)
             else:
                 await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
-        
+
         finally:
             await processing_msg.delete()
 
@@ -670,8 +675,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    if chat_id in user_sessions:
-        del user_sessions[chat_id]
+    redis_client.delete(f"session:{chat_id}")
     await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
 def main():
@@ -733,14 +737,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
     await handle_text(update, context)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    active_sessions = len(list(redis_client.scan_iter("session:*")))
     stats_message = (
-    f"Statistik Bot:\n"
-    f"- Total Pesan: {bot_statistics['total_messages']}\n"
-    f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
-    f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-    f"- Kesalahan: {bot_statistics['errors']}\n"
-    f"- Sesi Aktif: {len(user_sessions)}"
-)
+        f"Statistik Bot:\n"
+        f"- Total Pesan: {bot_statistics['total_messages']}\n"
+        f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
+        f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+        f"- Kesalahan: {bot_statistics['errors']}\n"
+        f"- Sesi Aktif: {active_sessions}"
+    )
     await update.message.reply_text(stats_message)
 
 if __name__ == '__main__':
