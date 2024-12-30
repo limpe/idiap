@@ -603,16 +603,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Periksa apakah ini di grup dan perlu mention
     if chat_type in ["group", "supergroup"]:
-        if not message_text:  # Jika bukan dari handle_mention
-            message_text = update.message.text
+    message_text = update.message.text or ""
 
-        # Abaikan jika tidak ada mention atau bukan balasan ke bot
-        if f"@{context.bot.username}" not in message_text and not (
-            update.message.reply_to_message and
-            update.message.reply_to_message.from_user.id == context.bot.id
-        ):
-            logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
-            return
+    # Cek apakah pesan memiliki entity mention atau merupakan balasan ke bot
+    entities = update.message.entities or []
+    is_mention = any(entity.type == "mention" and f"@{context.bot.username}" in message_text for entity in entities)
+    is_reply = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
+
+    if not is_mention and not is_reply:
+        logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
+        return
         
         # Hapus mention jika ada
         message_text = message_text.replace(f"@{context.bot.username}", "").strip()
