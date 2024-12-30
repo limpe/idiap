@@ -22,6 +22,7 @@ from aiohttp import FormData
 from datetime import datetime, timedelta
 #from filters import MathFilter, TextFilter
 from together import Together
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 # Konstanta untuk batasan ukuran file
