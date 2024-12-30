@@ -536,13 +536,13 @@ async def initialize_session(chat_id: int) -> None:
             'conversation_id': str(uuid.uuid4())
         }
 
-        try:
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi berhasil dibuat untuk chat_id {chat_id}")
-except redis.RedisError as e:
-    logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
-    raise Exception("Gagal menginisialisasi sesi.")
+        # Simpan sesi ke Redis sebagai JSON
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+        logger.info(f"Sesi berhasil dibuat untuk chat_id {chat_id}")
+    except redis.RedisError as e:
+        logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
+        raise Exception("Gagal menginisialisasi sesi.")
 
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
