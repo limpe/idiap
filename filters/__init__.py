@@ -1,8 +1,5 @@
-"""
-Inisialisasi package filters
-"""
-from .text_filters import TextFilter
-from .math_filters import MathSymbolFilter
 from .base_filter import BaseFilter
+from .math_filter import MathFilter
+from .text_filter import TextFilter
 
-__all__ = ['TextFilter', 'MathSymbolFilter', 'BaseFilter']
+__all__ = ['BaseFilter', 'MathFilter', 'TextFilter']
