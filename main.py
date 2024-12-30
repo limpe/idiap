@@ -438,9 +438,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return  # Abaikan jika tidak ada mention di grup
 
     try:
-        # Pastikan sesi sudah diinisialisasi
-        if chat_id not in user_sessions:
+        # Periksa apakah sesi sudah ada di Redis
+        if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
+
+        # Ambil sesi dari Redis
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
 
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
@@ -455,38 +458,31 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_file.write(photo_bytes)
             temp_file.seek(0)
 
-            # Prepare the prompt based on caption
-            if caption:
-                # Remove bot mention from caption if present
-                prompt = caption.replace(f"@{context.bot.username}", "").strip()
-                if not prompt:  # If caption only contained mention
-                    prompt = None  # Will use default prompt
-            else:
-                prompt = None  # Will use default prompt
+            # Siapkan prompt berdasarkan caption
+            prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
-            # Process image with the determined prompt
+            # Proses gambar
             results = await process_image_with_pixtral_multiple(temp_file, prompt=prompt)
 
             if results and any(results):
                 combined_analysis = ""
-                # Send each analysis result as a separate message after filtering
                 for i, result in enumerate(results):
-                    if result.strip():  # Make sure not to send empty messages
+                    if result.strip():  # Pastikan tidak ada pesan kosong
                         filtered_result = await filter_text(result)
                         await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
                         combined_analysis += f"\nAnalisis {i + 1}:\n{filtered_result}\n"
                 
-                # Simpan hasil analisis ke dalam sesi percakapan
-                user_sessions[chat_id]['messages'].append({
-                    "role": "user", 
+                # Simpan hasil analisis ke sesi
+                session['messages'].append({
+                    "role": "user",
                     "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
                 })
-                user_sessions[chat_id]['messages'].append({
+                session['messages'].append({
                     "role": "assistant",
                     "content": combined_analysis
                 })
-                # Simpan informasi bahwa percakapan terakhir adalah tentang gambar
-                user_sessions[chat_id]['last_image_analysis'] = combined_analysis
+                session['last_image_analysis'] = combined_analysis
+                redis_client.set(f"session:{chat_id}", json.dumps(session))
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
@@ -495,6 +491,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error dalam proses analisis gambar")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Memulai proses pembersihan sesi yang tidak aktif")
