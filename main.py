@@ -138,13 +138,15 @@ async def generate_image(prompt: str) -> Optional[str]:
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
             "prompt": prompt,
-            "width": 1344,  # Maksimalkan resolusi
+            "width": 1344,
             "height": 768,
-            "steps": 4,     # Maksimum steps yang diizinkan
-            "samples": 1,   # Jumlah gambar yang dihasilkan
-            "cfg_scale": 7.5,  # Kontrol kepatuhan terhadap prompt
+            "steps": 4,
+            "samples": 1,
+            "cfg_scale": 7.5,
             "n": 1,
-            "response_format": "b64_json"
+            "nsfw": True,  # Mengizinkan konten NSFW
+            "response_format": "b64_json",
+            "allow_nsfw": True  # Parameter tambahan untuk NSFW
         }
 
         async with aiohttp.ClientSession() as session:
@@ -152,11 +154,15 @@ async def generate_image(prompt: str) -> Optional[str]:
                 "https://api.together.xyz/v1/images/generations",
                 headers=headers,
                 json=data,
-                timeout=60  # Tambahkan timeout yang lebih lama
+                timeout=60
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Error generating image: {error_text}")
+                    
+                    # Tambahkan penanganan khusus untuk error NSFW
+                    if "NSFW content" in error_text:
+                        await update.message.reply_text("Maaf, konten terdeteksi sebagai NSFW. Coba dengan prompt yang berbeda.")
                     return None
                 
                 result = await response.json()
