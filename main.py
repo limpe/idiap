@@ -186,7 +186,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
             }
 
             # Use custom prompt if provided, otherwise use default
-            user_prompt = prompt if prompt else "Apa isi gambar ini? jelaskan dengan akurasi tinggi dalam Bahasa Indonesia."
+            user_prompt = prompt if prompt else "Apa isi gambar ini? singkat padat Jelas Bahasa Indonesia."
 
             data = {
                 "model": "pixtral-large-latest",
