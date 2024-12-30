@@ -22,7 +22,6 @@ from aiohttp import FormData
 from datetime import datetime, timedelta
 #from filters import MathFilter, TextFilter
 from together import Together
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 # Konstanta untuk batasan ukuran file
@@ -179,40 +178,76 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         return None
 
 
-async def process_image_with_clip(image_path: str, prompt: str = None) -> str:
-    """Proses gambar menggunakan OpenAI CLIP."""
+async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
-        from transformers import CLIPProcessor, CLIPModel
-        from PIL import Image
+        base64_image = await encode_image(image_path)
+        results = []
+        
+        async def single_request():
+            headers = {
+                "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                "Content-Type": "application/json"
+            }
 
-        # Muat model dan processor
-        model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            # Use custom prompt if provided, otherwise use default
+            user_prompt = prompt if prompt else "Apa isi gambar ini? singkat padat Jelas Bahasa Indonesia."
 
-        # Buka gambar
-        if isinstance(image_path, BytesIO):
-            image = Image.open(image_path)
-        else:
-            image = Image.open(image_path)
+            data = {
+                "model": "pixtral-large-latest",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": user_prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        ]
+                    }
+                ]
+            }
 
-        # Siapkan prompt default jika tidak ada
-        if not prompt:
-            prompt = "Apa isi gambar ini? singkat padat Jelas Bahasa Indonesia."
+            max_retries = 3
+            retry_delay = 2  # seconds
 
-        # Proses gambar dan teks
-        inputs = processor(text=[prompt], images=image, return_tensors="pt", padding=True)
-        outputs = model(**inputs)
-        logits_per_image = outputs.logits_per_image  # Skor kemiripan antara gambar dan teks
-        probs = logits_per_image.softmax(dim=1)  # Probabilitas
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            "https://api.mistral.ai/v1/chat/completions",
+                            headers=headers,
+                            json=data
+                        ) as response:
+                            if response.status == 429:  # Too Many Requests
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(retry_delay * (attempt + 1))
+                                    continue
+                            response.raise_for_status()
+                            result = await response.json()
+                            return result['choices'][0]['message']['content']
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (attempt + 1))
+                        continue
+                    logger.exception("Error in single request after all retries")
+                    return "Terjadi kesalahan dalam analisis ini."
 
-        # Ambil hasil analisis
-        if probs[0][0] > 0.5:  # Jika probabilitas tinggi
-            return prompt
-        else:
-            return "Saya tidak yakin dengan isi gambar ini."
+        # Proses requests secara sequential dengan delay
+        for i in range(repetitions):
+            result = await single_request()
+            results.append(result)
+            if i < repetitions - 1:  # Tidak perlu delay setelah request terakhir
+                await asyncio.sleep(1)  # Delay 1 detik antara requests
+
+        return results
+
     except Exception as e:
-        logger.exception("Error in process_image_with_clip")
-        return "Terjadi kesalahan saat memproses gambar."
+        logger.exception("Error in processing image with Pixtral multiple")
+        return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan optimasi untuk Railway"""
@@ -427,12 +462,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
             # Proses gambar
-            result = await process_image_with_clip(temp_file, prompt=prompt)
+            results = await process_image_with_pixtral_multiple(temp_file, prompt=prompt)
 
-            if result:
-                filtered_result = await filter_text(result)
-                await update.message.reply_text(f"Analisis gambar:\n{filtered_result}")
-                combined_analysis = filtered_result
+            if results and any(results):
+                combined_analysis = ""
+                for i, result in enumerate(results):
+                    if result.strip():  # Pastikan tidak ada pesan kosong
+                        filtered_result = await filter_text(result)
+                        await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
+                        combined_analysis += f"\nAnalisis {i + 1}:\n{filtered_result}\n"
                 
                 # Simpan hasil analisis ke sesi
                 session['messages'].append({
