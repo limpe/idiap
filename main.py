@@ -189,7 +189,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
             user_prompt = prompt if prompt else "Apa isi gambar ini? jelaskan dengan akurasi tinggi dalam Bahasa Indonesia."
 
             data = {
-                "model": "pixtral-large-latest",
+                "model": "mistral-large-latest",
                 "messages": [
                     {
                         "role": "user",
@@ -328,7 +328,7 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia Yang Mudah Di pahami."})
 
     data = {
-        "model": "open-mistral-nemo",
+        "model": "pixtral-large-latest",
         "messages": messages,
         "max_tokens": 10000
     }
