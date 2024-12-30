@@ -11,3 +11,5 @@ psutil
 groq
 redis
 together
+transformers
+torch
