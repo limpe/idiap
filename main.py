@@ -137,7 +137,7 @@ async def generate_image(prompt: str) -> Optional[str]:
         
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
-            "prompt": bahasa indonesia,
+            "prompt": prompt,bahasa indonesia
             "width": 1440,
             "height": 960,
             "steps": 4,
