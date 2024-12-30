@@ -5,6 +5,7 @@ import asyncio
 import base64
 import uuid
 import redis
+import json
 from typing import Optional, List, Dict
 
 from telegram import Update, InputFile
@@ -56,6 +57,8 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
+redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -488,13 +491,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
-    current_time = asyncio.get_event_loop().time()
-    expired_sessions = [
-        chat_id for chat_id, session in user_sessions.items()
-        if 'last_update' in session and current_time - session['last_update'] > CONVERSATION_TIMEOUT
-    ]
-    for chat_id in expired_sessions:
-        del user_sessions[chat_id]
+    """Bersihkan sesi yang tidak aktif"""
+    for key in redis_client.scan_iter("session:*"):
+        session = json.loads(redis_client.get(key))
+        last_update = session.get('last_update', 0)
+        if datetime.now().timestamp() - last_update > CONVERSATION_TIMEOUT:
+            redis_client.delete(key)
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
@@ -520,56 +522,65 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
-# Struktur data baru untuk user_sessions
-user_sessions: Dict[int, Dict] = {}
-
 async def initialize_session(chat_id: int) -> None:
-    user_sessions[chat_id] = {
+    """Inisialisasi sesi baru di Redis"""
+    session = {
         'messages': [],
-        'last_update': asyncio.get_event_loop().time(),
-        'conversation_id': str(uuid.uuid4()),
-        'last_image_analysis': None 
-    }
-    """Inisialisasi sesi baru untuk chat"""
-    # Batasi jumlah sesi aktif
-    if len(user_sessions) >= MAX_CONCURRENT_SESSIONS:
-        # Hapus sesi pengguna paling lama berdasarkan waktu 'last_update'
-        oldest_session = min(user_sessions.items(), key=lambda x: x[1]['last_update'])[0]
-        del user_sessions[oldest_session]
-        logger.info(f"Sesi pengguna {oldest_session} dihapus untuk mengosongkan ruang.")
-
-    # Inisialisasi sesi baru
-    user_sessions[chat_id] = {
-        'messages': [],
-        'last_update': asyncio.get_event_loop().time(),
+        'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4())
     }
+
+    # Simpan sesi ke Redis sebagai JSON
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+
+    # Atur waktu kedaluwarsa sesi (contoh: 1 jam = 3600 detik)
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi baru dibuat untuk chat_id {chat_id}")
 
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     """Tentukan apakah konteks perlu direset"""
-    if chat_id not in user_sessions:
-        return True
-        
-    current_time = asyncio.get_event_loop().time()
-    time_diff = current_time - user_sessions[chat_id]['last_update']
-    
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        return True  # Jika sesi tidak ada, reset
+
+    session = json.loads(session_json)
+    last_update = session.get('last_update', 0)
+    current_time = datetime.now().timestamp()
+
+    time_diff = current_time - last_update
     keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', '?']
     starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
-    
+
     return time_diff > CONVERSATION_TIMEOUT or starts_with_keyword
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Update sesi chat dengan pesan baru"""
-    if chat_id not in user_sessions:
+    """Update sesi chat di Redis"""
+    # Ambil sesi dari Redis
+    session_json = redis_client.get(f"session:{chat_id}")
+    if session_json:
+        session = json.loads(session_json)  # Decode JSON ke dictionary
+    else:
         await initialize_session(chat_id)
-    
-    session = user_sessions[chat_id]
+        session = {
+            'messages': [],
+            'last_update': datetime.now().timestamp(),
+            'conversation_id': str(uuid.uuid4())
+        }
+
+    # Update sesi
     session['messages'].append(message)
-    session['last_update'] = asyncio.get_event_loop().time()
-    
+    session['last_update'] = datetime.now().timestamp()
+
+    # Batasi jumlah pesan yang disimpan
     if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
         session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
+
+    # Simpan kembali ke Redis
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi diperbarui untuk chat_id {chat_id}")
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
@@ -582,9 +593,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             if f"@{context.bot.username}" not in update.message.text:
                 return  # Abaikan jika tidak ada mention di grup
 
-    # Pastikan sesi sudah diinisialisasi
-    if chat_id not in user_sessions:
-        await initialize_session(chat_id)
+    if not redis_client.exists(f"session:{chat_id}"):
+    await initialize_session(chat_id)
 
     # Proses teks
     message = message_text or update.message.text.strip()
