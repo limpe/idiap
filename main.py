@@ -132,13 +132,12 @@ async def encode_image(image_source) -> str:
         logger.exception("Error encoding image")
         raise
 
-async def generate_image(prompt: str) -> Optional[str]:
+async def generate_image(update: Update, prompt: str) -> Optional[str]:
     try:
         headers = {
             "Authorization": f"Bearer {TOGETHER_API_KEY}",
             "Content-Type": "application/json"
         }
-        
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
             "prompt": prompt,
@@ -164,11 +163,11 @@ async def generate_image(prompt: str) -> Optional[str]:
                     error_text = await response.text()
                     logger.error(f"Error generating image: {error_text}")
                     
-                    # Tambahkan penanganan khusus untuk error NSFW
+                    # Tangani error NSFW
                     if "NSFW content" in error_text:
                         await update.message.reply_text("Maaf, konten terdeteksi sebagai NSFW. Coba dengan prompt yang berbeda.")
                     return None
-                
+
                 result = await response.json()
                 if 'data' in result and len(result['data']) > 0:
                     return result['data'][0]['b64_json']
@@ -177,6 +176,7 @@ async def generate_image(prompt: str) -> Optional[str]:
     except Exception as e:
         logger.exception("Error in generate_image")
         return None
+
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
