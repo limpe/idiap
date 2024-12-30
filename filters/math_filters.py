@@ -1,179 +1,52 @@
-from typing import Dict, List
+import re
 from .base_filter import BaseFilter
+from .constants import MATH_SYMBOLS, SUPERSCRIPT_MAP
 
-class MathSymbolFilter:
-    """Class untuk menangani konversi simbol matematika"""
+class MathFilter(BaseFilter):
+    def __init__(self):
+        self.math_symbols = MATH_SYMBOLS
+        self.superscript_map = SUPERSCRIPT_MAP
     
-    @staticmethod
-    def get_math_replacements() -> dict:
-        """
-        Returns dictionary of LaTeX math symbols and their Unicode replacements
-        """
-        return {
-            # Basic Operations
-            '\\frac': '',          
-            '\\sqrt': '√',         
-            '\\times': '×',        
-            '\\div': '÷',          
-            '\\pm': '±',           
-            '\\mp': '∓',           
-            '\\cdot': '·',         
-            
-            # Comparison Operators
-            '\\leq': '≤',          
-            '\\geq': '≥',          
-            '\\neq': '≠',          
-            '\\approx': '≈',       
-            '\\equiv': '≡',        
-            '\\sim': '∼',          
-            
-            # Powers and Indices
-            '^2': '²',             
-            '^3': '³',             
-            '^n': 'ⁿ',            
-            '_2': '₂',            
-            '_3': '₃',            
-            '_n': 'ₙ',            
-            
-            # Greek Letters
-            '\\alpha': 'α',        
-            '\\beta': 'β',         
-            '\\gamma': 'γ',        
-            '\\delta': 'δ',        
-            '\\epsilon': 'ε',      
-            '\\zeta': 'ζ',        
-            '\\eta': 'η',         
-            '\\theta': 'θ',        
-            '\\iota': 'ι',        
-            '\\kappa': 'κ',       
-            '\\lambda': 'λ',      
-            '\\mu': 'μ',          
-            '\\nu': 'ν',          
-            '\\xi': 'ξ',          
-            '\\pi': 'π',          
-            '\\rho': 'ρ',         
-            '\\sigma': 'σ',       
-            '\\tau': 'τ',         
-            '\\upsilon': 'υ',     
-            '\\phi': 'φ',         
-            '\\chi': 'χ',         
-            '\\psi': 'ψ',         
-            '\\omega': 'ω',       
-            
-            # Capital Greek Letters
-            '\\Gamma': 'Γ',       
-            '\\Delta': 'Δ',       
-            '\\Theta': 'Θ',       
-            '\\Lambda': 'Λ',      
-            '\\Xi': 'Ξ',          
-            '\\Pi': 'Π',          
-            '\\Sigma': 'Σ',       
-            '\\Upsilon': 'Υ',     
-            '\\Phi': 'Φ',         
-            '\\Psi': 'Ψ',         
-            '\\Omega': 'Ω',       
-            
-            # Set Theory
-            '\\in': '∈',          
-            '\\notin': '∉',       
-            '\\subset': '⊂',      
-            '\\supset': '⊃',      
-            '\\subseteq': '⊆',    
-            '\\supseteq': '⊇',    
-            '\\cup': '∪',         
-            '\\cap': '∩',         
-            '\\emptyset': '∅',    
-            
-            # Logic Symbols
-            '\\forall': '∀',      
-            '\\exists': '∃',      
-            '\\nexists': '∄',     
-            '\\land': '∧',        
-            '\\lor': '∨',         
-            '\\neg': '¬',         
-            '\\implies': '⇒',     
-            '\\iff': '⇔',         
-            '\\therefore': '∴',   
-            '\\because': '∵',     
-            
-            # Calculus
-            '\\partial': '∂',     
-            '\\nabla': '∇',       
-            '\\infty': '∞',       
-            '\\int': '∫',         
-            '\\iint': '∬',        
-            '\\iiint': '∭',       
-            '\\oint': '∮',        
-            
-            # Arrows
-            '\\rightarrow': '→',   
-            '\\leftarrow': '←',    
-            '\\leftrightarrow': '↔',
-            '\\Rightarrow': '⇒',   
-            '\\Leftarrow': '⇐',    
-            '\\Leftrightarrow': '⇔',
-            '\\uparrow': '↑',      
-            '\\downarrow': '↓',    
-            
-            # Miscellaneous
-            '\\degree': '°',       
-            '\\prime': '′',        
-            '\\dprime': '″',       
-            '\\tprime': '‴',       
-            '\\perp': '⊥',        
-            '\\parallel': '∥',     
-            '\\angle': '∠',        
-            '\\triangle': '△',     
-            '\\square': '□',       
-            '\\propto': '∝',      
-            
-            # Cleaning commands
-            '{': '',               
-            '}': '',               
-            '\\left': '',          
-            '\\right': '',         
-            '\\text': '',          
-            '\\mathrm': '',        
-        }
-
-    @staticmethod
-    def get_equation_markers() -> List[str]:
-        """
-        Returns list of common LaTeX equation markers
-        """
-        return [
-            '\\[', '\\]', '\\(', '\\)', 
-            '\\begin{equation}', '\\end{equation}',
-            '\\begin{align}', '\\end{align}',
-            '\\begin{aligned}', '\\end{aligned}'
-        ]
-
-    @staticmethod
-    async def clean_math_expression(text: str) -> str:
-        """
-        Clean mathematical expressions by converting LaTeX to Unicode
-        """
-        # Remove equation markers
-        for marker in MathSymbolFilter.get_equation_markers():
-            text = text.replace(marker, '')
-            
-        # Apply symbol replacements
-        for latex, replacement in MathSymbolFilter.get_math_replacements().items():
-            text = text.replace(latex, replacement)
+    def _convert_superscripts(self, text: str) -> str:
+        """Convert regular numbers after ^ to superscript numbers"""
+        def replace_superscript(match):
+            number = match.group(1)
+            return ''.join(self.superscript_map.get(digit, digit) for digit in number)
         
-        # Clean up spaces and line breaks
-        text = ' '.join(line.strip() for line in text.split('\n') if line.strip())
-        text = ' '.join(text.split())
+        return re.sub(r'\^(\d+)', replace_superscript, text)
+    
+    def _replace_fractions(self, text: str) -> str:
+        """Replace LaTeX fractions with plain text fractions"""
+        # Replace \frac{num}{den} with num/den
+        pattern = r'\\frac\{([^}]+)\}\{([^}]+)\}'
+        return re.sub(pattern, r'\1/\2', text)
+    
+    def _clean_math_delimiters(self, text: str) -> str:
+        """Remove LaTeX math mode delimiters"""
+        text = re.sub(r'\$\$(.*?)\$\$', r'\1', text)
+        text = re.sub(r'\$(.*?)\$', r'\1', text)
+        text = re.sub(r'\\begin\{.*?\}(.*?)\\end\{.*?\}', r'\1', text, flags=re.DOTALL)
+        return text
+    
+    def filter(self, text: str) -> str:
+        """
+        Filter mathematical expressions to plain text format
         
+        Args:
+            text (str): Input text containing LaTeX math
+            
+        Returns:
+            str: Filtered text with simplified math notation
+        """
+        # Replace all LaTeX math symbols with their plain text equivalents
+        for latex, symbol in self.math_symbols.items():
+            text = text.replace(latex, symbol)
+        
+        # Apply specific transformations
+        text = self._clean_math_delimiters(text)
+        text = self._convert_superscripts(text)
+        text = self._replace_fractions(text)
+        
+        # Clean up extra spaces
+        text = re.sub(r'\s+', ' ', text)
         return text.strip()
-
-    @staticmethod
-    async def contains_math(text: str) -> bool:
-        """
-        Check if text contains mathematical expressions
-        """
-        math_indicators = [
-            '\\[', '\\]', '\\(', '\\)', '\\frac', '^', '_', '\\sqrt',
-            '\\alpha', '\\beta', '\\theta', '\\pi', '\\sum', '\\int'
-        ]
-        return any(indicator in text for indicator in math_indicators)
