@@ -603,16 +603,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Periksa apakah ini di grup dan perlu mention
     if chat_type in ["group", "supergroup"]:
-    message_text = update.message.text or ""
+        message_text = update.message.text or ""
 
-    # Cek apakah pesan memiliki entity mention atau merupakan balasan ke bot
-    entities = update.message.entities or []
-    is_mention = any(entity.type == "mention" and f"@{context.bot.username}" in message_text for entity in entities)
-    is_reply = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
+        # Cek apakah pesan memiliki entity mention atau merupakan balasan ke bot
+        entities = update.message.entities or []
+        is_mention = any(entity.type == "mention" and f"@{context.bot.username}" in message_text for entity in entities)
+        is_reply = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
 
-    if not is_mention and not is_reply:
-        logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
-        return
+        if not is_mention and not is_reply:
+            logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
+            return
         
         # Hapus mention jika ada
         message_text = message_text.replace(f"@{context.bot.username}", "").strip()
@@ -678,7 +678,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         await update.message.reply_text(response)
-
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
