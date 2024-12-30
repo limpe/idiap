@@ -140,7 +140,10 @@ async def generate_image(prompt: str) -> Optional[str]:
             "prompt": prompt,
             "width": 1344,
             "height": 768,
-            "steps": 1,
+            "steps": 30,  # Ditingkatkan untuk kualitas lebih baik
+            "samples": 1,  # Jumlah gambar yang dihasilkan
+            "cfg_scale": 7.5,  # Parameter untuk mengontrol seberapa dekat output dengan prompt
+            "scheduler": "euler_a",  # Scheduler yang lebih baik untuk kualitas
             "n": 1,
             "response_format": "b64_json"
         }
@@ -159,6 +162,7 @@ async def generate_image(prompt: str) -> Optional[str]:
                 if 'data' in result and len(result['data']) > 0:
                     return result['data'][0]['b64_json']
                 return None
+
     except Exception as e:
         logger.exception("Error in generate_image")
         return None
