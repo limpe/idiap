@@ -10,3 +10,4 @@ aiohttp[speedups]
 psutil
 groq
 redis
+together
