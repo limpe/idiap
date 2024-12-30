@@ -138,12 +138,11 @@ async def generate_image(prompt: str) -> Optional[str]:
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
             "prompt": prompt,
-            "width": 1344,
+            "width": 1344,  # Maksimalkan resolusi
             "height": 768,
-            "steps": 30,  # Ditingkatkan untuk kualitas lebih baik
-            "samples": 1,  # Jumlah gambar yang dihasilkan
-            "cfg_scale": 7.5,  # Parameter untuk mengontrol seberapa dekat output dengan prompt
-            "scheduler": "euler_a",  # Scheduler yang lebih baik untuk kualitas
+            "steps": 4,     # Maksimum steps yang diizinkan
+            "samples": 1,   # Jumlah gambar yang dihasilkan
+            "cfg_scale": 7.5,  # Kontrol kepatuhan terhadap prompt
             "n": 1,
             "response_format": "b64_json"
         }
@@ -152,10 +151,12 @@ async def generate_image(prompt: str) -> Optional[str]:
             async with session.post(
                 "https://api.together.xyz/v1/images/generations",
                 headers=headers,
-                json=data
+                json=data,
+                timeout=60  # Tambahkan timeout yang lebih lama
             ) as response:
                 if response.status != 200:
-                    logger.error(f"Error generating image: {await response.text()}")
+                    error_text = await response.text()
+                    logger.error(f"Error generating image: {error_text}")
                     return None
                 
                 result = await response.json()
