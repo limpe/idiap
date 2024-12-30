@@ -604,35 +604,56 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Periksa apakah ini di grup dan perlu mention
     if chat_type in ["group", "supergroup"]:
         if not message_text:  # Jika bukan dari handle_mention
-            if f"@{context.bot.username}" not in update.message.text:
-                return  # Abaikan jika tidak ada mention di grup
+            message_text = update.message.text
 
+        # Abaikan jika tidak ada mention atau bukan balasan ke bot
+        if f"@{context.bot.username}" not in message_text and not (
+            update.message.reply_to_message and
+            update.message.reply_to_message.from_user.id == context.bot.id
+        ):
+            logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
+            return
+        
+        # Hapus mention jika ada
+        message_text = message_text.replace(f"@{context.bot.username}", "").strip()
+
+    # Jika private chat
+    elif chat_type == "private":
+        if not message_text:  # Jika tidak ada message_text yang diteruskan
+            message_text = update.message.text.strip()
+
+    # Jika tidak ada pesan yang diproses, keluar
+    if not message_text:
+        return
+
+    # Periksa apakah sesi Redis sudah ada
     if not redis_client.exists(f"session:{chat_id}"):
         await initialize_session(chat_id)
-    # Proses teks
-    message = message_text or update.message.text.strip()
-    if chat_type in ["group", "supergroup"]:
-        message = message.replace(f"@{context.bot.username}", "").strip()
 
- # Check if this is an image generation request
-    if message.lower().startswith(('/gambar', '/image')):
+    # Proses teks
+    session = json.loads(redis_client.get(f"session:{chat_id}"))
+    session['messages'].append({"role": "user", "content": message_text})
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+
+    # Jika permintaan pembuatan gambar
+    if message_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
-        prompt = message.split(' ', 1)[1] if len(message.split(' ', 1)) > 1 else None
-        
+        prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
+
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
             return
 
         processing_msg = await update.message.reply_text("Sedang membuat gambar...")
-        
+
         try:
-            image_data = await generate_image(prompt)
+            image_data = await generate_image(update, prompt)  # Perbaikan di sini
             if image_data:
                 # Convert base64 to image
                 image_bytes = base64.b64decode(image_data)
                 bio = BytesIO(image_bytes)
                 bio.seek(0)
-                
+
                 # Send the image
                 await update.message.reply_photo(
                     photo=bio,
@@ -646,29 +667,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         finally:
             await processing_msg.delete()
         return
-    
+
+    # Tambahkan statistik
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    # Tambahkan konteks gambar jika ada dan pertanyaan tampaknya terkait
-    image_related_keywords = ['gambar', 'foto', 'image', 'analisis', 'jelaskan', 'tersebut', 'itu']
-    has_image_context = any(keyword in message.lower() for keyword in image_related_keywords)
-    
-    if has_image_context and 'last_image_analysis' in user_sessions[chat_id]:
-        # Tambahkan konteks gambar ke dalam pesan
-        context_message = (
-            f"Konteks sebelumnya: {user_sessions[chat_id]['last_image_analysis']}\n"
-            f"Pertanyaan user: {message}"
-        )
-        user_sessions[chat_id]['messages'].append({"role": "user", "content": context_message})
-    else:
-        user_sessions[chat_id]['messages'].append({"role": "user", "content": message})
-
-    response = await process_with_mistral(user_sessions[chat_id]['messages'])
-
+    # Dapatkan respons dari Mistral
+    response = await process_with_mistral(session['messages'][-10:])
     if response:
-        user_sessions[chat_id]['messages'].append({"role": "assistant", "content": response})
+        session['messages'].append({"role": "assistant", "content": response})
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
         await update.message.reply_text(response)
+
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
