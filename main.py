@@ -605,8 +605,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
                 return  # Abaikan jika tidak ada mention di grup
 
     if not redis_client.exists(f"session:{chat_id}"):
-    await initialize_session(chat_id)
-
+        await initialize_session(chat_id)
     # Proses teks
     message = message_text or update.message.text.strip()
     if chat_type in ["group", "supergroup"]:
