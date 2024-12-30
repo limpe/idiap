@@ -491,12 +491,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
-    """Bersihkan sesi yang tidak aktif"""
-    for key in redis_client.scan_iter("session:*"):
-        session = json.loads(redis_client.get(key))
-        last_update = session.get('last_update', 0)
-        if datetime.now().timestamp() - last_update > CONVERSATION_TIMEOUT:
-            redis_client.delete(key)
+    logger.info("Memulai proses pembersihan sesi yang tidak aktif")
+    try:
+        for key in redis_client.scan_iter("session:*"):
+            session = json.loads(redis_client.get(key))
+            last_update = session.get('last_update', 0)
+
+            if datetime.now().timestamp() - last_update > CONVERSATION_TIMEOUT:
+                redis_client.delete(key)
+                logger.info(f"Sesi dengan kunci {key} telah dihapus karena tidak aktif")
+    except redis.RedisError as e:
+        logger.error(f"Gagal membersihkan sesi: {str(e)}")
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup"""
@@ -524,62 +529,68 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     """Inisialisasi sesi baru di Redis"""
-    session = {
-        'messages': [],
-        'last_update': datetime.now().timestamp(),
-        'conversation_id': str(uuid.uuid4())
-    }
-
-    # Simpan sesi ke Redis sebagai JSON
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-
-    # Atur waktu kedaluwarsa sesi (contoh: 1 jam = 3600 detik)
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi baru dibuat untuk chat_id {chat_id}")
-
-
-async def should_reset_context(chat_id: int, message: str) -> bool:
-    """Tentukan apakah konteks perlu direset"""
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        return True  # Jika sesi tidak ada, reset
-
-    session = json.loads(session_json)
-    last_update = session.get('last_update', 0)
-    current_time = datetime.now().timestamp()
-
-    time_diff = current_time - last_update
-    keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', '?']
-    starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
-
-    return time_diff > CONVERSATION_TIMEOUT or starts_with_keyword
-
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Update sesi chat di Redis"""
-    # Ambil sesi dari Redis
-    session_json = redis_client.get(f"session:{chat_id}")
-    if session_json:
-        session = json.loads(session_json)  # Decode JSON ke dictionary
-    else:
-        await initialize_session(chat_id)
+    try:
         session = {
             'messages': [],
             'last_update': datetime.now().timestamp(),
             'conversation_id': str(uuid.uuid4())
         }
 
-    # Update sesi
-    session['messages'].append(message)
-    session['last_update'] = datetime.now().timestamp()
-
-    # Batasi jumlah pesan yang disimpan
-    if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
-        session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
-
-    # Simpan kembali ke Redis
+        try:
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi diperbarui untuk chat_id {chat_id}")
+    logger.info(f"Sesi berhasil dibuat untuk chat_id {chat_id}")
+except redis.RedisError as e:
+    logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
+    raise Exception("Gagal menginisialisasi sesi.")
+
+
+async def should_reset_context(chat_id: int, message: str) -> bool:
+    try:
+        session_json = redis_client.get(f"session:{chat_id}")
+        if not session_json:
+            return True
+
+        session = json.loads(session_json)
+        last_update = session.get('last_update', 0)
+        current_time = datetime.now().timestamp()
+        time_diff = current_time - last_update
+
+        # Periksa kata kunci
+        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', '?']
+        starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
+
+        return time_diff > CONVERSATION_TIMEOUT or starts_with_keyword
+    except redis.RedisError as e:
+        logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
+        # Reset konteks jika Redis tidak respons
+        return True
+
+async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    try:
+        logger.info(f"Memulai pembaruan sesi untuk chat_id {chat_id}")
+        session_json = redis_client.get(f"session:{chat_id}")
+        
+        if session_json:
+            session = json.loads(session_json)
+            logger.info(f"Data sesi ditemukan untuk chat_id {chat_id}")
+        else:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+            logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
+
+        session['messages'].append(message)
+
+        if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
+            session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
+            logger.info(f"Pesan di sesi untuk chat_id {chat_id} dibatasi hingga {MAX_CONVERSATION_MESSAGES} pesan")
+
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+        logger.info(f"Sesi berhasil diperbarui untuk chat_id {chat_id}")
+    except redis.RedisError as e:
+        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
+        raise Exception("Gagal memperbarui sesi.")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
