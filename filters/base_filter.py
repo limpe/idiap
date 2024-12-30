@@ -1,11 +1,15 @@
 from abc import ABC, abstractmethod
 
 class BaseFilter(ABC):
-    """Base class untuk implementasi filter"""
-    
     @abstractmethod
-    async def filter_content(self, content: str) -> str:
+    def filter(self, text: str) -> str:
         """
-        Method dasar yang harus diimplementasikan oleh semua filter
+        Filter the input text according to specific rules
+        
+        Args:
+            text (str): Input text to be filtered
+            
+        Returns:
+            str: Filtered text
         """
         pass
