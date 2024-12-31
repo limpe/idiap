@@ -86,6 +86,33 @@ async def auto_learn(user_id: int, message: str, response: str) -> None:
         await save_long_term_memory(user_id, memory)
         logger.info(f"Auto-learning dilakukan untuk user_id {user_id}")
 
+async def reset_redis_database(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset data memori jangka panjang dan auto-learning untuk user yang melakukan request (hanya untuk admin)"""
+    # Cek apakah pengguna adalah admin
+    if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
+        await update.message.reply_text("Anda bukan admin! Hanya admin yang dapat mereset data.")
+        return
+    
+    try:
+        chat_id = update.message.chat_id
+        
+        # Hapus data memori jangka panjang (session data)
+        session_key = f"session:{chat_id}"
+        if redis_client.exists(session_key):
+            redis_client.delete(session_key)
+            logger.info(f"Data memori jangka panjang (session:{chat_id}) dihapus oleh admin.")
+        
+        # Hapus data auto-learning (jika ada)
+        learning_key = f"learning:{chat_id}"  # Sesuaikan pola kunci jika berbeda
+        if redis_client.exists(learning_key):
+            redis_client.delete(learning_key)
+            logger.info(f"Data auto-learning (learning:{chat_id}) dihapus oleh admin.")
+        
+        await update.message.reply_text(f"Data memori jangka panjang dan auto-learning untuk chat_id {chat_id} berhasil direset.")
+    except Exception as e:
+        logger.error(f"Gagal mereset data memori jangka panjang dan auto-learning untuk chat_id {chat_id}: {str(e)}")
+        await update.message.reply_text("Terjadi kesalahan saat mereset data memori jangka panjang dan auto-learning.")
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -801,6 +828,52 @@ def main():
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
+        application.add_handler(CommandHandler("ndag", reset_redis_database))  # Tambahkan handler untuk /ndag
+        
+        # Message handlers dengan prioritas
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        
+        # Handler baru untuk text dengan mention di grup
+        application.add_handler(MessageHandler(
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
+            handle_mention
+        ))
+        
+        # Handler baru untuk chat pribadi
+        application.add_handler(MessageHandler(
+            filters.TEXT & filters.ChatType.PRIVATE,
+            handle_text
+        ))
+
+        # Cleanup session setiap jam
+        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
+
+        application.run_polling()
+
+    except Exception as e:
+        logger.critical(f"Error fatal saat menjalankan bot: {e}")
+        raisedef main():
+    if not check_required_settings():
+        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
+        return
+
+    # Set default maintenance mode ke 0 (nonaktif) jika belum ada
+    if redis_client.get('maintenance_mode') is None:
+        redis_client.set('maintenance_mode', 0)
+        logger.info("Maintenance mode diatur ke default (nonaktif).")
+
+    try:
+        # Inisialisasi application
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+        # Command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("reset", reset_session))
+        application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
+        application.add_handler(CommandHandler("ndag", reset_redis_database))  # Tambahkan handler untuk /ndag
         
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
