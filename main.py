@@ -6,22 +6,103 @@ import base64
 import uuid
 import redis
 import json
-from typing import Optional, List, Dict
-
-from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import speech_recognition as sr
-from pydub import AudioSegment
+import asyncio.exceptions
 import gtts
 import aiohttp
+import speech_recognition as sr
+
+
+from typing import Optional, List, Dict
+from telegram import Update, InputFile
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from pydub import AudioSegment
 from langdetect import detect
 from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
-#from filters import MathFilter, TextFilter
+from typing import Optional, List, Dict, Union, Any
 from together import Together
+
+
+class LongTermStorage:
+    def __init__(self, redis_client):
+        self.redis = redis_client
+        self.default_expiry = 30 * 24 * 60 * 60  # 30 days in seconds
+
+    async def store_user_data(self, user_id: int, data_type: str, content: dict) -> bool:
+        try:
+            key = f"long_term:{user_id}:{data_type}"
+            timestamp = datetime.now().isoformat()
+            
+            storage_data = {
+                "content": content,
+                "created_at": timestamp,
+                "updated_at": timestamp
+            }
+            
+            self.redis.set(
+                key,
+                json.dumps(storage_data),
+                ex=self.default_expiry
+            )
+            logger.info(f"Data {data_type} stored for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store data: {str(e)}")
+            return False
+
+    async def get_user_data(self, user_id: int, data_type: str) -> Optional[dict]:
+        try:
+            key = f"long_term:{user_id}:{data_type}"
+            data = self.redis.get(key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"Failed to retrieve data: {str(e)}")
+            return None
+
+    async def update_user_statistics(self, user_id: int, statistics: dict):
+        try:
+            key = f"stats:{user_id}"
+            current_stats = self.redis.get(key)
+            
+            if current_stats:
+                stats = json.loads(current_stats)
+                stats.update(statistics)
+            else:
+                stats = statistics
+            
+            self.redis.set(key, json.dumps(stats), ex=self.default_expiry)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update statistics: {str(e)}")
+            return False
+
+    async def store_conversation_history(self, user_id: int, message: dict):
+        try:
+            key = f"history:{user_id}"
+            current_history = self.redis.get(key)
+            
+            if current_history:
+                history = json.loads(current_history)
+            else:
+                history = []
+                
+            history.append({
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            if len(history) > 100:
+                history = history[-100:]
+                
+            self.redis.set(key, json.dumps(history), ex=self.default_expiry)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store conversation history: {str(e)}")
+            return False
 
 async def toggle_maintenance_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Toggle mode maintenance bot"""
@@ -692,170 +773,190 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     start_time = datetime.now()
     user_id = update.message.from_user.id
     current_time = datetime.now().timestamp()
+    chat_id = update.message.chat_id
     
-    # Cek kapan terakhir pengguna mengirim pesan
+    # Get storage from context
+    storage = context.bot_data["storage"]
+    
+    # Rate limiting check
     last_message_time = redis_client.get(f"last_message_time_{user_id}")
-    if last_message_time and current_time - float(last_message_time) < 5:  # Batasan: 1 pesan per 5 detik
+    if last_message_time and current_time - float(last_message_time) < 5:
         await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
         return
 
-    # Update waktu terakhir pengguna mengirim pesan
+    # Update last message time
     redis_client.set(f"last_message_time_{user_id}", current_time)
 
-    # Update active_users jika pengguna baru
-    if not redis_client.exists(f"session:{update.message.chat_id}"):
-        bot_statistics["active_users"] += 1
-
-    # Cek mode maintenance
+    # Maintenance mode check
     if await check_maintenance_mode(update):
         return
 
-    await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
-    chat_id = update.message.chat_id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     chat_type = update.message.chat.type
 
-    # Periksa apakah ini di grup dan perlu mention
+    # Group chat handling
     if chat_type in ["group", "supergroup"]:
         message_text = update.message.text or ""
-
-        # Cek apakah pesan memiliki entity mention atau merupakan balasan ke bot
         entities = update.message.entities or []
         is_mention = any(entity.type == "mention" and f"@{context.bot.username}" in message_text for entity in entities)
         is_reply = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
 
         if not is_mention and not is_reply:
-            logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
+            logger.info("Group message ignored - no mention or reply.")
             return
         
-        # Hapus mention jika ada
         message_text = message_text.replace(f"@{context.bot.username}", "").strip()
 
-    # Jika private chat
+    # Private chat handling
     elif chat_type == "private":
-        if not message_text:  # Jika tidak ada message_text yang diteruskan
+        if not message_text:
             message_text = update.message.text.strip()
 
-    # Jika tidak ada pesan yang diproses, keluar
     if not message_text:
         return
 
-    # Periksa apakah sesi Redis sudah ada
+    # Store user interaction data
+    await storage.store_user_data(user_id, "interaction", {
+        "last_message": message_text,
+        "timestamp": current_time,
+        "chat_id": chat_id,
+        "chat_type": chat_type
+    })
+
+    # Initialize or get session
     if not redis_client.exists(f"session:{chat_id}"):
         await initialize_session(chat_id)
+        bot_statistics["active_users"] += 1
 
-    # Ambil memori jangka panjang
+    # Get long-term memory
     long_term_memory = await get_long_term_memory(user_id)
     if long_term_memory:
-        message_text = f"{long_term_memory}\n{message_text}"  # Gabungkan memori lama dengan pesan baru
+        message_text = f"{long_term_memory}\n{message_text}"
 
-    # Proses teks
+    # Process message
     session = json.loads(redis_client.get(f"session:{chat_id}"))
     session['messages'].append({"role": "user", "content": message_text})
     redis_client.set(f"session:{chat_id}", json.dumps(session))
 
-    # Jika permintaan pembuatan gambar
-    if message_text.lower().startswith(('/gambar', '/image')):
-        # Extract the prompt
-        prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
-
-        if not prompt:
-            await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
-            return
-
-        processing_msg = await update.message.reply_text("Sedang membuat gambar...")
-
-        try:
-            image_data = await generate_image(update, prompt)  # Perbaikan di sini
-            if image_data:
-                # Convert base64 to image
-                image_bytes = base64.b64decode(image_data)
-                bio = BytesIO(image_bytes)
-                bio.seek(0)
-
-                # Send the image
-                await update.message.reply_photo(
-                    photo=bio,
-                    caption=f"Hasil generate gambar untuk prompt: {prompt}"
-                )
-            else:
-                await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        except Exception as e:
-            logger.exception("Error generating image")
-            await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        finally:
-            await processing_msg.delete()
-        return
-
-    # Tambahkan statistik
+    # Update statistics
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    # Dapatkan respons dari Mistral
+    # Get response from Mistral
     response = await process_with_mistral(session['messages'][-10:])
     if response:
+        # Store response in session
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
+        
+        # Store conversation history
+        await storage.store_conversation_history(user_id, {
+            "user_message": message_text,
+            "bot_response": response,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        # Send response
         await update.message.reply_text(response)
 
-        # Auto-learning untuk pengguna khusus
+        # Auto-learning for special users
         await auto_learn(user_id, message_text, response)
 
-    # Hitung waktu respon
+    # Calculate and store response time
     response_time = (datetime.now() - start_time).total_seconds()
     bot_statistics["average_response_time"] = (bot_statistics["average_response_time"] + response_time) / 2
+    
+    # Update user statistics
+    await storage.update_user_statistics(user_id, {
+        "last_interaction": current_time,
+        "total_messages": bot_statistics["text_messages"],
+        "average_response_time": bot_statistics["average_response_time"]
+    })
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     redis_client.delete(f"session:{chat_id}")
     await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
+async def view_stored_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command handler to view stored user data"""
+    if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
+        await update.message.reply_text("Anda tidak memiliki izin untuk melihat data.")
+        return
+        
+    storage = context.bot_data["storage"]
+    user_id = update.message.from_user.id
+    
+    # Get various types of stored data
+    interaction_data = await storage.get_user_data(user_id, "interaction")
+    stats_data = await storage.get_user_data(user_id, "stats")
+    
+    response = "Data Tersimpan:\n\n"
+    
+    if interaction_data:
+        response += f"Interaksi Terakhir:\n{json.dumps(interaction_data, indent=2)}\n\n"
+    
+    if stats_data:
+        response += f"Statistik:\n{json.dumps(stats_data, indent=2)}"
+    
+    if not interaction_data and not stats_data:
+        response = "Tidak ada data tersimpan untuk pengguna ini."
+    
+    await update.message.reply_text(response)
+
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
 
-    # Set default maintenance mode ke 0 (nonaktif) jika belum ada
-    if redis_client.get('maintenance_mode') is None:
-        redis_client.set('maintenance_mode', 0)
-        logger.info("Maintenance mode diatur ke default (nonaktif).")
-
     try:
-        # Inisialisasi application
+        # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
+        
+        # Initialize long-term storage
+        storage = LongTermStorage(redis_client)
+        application.bot_data["storage"] = storage
+
+        # Set default maintenance mode
+        if redis_client.get('maintenance_mode') is None:
+            redis_client.set('maintenance_mode', 0)
+            logger.info("Maintenance mode set to default (inactive).")
 
         # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
-        application.add_handler(CommandHandler("deldb", reset_redis_database))  # Tambahkan handler untuk /deldb
+        application.add_handler(CommandHandler("deldb", reset_redis_database))
+        application.add_handler(CommandHandler("viewdata", view_stored_data))
         
-        # Message handlers dengan prioritas
+        # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         
-        # Handler baru untuk text dengan mention di grup
+        # Group chat handlers
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
             (filters.Entity("mention") | filters.REPLY), 
             handle_mention
         ))
         
-        # Handler baru untuk chat pribadi
+        # Private chat handler
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
             handle_text
         ))
 
-        # Cleanup session setiap jam
+        # Cleanup job
         application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
 
+        # Start the bot
         application.run_polling()
 
     except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
+        logger.critical(f"Fatal error while running the bot: {e}")
         raise
-
+        
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Cek mode maintenance
     if await check_maintenance_mode(update):
