@@ -23,6 +23,33 @@ from datetime import datetime, timedelta
 #from filters import MathFilter, TextFilter
 from together import Together
 
+async def toggle_maintenance_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle mode maintenance bot"""
+    # Cek apakah pengguna adalah admin
+    if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
+        await update.message.reply_text("Anda bukan admin!")
+        return
+        
+    # Toggle mode maintenance
+    current_mode = redis_client.get('maintenance_mode')
+    new_mode = not bool(current_mode)
+    redis_client.set('maintenance_mode', int(new_mode))
+    
+    await update.message.reply_text(
+        f"Mode maintenance {'diaktifkan' if new_mode else 'dinonaktifkan'}"
+    )
+
+async def check_maintenance_mode(update: Update) -> bool:
+    """Cek apakah bot dalam mode maintenance"""
+    if redis_client.get('maintenance_mode'):
+        if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
+            await update.message.reply_text(
+                "🛠️ Bot sedang dalam maintenance.\n"
+                "Silakan coba beberapa saat lagi."
+            )
+            return True
+    return False
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -614,7 +641,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Update active_users jika pengguna baru
     if not redis_client.exists(f"session:{update.message.chat_id}"):
-        bot_statistics["active_users"] += 1  # Indentasi dengan benar
+        bot_statistics["active_users"] += 1
+
+    # Cek mode maintenance
+    if await check_maintenance_mode(update):
+        return
 
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
     chat_id = update.message.chat_id
@@ -720,6 +751,7 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
+        application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))  # Tambahkan ini
         
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -748,6 +780,10 @@ def main():
         raise
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek mode maintenance
+    if await check_maintenance_mode(update):
+        return
+
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
@@ -760,9 +796,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # Update waktu terakhir pengguna mengirim pesan
-        redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-        if not redis_client.exists(f"session:{update.message.chat_id}"):
-            bot_statistics["active_users"] += 1
+    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+    if not redis_client.exists(f"session:{update.message.chat_id}"):
+        bot_statistics["active_users"] += 1
+
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
 
