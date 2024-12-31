@@ -79,7 +79,9 @@ bot_statistics = {
     "voice_messages": 0,
     "text_messages": 0,
     "photo_messages": 0,
-    "errors": 0
+    "errors": 0,
+    "active_users": 0,
+    "average_response_time": 0
 }
 
 class AudioProcessingError(Exception):
@@ -597,9 +599,13 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    start_time = datetime.now()
     user_id = update.message.from_user.id
     current_time = datetime.now().timestamp()
-
+    
+    # Proses pesan
+    response_time = (datetime.now() - start_time).total_seconds()
+    bot_statistics["average_response_time"] = (bot_statistics["average_response_time"] + response_time) / 2
     # Cek kapan terakhir pengguna mengirim pesan
     last_message_time = redis_client.get(f"last_message_time_{user_id}")
     if last_message_time and current_time - float(last_message_time) < 5:  # Batasan: 1 pesan per 5 detik
