@@ -766,6 +766,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"- Total Pesan: {bot_statistics['total_messages']}\n"
         f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
         f"- Pesan Teks: {bot_statistics['text_messages']}\n"
+        f"- Total Photo: {bot_statistics['photo_messages']}\n"
+        f"- Aktif User: {bot_statistics['active_users']}\n"
+        f"- Rata Rata Respon: {bot_statistics['average_response_time']}\n"
         f"- Kesalahan: {bot_statistics['errors']}\n"
         f"- Sesi Aktif: {active_sessions}"
     )
