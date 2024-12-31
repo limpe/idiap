@@ -599,13 +599,10 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    start_time = datetime.now()
+    start_time = datetime.now()  # Mulai menghitung waktu respon
     user_id = update.message.from_user.id
     current_time = datetime.now().timestamp()
     
-    # Proses pesan
-    response_time = (datetime.now() - start_time).total_seconds()
-    bot_statistics["average_response_time"] = (bot_statistics["average_response_time"] + response_time) / 2
     # Cek kapan terakhir pengguna mengirim pesan
     last_message_time = redis_client.get(f"last_message_time_{user_id}")
     if last_message_time and current_time - float(last_message_time) < 5:  # Batasan: 1 pesan per 5 detik
@@ -614,6 +611,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time)
+
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
@@ -644,8 +642,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         return
 
     # Periksa apakah sesi Redis sudah ada
-    if not redis_client.exists(f"session:{chat_id}"):
-        await initialize_session(chat_id)
+    if not redis_client.exists(f"session:{update.message.chat_id}"):
+        bot_statistics["active_users"] += 1
 
     # Proses teks
     session = json.loads(redis_client.get(f"session:{chat_id}"))
@@ -696,6 +694,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         await update.message.reply_text(response)
 
+    # Hitung waktu respon
+    response_time = (datetime.now() - start_time).total_seconds()
+    bot_statistics["average_response_time"] = (bot_statistics["average_response_time"] + response_time) / 2
+
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     redis_client.delete(f"session:{chat_id}")
@@ -741,7 +743,7 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
@@ -755,7 +757,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-
+    if not redis_client.exists(f"session:{update.message.chat_id}"):
+    bot_statistics["active_users"] += 1
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
 
@@ -766,8 +769,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"- Total Pesan: {bot_statistics['total_messages']}\n"
         f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
         f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-        f"- Total Photo: {bot_statistics['photo_messages']}\n"
-        f"- Aktif User: {bot_statistics['active_users']}\n"
+        f"- Pesan Gambar: {bot_statistics['photo_messages']}\n"
+        f"- Pengguna Aktif: {bot_statistics['active_users']}\n"
         f"- Rata Rata Respon: {bot_statistics['average_response_time']}\n"
         f"- Kesalahan: {bot_statistics['errors']}\n"
         f"- Sesi Aktif: {active_sessions}"
