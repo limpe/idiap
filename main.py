@@ -228,8 +228,8 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+redis_pool = redis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
+redis_client = redis.StrictRedis(connection_pool=redis_pool)
 
 
 # Konstanta konfigurasi
