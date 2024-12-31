@@ -502,10 +502,10 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     }
 
     # Tambahkan instruksi sistem agar respon default dalam Bahasa Indonesia
-    messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia Yang Mudah Di pahami."})
+    messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia Yang Mudah Di pahami Oleh Rakyat Indonesia Indonesia."})
 
     data = {
-        "model": "mistral-large-latest",
+        "model": "pixtral-large-latest",
         "messages": messages,
         "max_tokens": 10000
     }
