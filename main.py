@@ -828,52 +828,7 @@ def main():
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
-        application.add_handler(CommandHandler("ndag", reset_redis_database))  # Tambahkan handler untuk /ndag
-        
-        # Message handlers dengan prioritas
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        
-        # Handler baru untuk text dengan mention di grup
-        application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
-        ))
-        
-        # Handler baru untuk chat pribadi
-        application.add_handler(MessageHandler(
-            filters.TEXT & filters.ChatType.PRIVATE,
-            handle_text
-        ))
-
-        # Cleanup session setiap jam
-        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
-
-        application.run_polling()
-
-    except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        raisedef main():
-    if not check_required_settings():
-        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
-        return
-
-    # Set default maintenance mode ke 0 (nonaktif) jika belum ada
-    if redis_client.get('maintenance_mode') is None:
-        redis_client.set('maintenance_mode', 0)
-        logger.info("Maintenance mode diatur ke default (nonaktif).")
-
-    try:
-        # Inisialisasi application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        # Command handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))
-        application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
-        application.add_handler(CommandHandler("ndag", reset_redis_database))  # Tambahkan handler untuk /ndag
+        application.add_handler(CommandHandler("deldb", reset_redis_database))  # Tambahkan handler untuk /deldb
         
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
