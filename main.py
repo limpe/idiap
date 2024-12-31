@@ -6,22 +6,22 @@ import base64
 import uuid
 import redis
 import json
-from typing import Optional, List, Dict
-
-from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import speech_recognition as sr
-from pydub import AudioSegment
 import gtts
 import aiohttp
+import speech_recognition as sr
+
+from typing import Optional, List, Dict
+from telegram import Update, InputFile
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from pydub import AudioSegment
 from langdetect import detect
 from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
-#from filters import MathFilter, TextFilter
 from together import Together
+from langdetect import detect
 
 async def toggle_maintenance_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Toggle mode maintenance bot"""
@@ -59,6 +59,13 @@ async def check_maintenance_mode(update: Update) -> bool:
             )
             return True
     return False
+
+async def ensure_indonesian(response: str) -> str:
+    """Pastikan respons dalam Bahasa Indonesia."""
+    if detect(response) != 'id':
+        # Jika bukan Bahasa Indonesia, minta model untuk mengulang dalam Bahasa Indonesia
+        return await process_with_mistral([{"role": "user", "content": f"Jelaskan dalam Bahasa Indonesia: {response}"}])
+    return response
 
 async def save_long_term_memory(user_id: int, memory: str) -> None:
     """Simpan memori jangka panjang untuk pengguna tertentu menggunakan Redis."""
@@ -792,6 +799,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Dapatkan respons dari Mistral
     response = await process_with_mistral(session['messages'][-10:])
+    response = await ensure_indonesian(response)
     if response:
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
