@@ -32,16 +32,26 @@ async def toggle_maintenance_mode(update: Update, context: ContextTypes.DEFAULT_
         
     # Toggle mode maintenance
     current_mode = redis_client.get('maintenance_mode')
-    new_mode = not bool(current_mode)
+    logger.info(f"Current maintenance mode: {current_mode}")  # Log nilai saat ini
+    new_mode = not bool(int(current_mode) if current_mode else 0)  # Pastikan nilai diubah ke integer
     redis_client.set('maintenance_mode', int(new_mode))
     
+    logger.info(f"New maintenance mode: {new_mode}")  # Log nilai baru
     await update.message.reply_text(
         f"Mode maintenance {'diaktifkan' if new_mode else 'dinonaktifkan'}"
     )
 
 async def check_maintenance_mode(update: Update) -> bool:
     """Cek apakah bot dalam mode maintenance"""
-    if redis_client.get('maintenance_mode'):
+    current_mode = redis_client.get('maintenance_mode')
+    logger.info(f"Maintenance mode status: {current_mode}")  # Log nilai saat ini
+    
+    # Jika nilai None, anggap mode maintenance tidak aktif
+    if current_mode is None:
+        redis_client.set('maintenance_mode', 0)  # Set default ke 0 (nonaktif)
+        return False
+    
+    if int(current_mode):  # Pastikan nilai diubah ke integer
         if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
             await update.message.reply_text(
                 "🛠️ Bot sedang dalam maintenance.\n"
@@ -743,6 +753,11 @@ def main():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
         return
 
+    # Set default maintenance mode ke 0 (nonaktif) jika belum ada
+    if redis_client.get('maintenance_mode') is None:
+        redis_client.set('maintenance_mode', 0)
+        logger.info("Maintenance mode diatur ke default (nonaktif).")
+
     try:
         # Inisialisasi application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -751,7 +766,7 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
-        application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))  # Tambahkan ini
+        application.add_handler(CommandHandler("maintenance", toggle_maintenance_mode))
         
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
