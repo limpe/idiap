@@ -395,6 +395,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["total_messages"] += 1
         bot_statistics["voice_messages"] += 1
 
+        # Tampilkan indikator "recording voice"
+        await context.bot.send_chat_action(chat_id=update.message.chat_id, action="record_voice")
+
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
 
         try:
@@ -608,7 +611,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time)
+
+    # Tampilkan indikator "typing"
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
+
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
 
@@ -649,7 +655,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Jika permintaan pembuatan gambar
     if message_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
-        prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
+        prompt = message_text.split(' ', 1)[1] if len(message_message_text.split(' ', 1)) > 1 else None
 
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
@@ -658,7 +664,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         processing_msg = await update.message.reply_text("Sedang membuat gambar...")
 
         try:
-            image_data = await generate_image(update, prompt)  # Perbaikan di sini
+            image_data = await generate_image(update, prompt)
             if image_data:
                 # Convert base64 to image
                 image_bytes = base64.b64decode(image_data)
@@ -689,7 +695,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         await update.message.reply_text(response)
-
+        
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     redis_client.delete(f"session:{chat_id}")
