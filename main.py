@@ -599,7 +599,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    start_time = datetime.now()  # Mulai menghitung waktu respon
+    start_time = datetime.now()
     user_id = update.message.from_user.id
     current_time = datetime.now().timestamp()
     
@@ -611,6 +611,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time)
+
+    # Update active_users jika pengguna baru
+    if not redis_client.exists(f"session:{update.message.chat_id}"):
+        bot_statistics["active_users"] += 1  # Pastikan indentasi di sini
 
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
     chat_id = update.message.chat_id
@@ -756,9 +760,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # Update waktu terakhir pengguna mengirim pesan
-    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-    if not redis_client.exists(f"session:{update.message.chat_id}"):
-    bot_statistics["active_users"] += 1
+        redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+        if not redis_client.exists(f"session:{update.message.chat_id}"):
+            bot_statistics["active_users"] += 1
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
 
