@@ -60,6 +60,32 @@ async def check_maintenance_mode(update: Update) -> bool:
             return True
     return False
 
+async def save_long_term_memory(user_id: int, memory: str) -> None:
+    """Simpan memori jangka panjang untuk pengguna tertentu menggunakan Redis."""
+    try:
+        redis_client.set(f"long_term_memory:{user_id}", memory)
+        logger.info(f"Memori jangka panjang disimpan untuk user_id {user_id}")
+    except redis.RedisError as e:
+        logger.error(f"Gagal menyimpan memori jangka panjang untuk user_id {user_id}: {str(e)}")
+        raise
+
+async def get_long_term_memory(user_id: int) -> Optional[str]:
+    """Ambil memori jangka panjang untuk pengguna tertentu menggunakan Redis."""
+    try:
+        memory = redis_client.get(f"long_term_memory:{user_id}")
+        return memory
+    except redis.RedisError as e:
+        logger.error(f"Gagal mengambil memori jangka panjang untuk user_id {user_id}: {str(e)}")
+        return None
+
+async def auto_learn(user_id: int, message: str, response: str) -> None:
+    """Auto-learning untuk pengguna khusus (admin)."""
+    if user_id in [int(admin_id) for admin_id in os.getenv('ADMIN_IDS', '').split(',')]:
+        # Simpan interaksi ke memori jangka panjang
+        memory = f"Q: {message}\nA: {response}"
+        await save_long_term_memory(user_id, memory)
+        logger.info(f"Auto-learning dilakukan untuk user_id {user_id}")
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -690,6 +716,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not redis_client.exists(f"session:{chat_id}"):
         await initialize_session(chat_id)
 
+    # Ambil memori jangka panjang
+    long_term_memory = await get_long_term_memory(user_id)
+    if long_term_memory:
+        message_text = f"{long_term_memory}\n{message_text}"  # Gabungkan memori lama dengan pesan baru
+
     # Proses teks
     session = json.loads(redis_client.get(f"session:{chat_id}"))
     session['messages'].append({"role": "user", "content": message_text})
@@ -738,6 +769,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         await update.message.reply_text(response)
+
+        # Auto-learning untuk pengguna khusus
+        await auto_learn(user_id, message_text, response)
 
     # Hitung waktu respon
     response_time = (datetime.now() - start_time).total_seconds()
