@@ -614,7 +614,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Update active_users jika pengguna baru
     if not redis_client.exists(f"session:{update.message.chat_id}"):
-        bot_statistics["active_users"] += 1  # Pastikan indentasi di sini
+        bot_statistics["active_users"] += 1  # Indentasi dengan benar
 
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
     chat_id = update.message.chat_id
@@ -646,8 +646,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         return
 
     # Periksa apakah sesi Redis sudah ada
-    if not redis_client.exists(f"session:{update.message.chat_id}"):
-        bot_statistics["active_users"] += 1
+    if not redis_client.exists(f"session:{chat_id}"):
+        await initialize_session(chat_id)
 
     # Proses teks
     session = json.loads(redis_client.get(f"session:{chat_id}"))
