@@ -819,6 +819,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_text(update, context)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek apakah pengguna adalah admin
+    if str(update.message.from_user.id) not in os.getenv('ADMIN_IDS', '').split(','):
+        await update.message.reply_text("Anda bukan admin! Hanya admin yang dapat melihat statistik.")
+        return
+
+    # Jika pengguna adalah admin, tampilkan statistik
     active_sessions = len(list(redis_client.scan_iter("session:*")))
     stats_message = (
         f"Statistik Bot:\n"
