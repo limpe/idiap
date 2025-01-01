@@ -204,26 +204,33 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
+async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Inisialisasi model Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if msg['role'] == 'system':
+                continue  # Skip system messages
+            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
-        # Konversi BytesIO ke PIL Image
-        image = Image.open(image_bytes)
-
-        # Gunakan prompt default jika tidak ada prompt yang diberikan
-        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
-
-        # Proses gambar dengan Gemini
-        response = model.generate_content([user_prompt, image])
-
-        # Kembalikan teks hasil analisis
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
+        
+        # Kirim pesan terakhir ke Gemini dengan grounding otomatis
+        last_message = messages[-1]['content']
+        response = chat.send_message(
+            last_message,
+            tools={"google_search_retrieval": {
+                "dynamic_retrieval_config": {
+                    "mode": "unspecified",
+                    "dynamic_threshold": 0.97}}}
+        )
+        
         return response.text
 
     except Exception as e:
-        logger.exception("Error in processing image with Gemini")
-        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
+        logger.exception("Error in processing with Gemini")
+        return None
 
 sync def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
