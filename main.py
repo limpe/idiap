@@ -189,7 +189,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         image = Image.open(image_bytes)
 
          # Gunakan prompt default jika tidak ada prompt yang diberikan
-        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi dalam Bahasa Indonesia."
+        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
 
         # Proses gambar dengan Gemini (tidak perlu await karena generate_content adalah sinkron)
         response = model.generate_content([user_prompt, image])
@@ -343,7 +343,7 @@ def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("Mistral", "PAIDI")
+    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, berikut deskripsi gambar tersebut dalam Bahasa Indonesia:", "")
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
