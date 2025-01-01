@@ -189,7 +189,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         image = Image.open(image_bytes)
 
          # Gunakan prompt default jika tidak ada prompt yang diberikan
-        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi singkat dan jelas dalam Bahasa Indonesia."
+        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
 
         # Proses gambar dengan Gemini (tidak perlu await karena generate_content adalah sinkron)
         response = model.generate_content([user_prompt, image])
