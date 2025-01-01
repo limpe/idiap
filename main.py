@@ -760,18 +760,6 @@ async def initialize_session(chat_id: int) -> None:
     except redis.RedisError as e:
         logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal menginisialisasi sesi.")
-        
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]]) -> bool:
-    """
-    Deteksi apakah pesan terakhir dan pesan saat ini masih dalam topik yang sama.
-    """
-    # Ekstrak kata kunci yang relevan dari histori percakapan
-    relevant_keywords = extract_relevant_keywords(context_messages)
-
-    # Cek apakah pesan terakhir dan pesan saat ini mengandung kata kunci yang sama
-    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
-    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
-    return bool(set(last_keywords) & set(current_keywords))
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     """
@@ -790,7 +778,37 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         response = await process_with_mistral(messages)
     
     return response
+def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
+    """
+    Ekstrak kata kunci yang relevan dari histori percakapan.
+    """
+    # Gabungkan semua pesan dalam konteks menjadi satu teks
+    context_text = " ".join([msg['content'] for msg in messages])
 
+    # Gunakan regex untuk mengekstrak kata-kata (tanpa tanda baca)
+    words = re.findall(r'\b\w+\b', context_text.lower())
+
+    # Hitung frekuensi kata dan ambil kata kunci yang paling sering muncul
+    word_counts = Counter(words)
+    common_words = word_counts.most_common(top_n)
+
+    # Filter kata-kata umum yang tidak relevan (misalnya: "saya", "anda", "di")
+    stop_words = {"saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah"}
+    relevant_keywords = [word for word, count in common_words if word not in stop_words]
+
+    return relevant_keywords
+
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]]) -> bool:
+    """
+    Deteksi apakah pesan terakhir dan pesan saat ini masih dalam topik yang sama.
+    """
+    # Ekstrak kata kunci yang relevan dari histori percakapan
+    relevant_keywords = extract_relevant_keywords(context_messages)
+
+    # Cek apakah pesan terakhir dan pesan saat ini mengandung kata kunci yang sama
+    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
+    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
+    return bool(set(last_keywords) & set(current_keywords))
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     """
