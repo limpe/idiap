@@ -624,7 +624,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if gemini_result:
                 # Filter hasil analisis
                 filtered_result = await filter_text(gemini_result)
-                await update.message.reply_text(f"Analisa:\n{filtered_result}")
+
+                # Pecah hasil analisis jika terlalu panjang
+                result_parts = split_message(filtered_result)
+                for part in result_parts:
+                    await update.message.reply_text(f"Analisa:\n{part}")
 
                 # Simpan hasil analisis ke sesi
                 session['messages'].append({
