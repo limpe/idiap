@@ -206,34 +206,26 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
 
 
-async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        # Konversi format pesan ke format yang diterima Gemini
-        gemini_messages = []
-        for msg in messages:
-            if msg['role'] == 'system':
-                continue  # Skip system messages
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
-
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
-        
-        # Kirim pesan terakhir ke Gemini dengan grounding otomatis
-        last_message = messages[-1]['content']
-        response = chat.send_message(
-            last_message,
-            tools={"google_search_retrieval": {  # Gunakan google_search_retrieval
-                "disable": False,  # Aktifkan Google Search Retrieval
-                "max_results": 3,  # Jumlah maksimal hasil pencarian
-            }}
+={
+                "google_search_retrieval": {
+                    "dynamic_retrieval_config": {
+                        "mode": "unspecified",
+                        "dynamic_threshold": 0.06
+                    }
+                }
+            }
         )
         
-        # Kembalikan teks respons
         return response.text
 
     except Exception as e:
         logger.exception("Error in processing with Gemini")
-        return None
+        # Fallback ke Mistral jika Gemini gagal
+        try:
+            return await process_with_mistral(messages)
+        except:
+            return None
+
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
