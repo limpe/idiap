@@ -72,6 +72,7 @@ MAX_CONVERSATION_MESSAGES = 20
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # Dictionary untuk menyimpan histori percakapan
 #user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -200,6 +201,28 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
     except Exception as e:
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
+
+async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
+    try:
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if msg['role'] == 'system':
+                continue  # Skip system messages
+            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
+
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
+        
+        # Kirim pesan terakhir ke Gemini
+        last_message = messages[-1]['content']
+        response = chat.send_message(last_message)
+        
+        return response.text
+
+    except Exception as e:
+        logger.exception("Error in processing with Gemini")
+        return None
 
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
@@ -779,7 +802,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Jika permintaan pembuatan gambar
     if message_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
-        prompt = message_text.split(' ', 1)[1] if len(message_message_text.split(' ', 1)) > 1 else None
+        prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
 
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
@@ -813,8 +836,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    # Dapatkan respons dari Mistral
-    response = await process_with_mistral(session['messages'][-10:])
+    # Prioritaskan penggunaan Gemini untuk memproses teks
+    response = await process_with_gemini(session['messages'][-10:])
+    
+    # Jika Gemini gagal, gunakan Mistral sebagai alternatif
+    if not response:
+        response = await process_with_mistral(session['messages'][-10:])
+
     if response:
         session['messages'].append({"role": "assistant", "content": response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
