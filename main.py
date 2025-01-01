@@ -223,11 +223,14 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         response = chat.send_message(
             last_message,
             tools={"google_search_retrieval": {  # Gunakan google_search_retrieval
-                "disable": False,  # Aktifkan Google Search Retrieval
-                "max_results": 3,  # Jumlah maksimal hasil pencarian
+                "dynamic_retrieval_config": {
+                    "mode": "unspecified",  # Mode pencarian
+                    "dynamic_threshold": 0.97  # Ambang batas relevansi
+                }
             }}
         )
         
+        # Kembalikan teks respons
         return response.text
 
     except Exception as e:
