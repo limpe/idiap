@@ -222,11 +222,9 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         last_message = messages[-1]['content']
         response = chat.send_message(
             last_message,
-            tools={"google_search_retrieval": {  # Gunakan google_search_retrieval
-                "dynamic_retrieval_config": {
-                    "mode": "unspecified",  # Mode pencarian
-                    "dynamic_threshold": 0.97  # Ambang batas relevansi
-                }
+            tools={"google_search": {  # Gunakan google_search
+                "disable": False,  # Aktifkan Google Search
+                "max_results": 3,  # Jumlah maksimal hasil pencarian
             }}
         )
         
@@ -236,7 +234,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     except Exception as e:
         logger.exception("Error in processing with Gemini")
         return None
-
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
