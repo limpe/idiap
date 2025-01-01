@@ -189,10 +189,10 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
 
-         # Gunakan prompt default jika tidak ada prompt yang diberikan
+        # Gunakan prompt default jika tidak ada prompt yang diberikan
         user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
 
-        # Proses gambar dengan Gemini (tidak perlu await karena generate_content adalah sinkron)
+        # Proses gambar dengan Gemini
         response = model.generate_content([user_prompt, image])
 
         # Kembalikan teks hasil analisis
@@ -614,6 +614,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Siapkan prompt berdasarkan caption
             prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
+            # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
+            if not prompt:
+                prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+
             # Proses gambar dengan Gemini
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
@@ -634,13 +638,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 session['last_image_analysis'] = filtered_result
                 redis_client.set(f"session:{chat_id}", json.dumps(session))
             else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar dengan. Silakan coba lagi.")
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
         await processing_msg.delete()
 
     except Exception as e:
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
-        await update.message.reply_text("Terjadi kesalahan saat memproses gambar Bree.")
+        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
