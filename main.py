@@ -6,21 +6,21 @@ import base64
 import uuid
 import redis
 import json
-from typing import Optional, List, Dict
+import urllib.parse
+import gtts
+import aiohttp
 
+from typing import Optional, List, Dict
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
-import gtts
-import aiohttp
 from langdetect import detect
 from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
-#from filters import MathFilter, TextFilter
 from together import Together
 
 
@@ -428,6 +428,69 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
+
+async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
+    """Upload image to Telegraph and return the URL"""
+    try:
+        form = aiohttp.FormData()
+        form.add_field('file', image_bytes, filename='image.jpg', content_type='image/jpeg')
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post('https://telegra.ph/upload', data=form) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if result and isinstance(result, list) and len(result) > 0:
+                        return f"https://telegra.ph{result[0]['src']}"
+    except Exception as e:
+        logger.error(f"Error uploading to Telegraph: {e}")
+    return None
+
+async def get_google_image_search_url(image_url: str) -> str:
+    """Generate Google Lens search URL"""
+    encoded_url = urllib.parse.quote(image_url)
+    return f"https://lens.google.com/uploadbyurl?url={encoded_url}"
+
+async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /carigambar command"""
+    try:
+        if not update.message.reply_to_message or not update.message.reply_to_message.photo:
+            await update.message.reply_text(
+                "Gunakan command ini dengan cara reply ke gambar yang ingin dicari.\n"
+                "Contoh: Reply ke sebuah gambar dengan command /carigambar"
+            )
+            return
+
+        processing_msg = await update.message.reply_text("Sedang memproses pencarian gambar...")
+
+        photo = update.message.reply_to_message.photo[-1]
+        photo_file = await photo.get_file()
+
+        with BytesIO() as image_buffer:
+            photo_bytes = await photo_file.download_as_bytearray()
+            image_buffer.write(photo_bytes)
+            image_buffer.seek(0)
+
+            telegraph_url = await upload_image_to_telegraph(photo_bytes)
+            
+            if telegraph_url:
+                google_search_url = await get_google_image_search_url(telegraph_url)
+                await update.message.reply_text(
+                    "🔍 Hasil pencarian gambar:\n\n"
+                    f"🌐 Cari dengan Google Lens:\n{google_search_url}\n\n"
+                    "ℹ️ Klik link di atas untuk melihat hasil pencarian gambar serupa di Google"
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Maaf, terjadi kesalahan saat mengupload gambar. Silakan coba lagi nanti."
+                )
+
+        await processing_msg.delete()
+
+    except Exception as e:
+        logger.exception("Error in search_image_command")
+        await update.message.reply_text(
+            "❌ Terjadi kesalahan saat memproses pencarian gambar. Silakan coba lagi nanti."
+        )
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -714,7 +777,8 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
-        
+        application.add_handler(CommandHandler("carigambar", search_image_command))
+
         # Message handlers dengan prioritas
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
