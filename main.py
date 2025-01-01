@@ -806,13 +806,6 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
-    """
-    Tentukan apakah konteks harus direset berdasarkan:
-    - Waktu sejak pesan terakhir
-    - Kata kunci yang menunjukkan awal percakapan baru
-    - Panjang percakapan
-    - Perubahan topik
-    """
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
