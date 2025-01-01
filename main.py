@@ -704,6 +704,11 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
+            # Cek jika pesan mengandung perintah /image
+            if message_text.lower().startswith('/image'):
+                await handle_text(update, context, message_text)
+                return
+
             chat_id = update.message.chat_id
 
             # Periksa apakah sesi Redis sudah ada
