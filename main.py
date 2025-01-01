@@ -225,7 +225,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
-async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
+sync def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
@@ -237,9 +237,15 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         
-        # Kirim pesan terakhir ke Gemini
+        # Kirim pesan terakhir ke Gemini dengan grounding otomatis
         last_message = messages[-1]['content']
-        response = chat.send_message(last_message)
+        response = chat.send_message(
+            last_message,
+            tools={"google_search_retrieval": {
+                "dynamic_retrieval_config": {
+                    "mode": "unspecified",
+                    "dynamic_threshold": 0.97}}}
+        )
         
         return response.text
 
@@ -935,7 +941,6 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
@@ -991,8 +996,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "content": message_text})
     await update_session(chat_id, {"role": "user", "content": message_text})
 
-    # Proses pesan dengan konteks cerdas
-    response = await process_with_smart_context(session['messages'][-10:])
+    # Proses pesan dengan konteks cerdas dan grounding otomatis
+    response = await process_with_gemini(session['messages'][-10:])
     
     if response:
         # Filter hasil respons sebelum dikirim ke pengguna
