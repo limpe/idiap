@@ -91,15 +91,6 @@ class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
 
-def extract_important_info(messages: List[Dict[str, str]]) -> Dict[str, str]:
-    important_info = {}
-    for msg in messages:
-        if msg['role'] == 'user':
-            if 'anjing' in msg['content'].lower() or 'kucing' in msg['content'].lower():
-                important_info['hewan_peliharaan'] = msg['content']
-            elif 'umur' in msg['content'].lower():
-                important_info['umur'] = msg['content']
-    return important_info
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
@@ -770,35 +761,36 @@ async def initialize_session(chat_id: int) -> None:
         logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal menginisialisasi sesi.")
         
-def is_same_topic(last_message: str, current_message: str) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     """
     Deteksi apakah pesan terakhir dan pesan saat ini masih dalam topik yang sama.
-    Ini adalah implementasi sederhana, bisa diperluas dengan NLP.
     """
-    common_keywords = ['anjing', 'kucing', 'rumah', 'makanan']  # Contoh kata kunci
-    last_keywords = [word for word in common_keywords if word in last_message.lower()]
-    current_keywords = [word for word in common_keywords if word in current_message.lower()]
+    # Ekstrak kata kunci yang relevan dari histori percakapan
+    relevant_keywords = extract_relevant_keywords(context_messages)
+
+    # Cek apakah pesan terakhir dan pesan saat ini mengandung kata kunci yang sama
+    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
+    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
     return bool(set(last_keywords) & set(current_keywords))
 
-def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     """
-    Ekstrak kata kunci yang relevan dari histori percakapan.
+    Proses pesan dengan konteks yang lebih cerdas.
     """
-    # Gabungkan semua pesan dalam konteks menjadi satu teks
-    context_text = " ".join([msg['content'] for msg in messages])
+    # Ekstrak kata kunci yang relevan dari histori percakapan
+    relevant_keywords = extract_relevant_keywords(messages)
+    
+    # Tambahkan informasi penting ke konteks
+    if relevant_keywords:
+        messages.insert(0, {"role": "system", "content": f"Informasi penting: {', '.join(relevant_keywords)}"})
+    
+    # Proses pesan dengan model AI (Gemini atau Mistral)
+    response = await process_with_gemini(messages)
+    if not response:
+        response = await process_with_mistral(messages)
+    
+    return response
 
-    # Gunakan regex untuk mengekstrak kata-kata (tanpa tanda baca)
-    words = re.findall(r'\b\w+\b', context_text.lower())
-
-    # Hitung frekuensi kata dan ambil kata kunci yang paling sering muncul
-    word_counts = Counter(words)
-    common_words = word_counts.most_common(top_n)
-
-    # Filter kata-kata umum yang tidak relevan (misalnya: "saya", "anda", "di")
-    stop_words = {"saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah"}
-    relevant_keywords = [word for word, count in common_words if word not in stop_words]
-
-    return relevant_keywords
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     """
@@ -845,7 +837,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         # Reset jika terjadi perubahan topik
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message):
+            if not is_same_topic(last_message, message, session['messages']):
                 return True
 
         return False
