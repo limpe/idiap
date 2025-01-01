@@ -222,8 +222,8 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         last_message = messages[-1]['content']
         response = chat.send_message(
             last_message,
-            tools={"google_search": {  # Gunakan google_search
-                "disable": False,  # Aktifkan Google Search
+            tools={"google_search_retrieval": {  # Gunakan google_search_retrieval
+                "disable": False,  # Aktifkan Google Search Retrieval
                 "max_results": 3,  # Jumlah maksimal hasil pencarian
             }}
         )
