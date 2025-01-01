@@ -9,6 +9,8 @@ import json
 import urllib.parse
 import gtts
 import aiohttp
+import google.generativeai as genai
+
 
 from typing import Optional, List, Dict
 from telegram import Update, InputFile
@@ -69,6 +71,7 @@ RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 MAX_CONVERSATION_MESSAGES = 20
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 
 # Dictionary untuk menyimpan histori percakapan
 #user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -176,6 +179,27 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
     except Exception as e:
         logger.exception("Error in generate_image")
         return None
+
+async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
+    try:
+        # Inisialisasi model Gemini
+        model = genai.GenerativeModel('gemini-pro-vision')
+
+        # Konversi BytesIO ke PIL Image
+        image = Image.open(image_bytes)
+
+        # Gunakan prompt default jika tidak ada prompt yang diberikan
+        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi singkat dan jelas dalam Bahasa Indonesia."
+
+        # Proses gambar dengan Gemini
+        response = await model.generate_content([user_prompt, image])
+
+        # Kembalikan teks hasil analisis
+        return response.text
+
+    except Exception as e:
+        logger.exception("Error in processing image with Gemini")
+        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
@@ -567,17 +591,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Siapkan prompt berdasarkan caption
             prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
-            # Proses gambar
-            results = await process_image_with_pixtral_multiple(temp_file, prompt=prompt)
+            # Proses gambar dengan Gemini
+            gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
-            if results and any(results):
-                combined_analysis = ""
-                for i, result in enumerate(results):
-                    if result.strip():  # Pastikan tidak ada pesan kosong
-                        filtered_result = await filter_text(result)
-                        await update.message.reply_text(f"Analisis {i + 1}:\n{filtered_result}")
-                        combined_analysis += f"\nAnalisis {i + 1}:\n{filtered_result}\n"
-                
+            if gemini_result:
+                await update.message.reply_text(f"Analisis Gemini:\n{gemini_result}")
+
                 # Simpan hasil analisis ke sesi
                 session['messages'].append({
                     "role": "user",
@@ -585,18 +604,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
                 session['messages'].append({
                     "role": "assistant",
-                    "content": combined_analysis
+                    "content": gemini_result
                 })
-                session['last_image_analysis'] = combined_analysis
+                session['last_image_analysis'] = gemini_result
                 redis_client.set(f"session:{chat_id}", json.dumps(session))
             else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar dengan Gemini. Silakan coba lagi.")
 
         await processing_msg.delete()
 
     except Exception as e:
-        logger.exception("Error dalam proses analisis gambar")
-        await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
+        logger.exception("Error dalam proses analisis gambar dengan Gemini")
+        await update.message.reply_text("Terjadi kesalahan saat memproses gambar dengan Gemini.")
 
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
