@@ -430,41 +430,65 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
 
 async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
-    """Upload image to Telegraph and return the URL"""
+    """Upload image to Telegraph with improved error handling and retries"""
     try:
-        # Buat form data dengan content-type yang benar
-        form = aiohttp.FormData()
+        # Prepare form data
+        form = FormData()
         form.add_field(
-            'file', 
-            image_bytes, 
-            filename='image.jpg', 
+            'file',
+            image_bytes,
+            filename='image.jpg',
             content_type='image/jpeg'
         )
-        
-        # Gunakan timeout yang lebih lama
+
+        # Configure timeout and headers
         timeout = aiohttp.ClientTimeout(total=30)
         headers = {
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'User-Agent': 'TelegramBot/1.0'  # Add user agent to avoid some blocks
         }
-        
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                'https://telegra.ph/upload', 
-                data=form,
-                headers=headers
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if result and isinstance(result, list) and len(result) > 0:
-                        return f"https://telegra.ph{result[0]['src']}"
-                    else:
-                        logger.error(f"Invalid response from Telegraph: {result}")
-                else:
-                    logger.error(f"Telegraph upload failed with status {response.status}")
+
+        # Implement retry mechanism
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(
+                        'https://telegra.ph/upload',
+                        data=form,
+                        headers=headers
+                    ) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            if isinstance(result, list) and len(result) > 0:
+                                return f"https://telegra.ph{result[0]['src']}"
+                            logger.warning(f"Unexpected Telegraph response format: {result}")
+                        else:
+                            logger.warning(f"Telegraph returned status {response.status} on attempt {attempt + 1}")
+                
+                # If we get here without a return, it's an error case
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
+                    continue
                     
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))
+                    continue
+            except Exception as e:
+                logger.warning(f"Error on attempt {attempt + 1}: {str(e)}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))
+                    continue
+                raise
+
+        logger.error("All upload attempts failed")
+        return None
+
     except Exception as e:
-        logger.error(f"Error uploading to Telegraph: {str(e)}")
-    return None
+        logger.error(f"Fatal error in Telegraph upload: {str(e)}")
+        return None
 
 async def get_google_image_search_url(image_url: str) -> str:
     """Generate Google Lens search URL"""
