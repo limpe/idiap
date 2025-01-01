@@ -772,9 +772,13 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
-            # Cek jika pesan mengandung perintah /gambar atau /image
-            if message_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, message_text)
+            # Sanitasi input
+            sanitized_text = sanitize_input(message_text)
+
+            # Cek rate limit
+            user_id = update.message.from_user.id
+            if not await check_rate_limit(user_id):
+                await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -785,23 +789,22 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, message_text):
+            if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
             # Tambahkan pesan pengguna ke sesi
-            session['messages'].append({"role": "user", "content": message_text})
-            await update_session(chat_id, {"role": "user", "content": message_text})
+            session['messages'].append({"role": "user", "content": sanitized_text})
+            await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-            # Cek apakah pesan terkait dengan konteks sebelumnya
-            if session['messages'] and not is_related_to_context(message_text, session['messages']):
-                await update.message.reply_text("Sepertinya pertanyaan Anda tidak terkait dengan topik sebelumnya. Mari kita kembali ke topik sebelumnya.")
-                # Tampilkan konteks terakhir
-                last_context = session['messages'][-1]['content']
-                await update.message.reply_text(f"Topik terakhir: {last_context}")
-                return
+            # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
+            system_message = {
+                "role": "system",
+                "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia yang mudah dipahami."
+            }
+            session['messages'].insert(0, system_message)
 
             # Proses pesan dengan konteks cerdas
             response = await process_with_smart_context(session['messages'][-10:])
