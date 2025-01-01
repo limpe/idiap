@@ -259,7 +259,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         chat = gemini_model.start_chat(history=gemini_messages)
         
         # Kirim pesan terakhir ke Gemini
-        last_message = messages[-1]['content']
+        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
         response = chat.send_message(last_message)
         
         return response.text
@@ -844,9 +844,6 @@ async def initialize_session(chat_id: int) -> None:
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    """
-    Proses pesan dengan konteks yang lebih cerdas.
-    """
     # Ekstrak kata kunci yang relevan dari histori percakapan
     relevant_keywords = extract_relevant_keywords(messages)
     
@@ -860,6 +857,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         response = await process_with_mistral(messages)
     
     return response
+    
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
     words = re.findall(r'\b\w+\b', context_text.lower())
