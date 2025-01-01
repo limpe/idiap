@@ -25,6 +25,7 @@ from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
 from together import Together
+from typing import List, Dict
 
 
 # Konstanta untuk batasan ukuran file
@@ -791,7 +792,18 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     words = re.findall(r'\b\w+\b', context_text.lower())
     word_counts = Counter(words)
     common_words = word_counts.most_common(top_n)
-    stop_words = {"saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah"}
+
+    stop_words = {
+        "saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah", "nama",
+        "ini", "itu", "untuk", "dengan", "pada", "dalam", "atau", "dari", "ke", "sebuah",
+        "tidak", "bisa", "akan", "jika", "karena", "oleh", "ada", "sudah", "kami", "kita",
+        "mereka", "jadi", "saat", "lagi", "juga", "semua", "lebih", "kurang", "perlu",
+        "hanya", "sangat", "sama", "setiap", "ketika", "bahwa", "dapat", "tetapi",
+        "seperti", "kemudian", "tanpa", "apakah", "siapa", "dimana", "mengapa",
+        "kapan", "dengan", "oleh", "agar", "supaya", "yaitu", "walaupun", "meskipun",
+        "tersebut", "maupun", "namun", "selain", "setelah", "sebelum", "saat", "karena"
+    }
+
     relevant_keywords = [word for word, count in common_words if word not in stop_words]
     return relevant_keywords
 
