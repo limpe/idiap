@@ -844,9 +844,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         response = await process_with_mistral(session['messages'][-10:])
 
     if response:
-        session['messages'].append({"role": "assistant", "content": response})
+        # Filter hasil respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)
+        session['messages'].append({"role": "assistant", "content": filtered_response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
-        await update.message.reply_text(response)
+        await update.message.reply_text(filtered_response)
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
