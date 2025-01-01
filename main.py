@@ -751,6 +751,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
+
 async def initialize_session(chat_id: int) -> None:
     """Inisialisasi sesi baru di Redis"""
     try:
