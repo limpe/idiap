@@ -595,7 +595,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
             if gemini_result:
-                await update.message.reply_text(f"Analisis Gemini:\n{gemini_result}")
+                await update.message.reply_text(f"Analisa:\n{gemini_result}")
 
                 # Simpan hasil analisis ke sesi
                 session['messages'].append({
