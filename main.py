@@ -6,17 +6,21 @@ import base64
 import uuid
 import redis
 import json
+import speech_recognition as sr
 import urllib.parse
 import gtts
 import aiohttp
 import google.generativeai as genai
 import re
 
+
+from keywords import complex_keywords
+
+
 from collections import Counter
 from typing import Optional, List, Dict
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import speech_recognition as sr
 from pydub import AudioSegment
 from langdetect import detect
 from groq import Groq
@@ -70,11 +74,13 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-MAX_CONVERSATION_MESSAGES = 20
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+MAX_CONVERSATION_MESSAGES_SIMPLE = 10
+MAX_CONVERSATION_MESSAGES_MEDIUM = 50
+MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 
 # Statistik penggunaan
 bot_statistics = {
@@ -120,6 +126,23 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     # Tambahkan sisa teks
     parts.append(text)
     return parts
+
+def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
+    # Hitung jumlah pesan
+    num_messages = len(messages)
+
+    # Cek kata kunci tertentu untuk menentukan kompleksitas
+    for message in messages:
+        if any(keyword in message['content'].lower() for keyword in complex_keywords):
+            return "complex"
+
+    # Tentukan kompleksitas berdasarkan jumlah pesan
+    if num_messages > 15:
+        return "complex"
+    elif num_messages > 5:
+        return "medium"
+    else:
+        return "simple"
 
 async def encode_image(image_source) -> str:
     """Encode an image file or BytesIO object to base64 string."""
@@ -363,6 +386,19 @@ def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str
         audio[i:i + chunk_duration * 1000].export(chunk_path, format="wav")
         chunks.append(chunk_path)
     return chunks
+
+def get_max_conversation_messages(complexity: str) -> int:
+    """
+    Mengembalikan batas pesan berdasarkan kompleksitas percakapan.
+    """
+    if complexity == "simple":
+        return MAX_CONVERSATION_MESSAGES_SIMPLE
+    elif complexity == "medium":
+        return MAX_CONVERSATION_MESSAGES_MEDIUM
+    elif complexity == "complex":
+        return MAX_CONVERSATION_MESSAGES_COMPLEX
+    else:
+        return MAX_CONVERSATION_MESSAGES_MEDIUM  # Default
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
@@ -866,12 +902,21 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             session = {'messages': [], 'last_update': datetime.now().timestamp()}
             logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
 
+        # Tambahkan pesan baru ke sesi
         session['messages'].append(message)
 
-        if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
-            session['messages'] = session['messages'][-MAX_CONVERSATION_MESSAGES:]
-            logger.info(f"Pesan di sesi untuk chat_id {chat_id} dibatasi hingga {MAX_CONVERSATION_MESSAGES} pesan")
+        # Tentukan kompleksitas percakapan
+        complexity = determine_conversation_complexity(session['messages'])
 
+        # Dapatkan batas pesan berdasarkan kompleksitas
+        max_messages = get_max_conversation_messages(complexity)
+
+        # Batasi jumlah pesan dalam sesi
+        if len(session['messages']) > max_messages:
+            session['messages'] = session['messages'][-max_messages:]
+            logger.info(f"Pesan di sesi untuk chat_id {chat_id} dibatasi hingga {max_messages} pesan")
+
+        # Simpan sesi ke Redis
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
         logger.info(f"Sesi berhasil diperbarui untuk chat_id {chat_id}")
