@@ -432,17 +432,38 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
     """Upload image to Telegraph and return the URL"""
     try:
+        # Buat form data dengan content-type yang benar
         form = aiohttp.FormData()
-        form.add_field('file', image_bytes, filename='image.jpg', content_type='image/jpeg')
+        form.add_field(
+            'file', 
+            image_bytes, 
+            filename='image.jpg', 
+            content_type='image/jpeg'
+        )
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post('https://telegra.ph/upload', data=form) as response:
+        # Gunakan timeout yang lebih lama
+        timeout = aiohttp.ClientTimeout(total=30)
+        headers = {
+            'Accept': 'application/json'
+        }
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                'https://telegra.ph/upload', 
+                data=form,
+                headers=headers
+            ) as response:
                 if response.status == 200:
                     result = await response.json()
                     if result and isinstance(result, list) and len(result) > 0:
                         return f"https://telegra.ph{result[0]['src']}"
+                    else:
+                        logger.error(f"Invalid response from Telegraph: {result}")
+                else:
+                    logger.error(f"Telegraph upload failed with status {response.status}")
+                    
     except Exception as e:
-        logger.error(f"Error uploading to Telegraph: {e}")
+        logger.error(f"Error uploading to Telegraph: {str(e)}")
     return None
 
 async def get_google_image_search_url(image_url: str) -> str:
@@ -453,43 +474,62 @@ async def get_google_image_search_url(image_url: str) -> str:
 async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /carigambar command"""
     try:
+        # Cek apakah ada reply ke gambar
         if not update.message.reply_to_message or not update.message.reply_to_message.photo:
             await update.message.reply_text(
-                "Gunakan command ini dengan cara reply ke gambar yang ingin dicari.\n"
-                "Contoh: Reply ke sebuah gambar dengan command /carigambar"
+                "Cara penggunaan:\n"
+                "1. Reply ke gambar yang ingin dicari\n"
+                "2. Ketik: /carigambar"
             )
             return
 
-        processing_msg = await update.message.reply_text("Sedang memproses pencarian gambar...")
+        processing_msg = await update.message.reply_text("🔄 Sedang memproses pencarian gambar...")
 
-        photo = update.message.reply_to_message.photo[-1]
-        photo_file = await photo.get_file()
+        try:
+            # Ambil gambar dengan resolusi tertinggi
+            photo = update.message.reply_to_message.photo[-1]
+            photo_file = await photo.get_file()
 
-        with BytesIO() as image_buffer:
+            # Download gambar
             photo_bytes = await photo_file.download_as_bytearray()
-            image_buffer.write(photo_bytes)
-            image_buffer.seek(0)
-
-            telegraph_url = await upload_image_to_telegraph(photo_bytes)
             
-            if telegraph_url:
-                google_search_url = await get_google_image_search_url(telegraph_url)
+            # Coba upload ke Telegraph dengan retry
+            telegraph_url = None
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                telegraph_url = await upload_image_to_telegraph(photo_bytes)
+                if telegraph_url:
+                    break
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)  # Tunggu 1 detik sebelum retry
+            
+            if not telegraph_url:
                 await update.message.reply_text(
-                    "🔍 Hasil pencarian gambar:\n\n"
-                    f"🌐 Cari dengan Google Lens:\n{google_search_url}\n\n"
-                    "ℹ️ Klik link di atas untuk melihat hasil pencarian gambar serupa di Google"
+                    "❌ Gagal mengupload gambar. Silakan coba lagi dalam beberapa saat."
                 )
-            else:
-                await update.message.reply_text(
-                    "❌ Maaf, terjadi kesalahan saat mengupload gambar. Silakan coba lagi nanti."
-                )
+                return
 
-        await processing_msg.delete()
+            # Generate dan kirim URL Google Lens
+            google_search_url = await get_google_image_search_url(telegraph_url)
+            await update.message.reply_text(
+                "🔍 Hasil pencarian gambar:\n\n"
+                f"🌐 Cari dengan Google Lens:\n{google_search_url}\n\n"
+                "ℹ️ Klik link di atas untuk melihat hasil pencarian gambar serupa di Google"
+            )
+
+        finally:
+            # Hapus pesan processing
+            if processing_msg:
+                try:
+                    await processing_msg.delete()
+                except Exception:
+                    pass
 
     except Exception as e:
         logger.exception("Error in search_image_command")
         await update.message.reply_text(
-            "❌ Terjadi kesalahan saat memproses pencarian gambar. Silakan coba lagi nanti."
+            "❌ Terjadi kesalahan. Silakan coba lagi nanti."
         )
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
