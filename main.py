@@ -204,17 +204,42 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
+async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
+    try:
+        # Inisialisasi model Gemini
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
+        # Konversi BytesIO ke PIL Image
+        image = Image.open(image_bytes)
 
-={
-                "google_search_retrieval": {
-                    "dynamic_retrieval_config": {
-                        "mode": "unspecified",
-                        "dynamic_threshold": 0.06
-                    }
-                }
-            }
-        )
+        # Gunakan prompt default jika tidak ada prompt yang diberikan
+        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+
+        # Proses gambar dengan Gemini
+        response = model.generate_content([user_prompt, image])
+
+        # Kembalikan teks hasil analisis
+        return response.text
+
+    except Exception as e:
+        logger.exception("Error in processing image with Gemini")
+        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
+
+async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
+    try:
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if msg['role'] == 'system':
+                continue  # Skip system messages
+            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
+
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
+        
+        # Kirim pesan terakhir ke Gemini
+        last_message = messages[-1]['content']
+        response = chat.send_message(last_message)
         
         return response.text
 
@@ -914,6 +939,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
@@ -969,8 +995,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "content": message_text})
     await update_session(chat_id, {"role": "user", "content": message_text})
 
-    # Proses pesan dengan konteks cerdas dan grounding otomatis
-    response = await process_with_gemini(session['messages'][-10:])
+    # Proses pesan dengan konteks cerdas
+    response = await process_with_smart_context(session['messages'][-10:])
     
     if response:
         # Filter hasil respons sebelum dikirim ke pengguna
