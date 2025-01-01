@@ -48,6 +48,10 @@ def check_required_settings():
         return False
     return True
 
+def sanitize_input(text: str) -> str:
+    # Remove potentially dangerous characters
+    return re.sub(r'[<>"\';&]', '', text)
+
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -81,6 +85,7 @@ gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
+MAX_REQUESTS_PER_MINUTE = 10
 
 # Statistik penggunaan
 bot_statistics = {
@@ -158,6 +163,15 @@ async def encode_image(image_source) -> str:
     except Exception as e:
         logger.exception("Error encoding image")
         raise
+
+async def check_rate_limit(user_id: int) -> bool:
+    key = f"rate_limit:{user_id}"
+    count = redis_client.get(key)
+    if count and int(count) > MAX_REQUESTS_PER_MINUTE:
+        return False
+    redis_client.incr(key)
+    redis_client.expire(key, 60)
+    return True
 
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
     try:
@@ -637,6 +651,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.message.chat.type
     caption = update.message.caption or ""
 
+    # Check rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
+
     # Periksa apakah ini di grup
     if chat_type in ["group", "supergroup"]:
         if f"@{context.bot.username}" not in caption:
@@ -943,10 +963,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Sanitasi input
+    sanitized_text = sanitize_input(message_text)
+
+    # Cek rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
+
     # Cek jika pesan mengandung perintah /gambar atau /image
-    if message_text.lower().startswith(('/gambar', '/image')):
+    if sanitized_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
-        prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
+        prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
 
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
@@ -992,8 +1021,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": message_text})
-    await update_session(chat_id, {"role": "user", "content": message_text})
+    session['messages'].append({"role": "user", "content": sanitized_text})
+    await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
     response = await process_with_smart_context(session['messages'][-10:])
