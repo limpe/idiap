@@ -343,7 +343,7 @@ def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, berikut deskripsi gambar tersebut dalam Bahasa Indonesia:", "")
+    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
