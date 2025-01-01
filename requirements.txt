@@ -11,3 +11,4 @@ psutil
 groq
 redis
 together
+google-generativeai
