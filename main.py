@@ -75,9 +75,6 @@ MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
-# Dictionary untuk menyimpan histori percakapan
-#user_sessions: Dict[int, List[Dict[str, str]]] = {}
-
 # Statistik penggunaan
 bot_statistics = {
     "total_messages": 0,
@@ -428,24 +425,6 @@ async def send_voice_response(update: Update, text: str):
     finally:
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
-
-async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    """
-    Proses pesan dengan konteks yang lebih cerdas.
-    """
-    # Ekstrak informasi penting dari histori percakapan
-    important_info = extract_important_info(messages)
-    
-    # Tambahkan informasi penting ke konteks
-    if important_info:
-        messages.insert(0, {"role": "system", "content": f"Informasi penting: {important_info}"})
-    
-    # Proses pesan dengan model AI (Gemini atau Mistral)
-    response = await process_with_gemini(messages)
-    if not response:
-        response = await process_with_mistral(messages)
-    
-    return response
         
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -455,43 +434,56 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
 
+        # Periksa ukuran file audio
         if update.message.voice.file_size > MAX_AUDIO_SIZE:
             await update.message.reply_text("Maaf, file audio terlalu besar (maksimal 20MB)")
             return
 
+        # Update statistik
         bot_statistics["total_messages"] += 1
         bot_statistics["voice_messages"] += 1
 
         # Tampilkan indikator "recording voice"
         await context.bot.send_chat_action(chat_id=update.message.chat_id, action="record_voice")
 
+        # Kirim pesan "Sedang memproses pesan suara Anda..."
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
 
         try:
+            # Proses pesan suara menjadi teks
             text = await process_voice_to_text(update)
             if text:
                 await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{text}")
 
+                # Ambil sesi dari Redis
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
-                session['messages'].append({"role": "user", "content": text})
-                redis_client.set(f"session:{chat_id}", json.dumps(session))
 
+                # Tambahkan pesan pengguna ke sesi
+                session['messages'].append({"role": "user", "content": text})
+                await update_session(chat_id, {"role": "user", "content": text})
+
+                # Proses pesan dengan Mistral
                 mistral_messages = session['messages'][-50:]
                 response = await process_with_mistral(mistral_messages)
 
                 if response:
+                    # Tambahkan respons asisten ke sesi
                     session['messages'].append({"role": "assistant", "content": response})
-                    redis_client.set(f"session:{chat_id}", json.dumps(session))
-                    response = await filter_text(response)
-                    await update.message.reply_text(response)
-                    await send_voice_response(update, response)
+                    await update_session(chat_id, {"role": "assistant", "content": response})
+
+                    # Filter dan kirim respons
+                    filtered_response = await filter_text(response)
+                    await update.message.reply_text(filtered_response)
+                    await send_voice_response(update, filtered_response)
             else:
                 await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
 
         finally:
+            # Hapus pesan "Sedang memproses..."
             await processing_msg.delete()
 
     except Exception as e:
+        # Tangani error
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
@@ -618,8 +610,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Ambil sesi dari Redis
         session = json.loads(redis_client.get(f"session:{chat_id}"))
 
+        # Update statistik
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
+
+        # Kirim pesan "Sedang menganalisa gambar..."
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
 
         # Ambil file gambar
@@ -660,13 +655,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "content": filtered_result
                 })
                 session['last_image_analysis'] = filtered_result
-                redis_client.set(f"session:{chat_id}", json.dumps(session))
+                await update_session(chat_id, {"role": "assistant", "content": filtered_result})
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
+        # Hapus pesan "Sedang menganalisa..."
         await processing_msg.delete()
 
     except Exception as e:
+        # Tangani error
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
@@ -720,10 +717,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await should_reset_context(chat_id, message_text):
                 await initialize_session(chat_id)
 
-            # Proses teks
+            # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
+
+            # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": message_text})
-            redis_client.set(f"session:{chat_id}", json.dumps(session))
+            await update_session(chat_id, {"role": "user", "content": message_text})
 
             # Cek apakah pesan terkait dengan konteks sebelumnya
             if session['messages'] and not is_related_to_context(message_text, session['messages']):
@@ -739,8 +738,10 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if response:
                 # Filter hasil respons sebelum dikirim ke pengguna
                 filtered_response = await filter_text(response)
+
+                # Tambahkan respons asisten ke sesi
                 session['messages'].append({"role": "assistant", "content": filtered_response})
-                redis_client.set(f"session:{chat_id}", json.dumps(session))
+                await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
                 # Pecah respons jika terlalu panjang
                 response_parts = split_message(filtered_response)
@@ -767,6 +768,7 @@ async def initialize_session(chat_id: int) -> None:
         logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal menginisialisasi sesi.")
 
+
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     """
     Proses pesan dengan konteks yang lebih cerdas.
@@ -785,45 +787,22 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
     
     return response
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
-    """
-    Ekstrak kata kunci yang relevan dari histori percakapan.
-    """
-    # Gabungkan semua pesan dalam konteks menjadi satu teks
     context_text = " ".join([msg['content'] for msg in messages])
-
-    # Gunakan regex untuk mengekstrak kata-kata (tanpa tanda baca)
     words = re.findall(r'\b\w+\b', context_text.lower())
-
-    # Hitung frekuensi kata dan ambil kata kunci yang paling sering muncul
     word_counts = Counter(words)
     common_words = word_counts.most_common(top_n)
-
-    # Filter kata-kata umum yang tidak relevan (misalnya: "saya", "anda", "di")
     stop_words = {"saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah"}
     relevant_keywords = [word for word, count in common_words if word not in stop_words]
-
     return relevant_keywords
 
 def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]]) -> bool:
-    """
-    Deteksi apakah pesan terakhir dan pesan saat ini masih dalam topik yang sama.
-    """
-    # Ekstrak kata kunci yang relevan dari histori percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
-
-    # Cek apakah pesan terakhir dan pesan saat ini mengandung kata kunci yang sama
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
     return bool(set(last_keywords) & set(current_keywords))
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
-    """
-    Deteksi apakah pesan saat ini masih terkait dengan konteks percakapan sebelumnya.
-    """
-    # Ekstrak kata kunci yang relevan dari histori percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
-
-    # Cek apakah pesan saat ini mengandung kata kunci yang relevan
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
@@ -938,14 +917,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
+    # Ambil chat_id dari update
+    chat_id = update.message.chat_id
+
+    # Periksa apakah sesi sudah ada di Redis
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    else:
+        session = json.loads(session_json)
+
+    # Tambahkan pesan pengguna ke sesi
+    session['messages'].append({"role": "user", "content": message_text})
+    await update_session(chat_id, {"role": "user", "content": message_text})
+
     # Proses pesan dengan konteks cerdas
     response = await process_with_smart_context(session['messages'][-10:])
     
     if response:
         # Filter hasil respons sebelum dikirim ke pengguna
         filtered_response = await filter_text(response)
+
+        # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Pecah respons jika terlalu panjang
         response_parts = split_message(filtered_response)
