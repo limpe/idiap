@@ -669,6 +669,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
             if not prompt:
                 prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+            else:
+                # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
+                prompt += " jawab dalam Bahasa Indonesia."
 
             # Proses gambar dengan Gemini
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
