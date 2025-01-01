@@ -577,7 +577,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
-        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...")
+        processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
 
         # Ambil file gambar
         photo_file = await update.message.photo[-1].get_file()
@@ -595,7 +595,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
             if gemini_result:
-                await update.message.reply_text(f"Analisa:\n{gemini_result}")
+                # Filter hasil analisis
+                filtered_result = await filter_text(gemini_result)
+                await update.message.reply_text(f"Analisa:\n{filtered_result}")
 
                 # Simpan hasil analisis ke sesi
                 session['messages'].append({
@@ -604,18 +606,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
                 session['messages'].append({
                     "role": "assistant",
-                    "content": gemini_result
+                    "content": filtered_result
                 })
-                session['last_image_analysis'] = gemini_result
+                session['last_image_analysis'] = filtered_result
                 redis_client.set(f"session:{chat_id}", json.dumps(session))
             else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar dengan Gemini. Silakan coba lagi.")
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar dengan. Silakan coba lagi.")
 
         await processing_msg.delete()
 
     except Exception as e:
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
-        await update.message.reply_text("Terjadi kesalahan saat memproses gambar dengan Gemini.")
+        await update.message.reply_text("Terjadi kesalahan saat memproses gambar Bree.")
 
         
 async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
