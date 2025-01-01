@@ -204,33 +204,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        # Konversi format pesan ke format yang diterima Gemini
-        gemini_messages = []
-        for msg in messages:
-            if msg['role'] == 'system':
-                continue  # Skip system messages
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
-        
-        # Kirim pesan terakhir ke Gemini dengan grounding otomatis
-        last_message = messages[-1]['content']
-        response = chat.send_message(
-            last_message,
-            tools={"google_search_retrieval": {
-                "dynamic_retrieval_config": {
-                    "mode": "unspecified",
-                    "dynamic_threshold": 0.97}}}
-        )
-        
-        return response.text
-
-    except Exception as e:
-        logger.exception("Error in processing with Gemini")
-        return None
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
