@@ -90,6 +90,16 @@ class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
 
+def extract_important_info(messages: List[Dict[str, str]]) -> Dict[str, str]:
+    important_info = {}
+    for msg in messages:
+        if msg['role'] == 'user':
+            if 'anjing' in msg['content'].lower() or 'kucing' in msg['content'].lower():
+                important_info['hewan_peliharaan'] = msg['content']
+            elif 'umur' in msg['content'].lower():
+                important_info['umur'] = msg['content']
+    return important_info
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
     welcome_text = """Halo! Saya PAIDI asisten Anda. Saya dapat:
@@ -426,6 +436,24 @@ async def send_voice_response(update: Update, text: str):
     finally:
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
+
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
+    """
+    Proses pesan dengan konteks yang lebih cerdas.
+    """
+    # Ekstrak informasi penting dari histori percakapan
+    important_info = extract_important_info(messages)
+    
+    # Tambahkan informasi penting ke konteks
+    if important_info:
+        messages.insert(0, {"role": "system", "content": f"Informasi penting: {important_info}"})
+    
+    # Proses pesan dengan model AI (Gemini atau Mistral)
+    response = await process_with_gemini(messages)
+    if not response:
+        response = await process_with_mistral(messages)
+    
+    return response
         
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -704,9 +732,25 @@ async def initialize_session(chat_id: int) -> None:
     except redis.RedisError as e:
         logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal menginisialisasi sesi.")
-
+        
+def is_same_topic(last_message: str, current_message: str) -> bool:
+    """
+    Deteksi apakah pesan terakhir dan pesan saat ini masih dalam topik yang sama.
+    Ini adalah implementasi sederhana, bisa diperluas dengan NLP.
+    """
+    common_keywords = ['anjing', 'kucing', 'rumah', 'makanan']  # Contoh kata kunci
+    last_keywords = [word for word in common_keywords if word in last_message.lower()]
+    current_keywords = [word for word in common_keywords if word in current_message.lower()]
+    return bool(set(last_keywords) & set(current_keywords))
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
+    """
+    Tentukan apakah konteks harus direset berdasarkan:
+    - Waktu sejak pesan terakhir
+    - Kata kunci yang menunjukkan awal percakapan baru
+    - Panjang percakapan
+    - Perubahan topik
+    """
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
@@ -717,14 +761,29 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # Periksa kata kunci
+        # Reset jika percakapan sudah terlalu lama
+        if time_diff > CONVERSATION_TIMEOUT:
+            return True
+
+        # Reset jika pesan mengandung kata kunci awal percakapan
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', '?']
         starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
+        if starts_with_keyword:
+            return True
 
-        return time_diff > CONVERSATION_TIMEOUT or starts_with_keyword
+        # Reset jika percakapan sudah terlalu panjang
+        if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
+            return True
+
+        # Reset jika terjadi perubahan topik
+        if session['messages']:
+            last_message = session['messages'][-1]['content']
+            if not is_same_topic(last_message, message):
+                return True
+
+        return False
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
-        # Reset konteks jika Redis tidak respons
         return True
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
@@ -848,13 +907,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
 
-    # Prioritaskan penggunaan Gemini untuk memproses teks
+    # Proses pesan dengan konteks cerdas
     response = await process_with_smart_context(session['messages'][-10:])
     
-    # Jika Gemini gagal, gunakan Mistral sebagai alternatif
-    if not response:
-        response = await process_with_mistral(session['messages'][-10:])
-
     if response:
         # Filter hasil respons sebelum dikirim ke pengguna
         filtered_response = await filter_text(response)
