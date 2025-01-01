@@ -241,11 +241,18 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
+        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
+        system_message = {
+            "role": "system",
+            "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia yang mudah dipahami."
+        }
+        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
+
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
             if msg['role'] == 'system':
-                continue  # Skip system messages
+                continue  # Skip system messages (tidak perlu dikonversi)
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
