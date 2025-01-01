@@ -183,7 +183,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
-        model = genai.GenerativeModel('gemini-pro-vision')
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
         # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
