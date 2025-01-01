@@ -798,6 +798,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not redis_client.exists(f"session:{chat_id}"):
         await initialize_session(chat_id)
 
+    # Reset konteks jika diperlukan
+    if await should_reset_context(chat_id, message_text):
+        await initialize_session(chat_id)
+
     # Proses teks
     session = json.loads(redis_client.get(f"session:{chat_id}"))
     session['messages'].append({"role": "user", "content": message_text})
@@ -841,7 +845,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     bot_statistics["text_messages"] += 1
 
     # Prioritaskan penggunaan Gemini untuk memproses teks
-    response = await process_with_gemini(session['messages'][-10:])
+    response = await process_with_smart_context(session['messages'][-10:])
     
     # Jika Gemini gagal, gunakan Mistral sebagai alternatif
     if not response:
@@ -852,7 +856,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         filtered_response = await filter_text(response)
         session['messages'].append({"role": "assistant", "content": filtered_response})
         redis_client.set(f"session:{chat_id}", json.dumps(session))
-        await update.message.reply_text(filtered_response)
+
+        # Pecah respons jika terlalu panjang
+        response_parts = split_message(filtered_response)
+        for part in response_parts:
+            await update.message.reply_text(part)
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
