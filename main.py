@@ -704,11 +704,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
-            # Cek jika pesan mengandung perintah /image
-            if message_text.lower().startswith('/image'):
+            # Cek jika pesan mengandung perintah /gambar atau /image
+            if message_text.lower().startswith(('/gambar', '/image')):
                 await handle_text(update, context, message_text)
                 return
 
+            # Lanjutkan pemrosesan pesan biasa
             chat_id = update.message.chat_id
 
             # Periksa apakah sesi Redis sudah ada
@@ -896,63 +897,11 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    user_id = update.message.from_user.id
-    current_time = datetime.now().timestamp()
-
-    # Cek kapan terakhir pengguna mengirim pesan
-    last_message_time = redis_client.get(f"last_message_time_{user_id}")
-    if last_message_time and current_time - float(last_message_time) < 5:  # Batasan: 1 pesan per 5 detik
-        await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-        return
-
-    # Update waktu terakhir pengguna mengirim pesan
-    redis_client.set(f"last_message_time_{user_id}", current_time)
-
-    # Tampilkan indikator "typing"
-    await context.bot.send_chat_action(chat_id=update.message.chat_id, action="typing")
-
-    chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
-
-    # Periksa apakah ini di grup dan perlu mention
-    if chat_type in ["group", "supergroup"]:
+    # Jika message_text tidak diberikan, ambil dari update.message
+    if not message_text:
         message_text = update.message.text or ""
 
-        # Cek apakah pesan memiliki entity mention atau merupakan balasan ke bot
-        entities = update.message.entities or []
-        is_mention = any(entity.type == "mention" and f"@{context.bot.username}" in message_text for entity in entities)
-        is_reply = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
-
-        if not is_mention and not is_reply:
-            logger.info("Pesan di grup diabaikan karena tidak ada mention atau reply.")
-            return
-        
-        # Hapus mention jika ada
-        message_text = message_text.replace(f"@{context.bot.username}", "").strip()
-
-    # Jika private chat
-    elif chat_type == "private":
-        if not message_text:  # Jika tidak ada message_text yang diteruskan
-            message_text = update.message.text.strip()
-
-    # Jika tidak ada pesan yang diproses, keluar
-    if not message_text:
-        return
-
-    # Periksa apakah sesi Redis sudah ada
-    if not redis_client.exists(f"session:{chat_id}"):
-        await initialize_session(chat_id)
-
-    # Reset konteks jika diperlukan
-    if await should_reset_context(chat_id, message_text):
-        await initialize_session(chat_id)
-
-    # Proses teks
-    session = json.loads(redis_client.get(f"session:{chat_id}"))
-    session['messages'].append({"role": "user", "content": message_text})
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-
-    # Jika permintaan pembuatan gambar
+    # Cek jika pesan mengandung perintah /gambar atau /image
     if message_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
         prompt = message_text.split(' ', 1)[1] if len(message_text.split(' ', 1)) > 1 else None
