@@ -232,7 +232,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         logger.exception("Error in processing with Gemini")
         return None
 
-sync def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
+async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
