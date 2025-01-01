@@ -874,8 +874,14 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         if starts_with_keyword:
             return True
 
+        # Tentukan kompleksitas percakapan
+        complexity = determine_conversation_complexity(session['messages'])
+
+        # Dapatkan batas pesan berdasarkan kompleksitas
+        max_messages = get_max_conversation_messages(complexity)
+
         # Reset jika percakapan sudah terlalu panjang
-        if len(session['messages']) > MAX_CONVERSATION_MESSAGES:
+        if len(session['messages']) > max_messages:
             return True
 
         # Reset jika terjadi perubahan topik
