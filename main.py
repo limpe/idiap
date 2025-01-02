@@ -281,7 +281,6 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
             final_response += "\n\nReferensi:\n" + "\n".join(sources)
         
         return final_response
-
     except Exception as e:
         logger.exception("Error in Gemini grounded processing")
         return None
