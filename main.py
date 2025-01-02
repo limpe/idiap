@@ -72,6 +72,13 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
+print("TELEGRAM_TOKEN:", os.getenv('TELEGRAM_TOKEN'))
+print("MISTRAL_API_KEY:", os.getenv('MISTRAL_API_KEY'))
+print("TOGETHER_API_KEY:", os.getenv('TOGETHER_API_KEY'))
+print("GOOGLE_API_KEY:", os.getenv('GOOGLE_API_KEY'))
+print("GOOGLE_SEARCH_ENGINE_ID:", os.getenv('GOOGLE_SEARCH_ENGINE_ID'))
+print("GEMINI_API_KEY:", os.getenv('GEMINI_API_KEY'))
+
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
