@@ -1133,6 +1133,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /help"""
+    help_text = """
+🤖 **PAIDI Bot - Panduan Penggunaan** 🤖
+
+Berikut adalah daftar perintah yang tersedia:
+
+/start - Memulai percakapan dengan bot.
+/help - Menampilkan panduan penggunaan bot.
+/stats - Menampilkan statistik penggunaan bot.
+/reset - Mereset sesi percakapan Anda.
+/carigambar - Mencari gambar serupa menggunakan Google Lens.
+/gambar <prompt> - Generate gambar berdasarkan prompt.
+/reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
+
+**Fitur Lain:**
+- Menerima pesan teks, suara, dan gambar.
+- Menganalisis sentimen pesan Anda.
+- Menanggapi dengan suara.
+
+Kirim saya pesan atau catatan suara untuk memulai!
+    """
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_sessions = len(list(redis_client.scan_iter("session:*")))
     stats_message = (
