@@ -1094,6 +1094,8 @@ def main():
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
+        application.add_handler(CommandHandler("help", help_command))
+
 
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
