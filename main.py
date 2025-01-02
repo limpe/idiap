@@ -31,14 +31,6 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 
-print("TELEGRAM_TOKEN:", os.getenv('TELEGRAM_TOKEN'))
-print("MISTRAL_API_KEY:", os.getenv('MISTRAL_API_KEY'))
-print("TOGETHER_API_KEY:", os.getenv('TOGETHER_API_KEY'))
-print("GOOGLE_API_KEY:", os.getenv('GOOGLE_API_KEY'))
-print("GOOGLE_SEARCH_ENGINE_ID:", os.getenv('GOOGLE_SEARCH_ENGINE_ID'))
-print("GEMINI_API_KEY:", os.getenv('GEMINI_API_KEY'))
-
-
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
