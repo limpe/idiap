@@ -935,11 +935,11 @@ async def get_grounded_info(query: str) -> Optional[str]:
     Mendapatkan informasi terkini dari Google Penelusuran berdasarkan query.
     """
     try:
-        # Gunakan API Google Custom Search atau layanan serupa
-        api_key = os.getenv('GEMINI_API_KEY')
+        # Gunakan API Google Custom Search
+        api_key = os.getenv('GOOGLE_API_KEY')
         search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         
-         if not api_key or not search_engine_id:
+        if not api_key or not search_engine_id:
             logger.error("Google API key atau search engine ID tidak ditemukan.")
             return None
         
