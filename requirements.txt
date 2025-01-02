@@ -12,6 +12,3 @@ groq
 redis
 together
 google-generativeai
-transformers
-torch
-datasets
