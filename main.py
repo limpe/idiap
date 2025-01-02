@@ -1106,6 +1106,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
+   try:
     response = await process_with_smart_context(session['messages'][-10:])
     
     if response:
@@ -1121,9 +1122,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         for part in response_parts:
             await update.message.reply_text(part)
             
-    except Exception as e:
-        logger.exception("Error dalam pemrosesan pesan")
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
+except Exception as e:
+    logger.exception("Error dalam pemrosesan pesan")
+    await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
