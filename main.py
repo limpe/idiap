@@ -261,7 +261,7 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
         
         # Konfigurasi Gemini
         genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        model = genai.GenerativeModel("gemini-1.0-pro")
         last_message = messages[-1]['content']
         logger.info(f"Pesan terakhir yang diproses: {last_message}")
 
