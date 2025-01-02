@@ -1142,7 +1142,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Cek apakah pesan mengandung salah satu kata kunci
+    # Cek apakah pesan mengandung salah satu kata kunci penelusuran Google
     if any(keyword in sanitized_text.lower() for keyword in search_keywords):
         # Ambil query pencarian (hapus semua kata kunci)
         query = sanitized_text.lower()
