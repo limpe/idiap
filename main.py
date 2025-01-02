@@ -31,6 +31,13 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 
+print("TELEGRAM_TOKEN:", os.getenv('TELEGRAM_TOKEN'))
+print("MISTRAL_API_KEY:", os.getenv('MISTRAL_API_KEY'))
+print("TOGETHER_API_KEY:", os.getenv('TOGETHER_API_KEY'))
+print("GOOGLE_API_KEY:", os.getenv('GOOGLE_API_KEY'))
+print("GOOGLE_SEARCH_ENGINE_ID:", os.getenv('GOOGLE_SEARCH_ENGINE_ID'))
+print("GEMINI_API_KEY:", os.getenv('GEMINI_API_KEY'))
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -71,13 +78,6 @@ GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-
-print("TELEGRAM_TOKEN:", os.getenv('TELEGRAM_TOKEN'))
-print("MISTRAL_API_KEY:", os.getenv('MISTRAL_API_KEY'))
-print("TOGETHER_API_KEY:", os.getenv('TOGETHER_API_KEY'))
-print("GOOGLE_API_KEY:", os.getenv('GOOGLE_API_KEY'))
-print("GOOGLE_SEARCH_ENGINE_ID:", os.getenv('GOOGLE_SEARCH_ENGINE_ID'))
-print("GEMINI_API_KEY:", os.getenv('GEMINI_API_KEY'))
 
 
 # Konstanta konfigurasi
@@ -912,23 +912,17 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         return await process_with_mistral(messages)
 
 def needs_grounding(message: str) -> bool:
-    """
-    Menentukan apakah pesan memerlukan grounding dengan Google Penelusuran.
-    """
-    # Kata kunci yang menunjukkan kebutuhan akan informasi terkini atau faktual
     grounding_keywords = [
         "terbaru", "hari ini", "kemarin", "minggu ini", "bulan ini", "tahun ini",
         "update", "informasi terkini", "fakta", "statistik", "data", "berita",
         "trend", "viral", "terkini", "sekarang", "saat ini"
     ]
     
-    # Pertanyaan yang memerlukan grounding
     grounding_questions = [
         "apa yang terjadi", "bagaimana kabar", "apa berita terbaru", "apa trend terbaru",
         "apa yang viral", "apa statistik", "apa data", "apa fakta", "apa update"
     ]
     
-    # Cek apakah pesan mengandung kata kunci atau pertanyaan yang memerlukan grounding
     message_lower = message.lower()
     if any(keyword in message_lower for keyword in grounding_keywords):
         return True
@@ -938,11 +932,7 @@ def needs_grounding(message: str) -> bool:
     return False
 
 async def get_grounded_info(query: str) -> Optional[str]:
-    """
-    Mendapatkan informasi terkini dari Google Penelusuran berdasarkan query.
-    """
     try:
-        # Gunakan API Google Custom Search
         api_key = os.getenv('GOOGLE_API_KEY')
         search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         
@@ -957,14 +947,12 @@ async def get_grounded_info(query: str) -> Optional[str]:
                 if response.status == 200:
                     data = await response.json()
                     if 'items' in data and len(data['items']) > 0:
-                        # Ambil hasil pencarian pertama
                         first_result = data['items'][0]
                         return f"{first_result['title']}: {first_result['snippet']}"
                     else:
                         logger.info("Tidak ada hasil pencarian yang ditemukan.")
                         return None
                 else:
-                    # Tangkap detail error dari Google API
                     error_text = await response.text()
                     logger.error(f"Error saat melakukan pencarian Google: {response.status}, Detail: {error_text}")
                     return None
