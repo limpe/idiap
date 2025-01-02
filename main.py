@@ -1092,6 +1092,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if chat_type in ["group", "supergroup"]:
         if f'@{context.bot.username}' not in sanitized_text:
             return  # Abaikan pesan di grup tanpa mention
+        else:
+            # Hapus mention bot dari teks
+            sanitized_text = sanitized_text.replace(f'@{context.bot.username}', '').strip()
 
     # Jika di chat pribadi, lanjutkan pemrosesan
     # Cek jika pesan mengandung perintah /gambar atau /image
