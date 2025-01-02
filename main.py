@@ -1139,7 +1139,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     query = sanitized_text.lower()
     for keyword in search_keywords:
         query = query.replace(keyword, "").strip()
-    
+        
     if query:  # Pastikan query tidak kosong
         grounded_info = await get_grounded_info(query)
         if grounded_info:
