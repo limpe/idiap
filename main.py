@@ -939,7 +939,7 @@ async def get_grounded_info(query: str) -> Optional[str]:
         api_key = os.getenv('GEMINI_API_KEY')
         search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         
-        if not api_key or not search_engine_id:
+         if not api_key or not search_engine_id:
             logger.error("Google API key atau search engine ID tidak ditemukan.")
             return None
         
@@ -957,7 +957,9 @@ async def get_grounded_info(query: str) -> Optional[str]:
                         logger.info("Tidak ada hasil pencarian yang ditemukan.")
                         return None
                 else:
-                    logger.error(f"Error saat melakukan pencarian Google: {response.status}")
+                    # Tangkap detail error dari Google API
+                    error_text = await response.text()
+                    logger.error(f"Error saat melakukan pencarian Google: {response.status}, Detail: {error_text}")
                     return None
     except Exception as e:
         logger.exception("Error dalam mendapatkan informasi terkini dari Google Penelusuran")
