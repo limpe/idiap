@@ -12,4 +12,3 @@ groq
 redis
 together
 google-generativeai
-google-cloud-aiplatform
