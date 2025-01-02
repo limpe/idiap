@@ -109,6 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - Membantu dengan berbagai tugas
     - Memproses gambar
     - Generate gambar (gunakan /gambar atau /image diikuti dengan prompt)
+    - pengingat (gunakan /ingatkan 5 belanja *mengingatkan anda 5 menit kedepan untuk belanja)
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
@@ -148,6 +149,41 @@ def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
         return "medium"
     else:
         return "simple"
+
+async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Parse waktu dan pesan dari perintah pengguna
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text("Format: /ingatkan <waktu> <pesan>")
+            return
+
+        time_str = args[0]
+        message = " ".join(args[1:])
+
+        # Konversi waktu ke detik
+        try:
+            time_seconds = int(time_str) * 60  # Misalnya, /reminder 5 Pesan
+        except ValueError:
+            await update.message.reply_text("Format waktu tidak valid. Gunakan angka (misalnya, 5).")
+            return
+
+        # Jadwalkan pengingat
+        context.job_queue.run_once(
+            callback=send_reminder,
+            when=time_seconds,
+            chat_id=update.message.chat_id,
+            data=message
+        )
+
+        await update.message.reply_text(f"Pengingat diatur untuk {time_str} menit lagi.")
+    except Exception as e:
+        logger.error(f"Error setting reminder: {str(e)}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mengatur pengingat.")
+
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    await context.bot.send_message(chat_id=job.chat_id, text=f"⏰ Pengingat: {job.data}")
 
 async def encode_image(image_source) -> str:
     """Encode an image file or BytesIO object to base64 string."""
@@ -1057,6 +1093,7 @@ def main():
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("carigambar", search_image_command))
+        application.add_handler(CommandHandler("ingatkan", set_reminder))
 
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
