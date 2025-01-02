@@ -15,8 +15,6 @@ import re
 
 
 from keywords import complex_keywords
-
-
 from collections import Counter
 from typing import Optional, List, Dict
 from telegram import Update, InputFile
@@ -42,7 +40,9 @@ def check_required_settings():
     if not MISTRAL_API_KEY:
         print("Error: MISTRAL_API_KEY tidak ditemukan!")
         return False
-    # Tambahkan ini
+    if not GOOGLE_API_KEY:
+        print("Error: GOOGLE_API_KEY tidak ditemukan!")
+        return False
     if not TOGETHER_API_KEY:
         print("Error: TOGETHER_API_KEY tidak ditemukan!")
         return False
@@ -71,7 +71,7 @@ GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -252,6 +252,57 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
     except Exception as e:
         logger.exception("Error in generate_image")
+        return None
+
+async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Optional[str]:
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        last_message = messages[-1]['content']
+        
+        response = model.generate_content(
+            contents=last_message,
+            tools=[{"name": "google_search_retrieval"}],
+            generation_config={
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 40,
+            }
+        )
+        
+        main_response = response.text
+        sources = []
+        
+        if hasattr(response, 'search_results'):
+            for result in response.search_results:
+                sources.append(f"Sumber: {result.title} - {result.snippet}")
+        
+        final_response = main_response
+        if sources:
+            final_response += "\n\nReferensi:\n" + "\n".join(sources)
+        
+        return final_response
+
+    except Exception as e:
+        logger.exception("Error in Gemini grounded processing")
+        return None
+
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
+    try:
+        # Try Gemini with grounding first
+        response = await process_with_gemini_grounded(messages)
+        
+        # Fallback to regular Gemini
+        if not response:
+            response = await process_with_gemini(messages)
+            
+        # Fallback to Mistral
+        if not response:
+            response = await process_with_mistral(messages)
+        
+        return response
+        
+    except Exception as e:
+        logger.exception("Error in smart context processing")
         return None
 
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
@@ -993,11 +1044,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
-    # Sanitasi input
     sanitized_text = sanitize_input(message_text)
 
     # Cek rate limit
@@ -1006,11 +1055,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Cek jika pesan mengandung perintah /gambar atau /image
+    # Handle /gambar command
     if sanitized_text.lower().startswith(('/gambar', '/image')):
-        # Extract the prompt
         prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
-
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
             return
@@ -1059,6 +1106,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
+    try:
     response = await process_with_smart_context(session['messages'][-10:])
     
     if response:
@@ -1073,6 +1121,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         response_parts = split_message(filtered_response)
         for part in response_parts:
             await update.message.reply_text(part)
+            
+    except Exception as e:
+        logger.exception("Error dalam pemrosesan pesan")
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1085,17 +1137,23 @@ def main():
         return
 
     try:
-        # Inisialisasi application
+        # Initialize Gemini
+        if GOOGLE_API_KEY:
+            genai.configure(api_key=GOOGLE_API_KEY)
+            logger.info("Gemini initialized successfully with grounding support")
+        else:
+            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur grounding tidak akan berfungsi")
+
+        # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Command handlers
+        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
-
 
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -1107,33 +1165,36 @@ def main():
         ))
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
-            handle_text
+            handle_message
         ))
 
-        # Jalankan bot
+        # Run bot
         application.run_polling()
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
-    # Cek kapan terakhir pengguna mengirim pesan
     last_message_time = redis_client.get(f"last_message_time_{user_id}")
     if last_message_time:
         last_message_time = datetime.fromtimestamp(float(last_message_time))
-        if current_time - last_message_time < timedelta(seconds=5):  # Batasan: 1 pesan per 5 detik
+        if current_time - last_message_time < timedelta(seconds=5):
             await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
             return
 
-    # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
 
-    # Lanjutkan pemrosesan pesan
-    await handle_text(update, context)
+    # Handle different message types
+    if update.message.text:
+        await handle_text(update, context)
+    elif update.message.voice:
+        await handle_voice(update, context)
+    elif update.message.photo:
+        await handle_photo(update, context)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
