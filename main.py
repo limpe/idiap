@@ -1085,6 +1085,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
+    # Cek jenis chat
+    chat_type = update.message.chat.type
+
+    # Jika di grup, pastikan ada mention bot
+    if chat_type in ["group", "supergroup"]:
+        if f'@{context.bot.username}' not in sanitized_text:
+            return  # Abaikan pesan di grup tanpa mention
+
+    # Jika di chat pribadi, lanjutkan pemrosesan
     # Cek jika pesan mengandung perintah /gambar atau /image
     if sanitized_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
@@ -1197,9 +1206,9 @@ def main():
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
+        (filters.TEXT | filters.CAPTION) & 
+        (filters.Entity("mention") | filters.REPLY), 
+        handle_mention
         ))
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
@@ -1213,7 +1222,7 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
@@ -1227,6 +1236,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  #
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+
+    # Cek jenis chat
+    chat_type = update.message.chat.type
+
+    # Jika di grup, pastikan ada mention bot
+    if chat_type in ["group", "supergroup"]:
+        message_text = update.message.text or ""
+        if f'@{context.bot.username}' not in message_text:
+            return  # Abaikan pesan di grup tanpa mention
 
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
