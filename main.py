@@ -940,10 +940,15 @@ async def get_grounded_info(query: str) -> Optional[str]:
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    logger.info(f"Google API Response: {data}")  # Log the response
+                    logger.info("Google API Response: Berhasil mendapatkan data.")
+                    
+                    # Ambil referensi penelusuran
+                    reference = get_search_reference(data)
+                    
                     if 'items' in data and len(data['items']) > 0:
                         first_result = data['items'][0]
-                        return f"{first_result['title']}: {first_result['snippet']}"
+                        snippet = first_result.get('snippet', 'Tidak ada deskripsi.')
+                        return f"{snippet}\n\n{reference}"
                     else:
                         logger.info("Tidak ada hasil pencarian yang ditemukan.")
                         return None
@@ -1138,6 +1143,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         if query:  # Pastikan query tidak kosong
             grounded_info = await get_grounded_info(query)
             if grounded_info:
+                logger.info(f"Hasil pencarian: {grounded_info}")  # Log hasil pencarian
                 parts = split_message(grounded_info)
                 for part in parts:
                     await update.message.reply_text(part, parse_mode="Markdown")
