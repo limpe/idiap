@@ -777,76 +777,70 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk pesan yang di-mention atau reply di grup."""
+    """Handler untuk pesan di grup atau chat pribadi."""
     chat_type = update.message.chat.type
+    message_text = update.message.text or update.message.caption or ""
 
-    # Hanya proses jika di grup dan ada mention atau reply ke bot
+    # Cek rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
+
+    # Cek jika di grup dan tidak mengandung "PAIDI" atau mention bot
     if chat_type in ["group", "supergroup"]:
-        should_process = False
-        message_text = update.message.text or update.message.caption or ""
+        bot_username = context.bot.username
+        if not (f"@{bot_username}" in message_text or "PAIDI" in message_text.upper()):
+            logger.info("Pesan di grup tanpa mention atau kata 'PAIDI' diabaikan.")
+            return
 
-        # Cek mention
-        if f'@{context.bot.username}' in message_text:
-            message_text = message_text.replace(f'@{context.bot.username}', '').strip()
-            should_process = True
+    # Lanjutkan pemrosesan pesan
+    if message_text:
+        # Sanitasi input
+        sanitized_text = sanitize_input(message_text)
 
-        # Cek reply
-        elif update.message.reply_to_message and \
-             update.message.reply_to_message.from_user.id == context.bot.id:
-            should_process = True
+        # Ambil chat_id dari update
+        chat_id = update.message.chat_id
 
-        if should_process and message_text:
-            # Sanitasi input
-            sanitized_text = sanitize_input(message_text)
+        # Periksa apakah sesi Redis sudah ada
+        if not redis_client.exists(f"session:{chat_id}"):
+            await initialize_session(chat_id)
 
-            # Cek rate limit
-            user_id = update.message.from_user.id
-            if not await check_rate_limit(user_id):
-                await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-                return
+        # Reset konteks jika diperlukan
+        if await should_reset_context(chat_id, sanitized_text):
+            await initialize_session(chat_id)
 
-            # Lanjutkan pemrosesan pesan biasa
-            chat_id = update.message.chat_id
+        # Ambil sesi dari Redis
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Periksa apakah sesi Redis sudah ada
-            if not redis_client.exists(f"session:{chat_id}"):
-                await initialize_session(chat_id)
+        # Tambahkan pesan pengguna ke sesi
+        session['messages'].append({"role": "user", "content": sanitized_text})
+        await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-            # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text):
-                await initialize_session(chat_id)
+        # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
+        system_message = {
+            "role": "system",
+            "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia yang mudah dipahami."
+        }
+        session['messages'].insert(0, system_message)
 
-            # Ambil sesi dari Redis
-            session = json.loads(redis_client.get(f"session:{chat_id}"))
+        # Proses pesan dengan konteks cerdas
+        response = await process_with_smart_context(session['messages'][-10:])
+        
+        if response:
+            # Filter hasil respons sebelum dikirim ke pengguna
+            filtered_response = await filter_text(response)
 
-            # Tambahkan pesan pengguna ke sesi
-            session['messages'].append({"role": "user", "content": sanitized_text})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+            # Tambahkan respons asisten ke sesi
+            session['messages'].append({"role": "assistant", "content": filtered_response})
+            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-            # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
-            system_message = {
-                "role": "system",
-                "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia yang mudah dipahami."
-            }
-            session['messages'].insert(0, system_message)
-
-            # Proses pesan dengan konteks cerdas
-            response = await process_with_smart_context(session['messages'][-10:])
-            
-            if response:
-                # Filter hasil respons sebelum dikirim ke pengguna
-                filtered_response = await filter_text(response)
-
-                # Tambahkan respons asisten ke sesi
-                session['messages'].append({"role": "assistant", "content": filtered_response})
-                await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-
-                # Pecah respons jika terlalu panjang
-                response_parts = split_message(filtered_response)
-                for part in response_parts:
-                    await update.message.reply_text(part)
-        else:
-            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
+            # Pecah respons jika terlalu panjang
+            response_parts = split_message(filtered_response)
+            for part in response_parts:
+                await update.message.reply_text(part)
+    else:
+        logger.info("Pesan kosong diabaikan.")
 
 
 async def initialize_session(chat_id: int) -> None:
