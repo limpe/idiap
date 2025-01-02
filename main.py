@@ -28,6 +28,7 @@ from aiohttp import FormData
 from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
+from typing import Union, Tuple
 
 
 # Konstanta untuk batasan ukuran file
