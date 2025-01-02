@@ -293,25 +293,36 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
         logger.exception("Error in Gemini grounded processing") # Gunakan logger.exception untuk mencatat stack trace
         return None
 
-async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Union[str, Tuple[None, str]]:
     try:
-        # Try Gemini with grounding first
-        response = await process_with_gemini_grounded(messages)
-        
-        # Fallback to regular Gemini
-        if not response:
-            response = await process_with_gemini(messages)
-            
-        # Fallback to Mistral
-        if not response:
-            response = await process_with_mistral(messages)
-        
-        return response
-        
-    except Exception as e:
-        logger.exception("Error in smart context processing")
-        return None
+        try:
+            response = await asyncio.wait_for(process_with_gemini_grounded(messages), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Gemini grounded timed out, falling back to regular Gemini")
+            response = None
 
+        if response is None:
+            try:
+                response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("Regular Gemini timed out, falling back to Mistral")
+                response = None
+
+        if response is None:
+            try:
+                response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
+            except asyncio.TimeoutError:
+                logger.error("Mistral timed out")
+                response = None
+
+        if response is None:
+            logger.error("All models failed!")
+            return None, "All models failed!"
+
+        return response
+    except Exception as e:
+        logger.exception(f"Error in smart context processing: {e}")
+        return None, str(e)
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
