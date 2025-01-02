@@ -15,7 +15,7 @@ import re
 
 
 from keywords import complex_keywords
-from carigoogle import search_keywords, get_search_reference  # Import dari carigoogle.py
+
 
 from collections import Counter
 from typing import Optional, List, Dict
@@ -30,6 +30,7 @@ from aiohttp import FormData
 from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -114,15 +115,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text)
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
+    """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
     parts = []
     while len(text) > max_length:
+        # Cari posisi pemotongan terdekat (misalnya, setelah baris baru atau spasi)
         split_index = text.rfind("\n", 0, max_length)
         if split_index == -1:
             split_index = text.rfind(" ", 0, max_length)
-        if split_index == -1:
+        if split_index == -1:  # Jika tidak ada baris baru atau spasi, potong langsung
             split_index = max_length
+
+        # Tambahkan bagian ke daftar
         parts.append(text[:split_index].strip())
         text = text[split_index:].strip()
+
+    # Tambahkan sisa teks
     parts.append(text)
     return parts
 
@@ -860,98 +867,19 @@ async def initialize_session(chat_id: int) -> None:
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        # Get latest user message
-        latest_message = messages[-1]['content']
-        
-        # Check if we need grounding (complex/time-sensitive query)
-        if needs_grounding(latest_message):
-            grounded_info = await get_grounded_info(latest_message)
-            if grounded_info:
-                # Incorporate grounded info into context
-                context_message = {
-                    "role": "system",
-                    "content": f"Informasi terkini: {grounded_info}"
-                }
-                messages.insert(0, context_message)
-        
-        # Ekstrak kata kunci yang relevan dari histori percakapan
-        relevant_keywords = extract_relevant_keywords(messages)
-        
-        # Tambahkan informasi penting ke konteks
-        if relevant_keywords:
-            messages.insert(0, {
-                "role": "system",
-                "content": f"Informasi penting: {', '.join(relevant_keywords)}"
-            })
-        
-        # Proses pesan dengan model AI (Gemini atau Mistral)
-        response = await process_with_gemini(messages)
-        if not response:
-            response = await process_with_mistral(messages)
-        
-        return response
-        
-    except Exception as e:
-        logger.exception("Error in smart context processing")
-        # Fallback to original processing
-        return await process_with_mistral(messages)
-
-def needs_grounding(message: str) -> bool:
-    grounding_keywords = [
-        "terbaru", "hari ini", "kemarin", "minggu ini", "bulan ini", "tahun ini",
-        "update", "informasi terkini", "fakta", "statistik", "data", "berita",
-        "trend", "viral", "terkini", "sekarang", "saat ini"
-    ]
+    # Ekstrak kata kunci yang relevan dari histori percakapan
+    relevant_keywords = extract_relevant_keywords(messages)
     
-    grounding_questions = [
-        "apa yang terjadi", "bagaimana kabar", "apa berita terbaru", "apa trend terbaru",
-        "apa yang viral", "apa statistik", "apa data", "apa fakta", "apa update"
-    ]
+    # Tambahkan informasi penting ke konteks
+    if relevant_keywords:
+        messages.insert(0, {"role": "system", "content": f"Informasi penting: {', '.join(relevant_keywords)}"})
     
-    message_lower = message.lower()
-    if any(keyword in message_lower for keyword in grounding_keywords):
-        return True
-    if any(question in message_lower for question in grounding_questions):
-        return True
+    # Proses pesan dengan model AI (Gemini atau Mistral)
+    response = await process_with_gemini(messages)
+    if not response:
+        response = await process_with_mistral(messages)
     
-    return False
-
-async def get_grounded_info(query: str) -> Optional[str]:
-    try:
-        api_key = os.getenv('GOOGLE_API_KEY')
-        search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
-        
-        if not api_key or not search_engine_id:
-            logger.error("Google API key atau search engine ID tidak ditemukan.")
-            return None
-        query = f"{query} dalam Bahasa Indonesia"
-        url = f"https://www.googleapis.com/customsearch/v1?q={urllib.parse.quote(query)}&key={api_key}&cx={search_engine_id}&lr=lang_id"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    logger.info("Google API Response: Berhasil mendapatkan data.")
-                    
-                    # Ambil referensi penelusuran
-                    reference = get_search_reference(data)
-                    
-                    if 'items' in data and len(data['items']) > 0:
-                        first_result = data['items'][0]
-                        snippet = first_result.get('snippet', 'Tidak ada deskripsi.')
-                        return f"{snippet}\n\n{reference}"
-                    else:
-                        logger.info("Tidak ada hasil pencarian yang ditemukan.")
-                        return None
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Error saat melakukan pencarian Google: {response.status}, Detail: {error_text}")
-                    return None
-    except Exception as e:
-        logger.exception("Error dalam mendapatkan informasi terkini dari Google Penelusuran")
-        return None
-
+    return response
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
@@ -1065,6 +993,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
@@ -1077,18 +1006,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Cek jenis chat
-    chat_type = update.message.chat.type
-
-    # Jika di grup, pastikan ada mention bot
-    if chat_type in ["group", "supergroup"]:
-        if f'@{context.bot.username}' not in sanitized_text:
-            return  # Abaikan pesan di grup tanpa mention
-        else:
-            # Hapus mention bot dari teks
-            sanitized_text = sanitized_text.replace(f'@{context.bot.username}', '').strip()
-
-    # Jika di chat pribadi, lanjutkan pemrosesan
     # Cek jika pesan mengandung perintah /gambar atau /image
     if sanitized_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
@@ -1137,22 +1054,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Cek apakah pesan mengandung salah satu kata kunci penelusuran Google
-    if any(keyword in sanitized_text.lower() for keyword in search_keywords):
-        # Ambil query pencarian (hapus semua kata kunci)
-        query = sanitized_text.lower()
-        for keyword in search_keywords:
-            query = query.replace(keyword, "").strip()
-        
-        if query:  # Pastikan query tidak kosong
-            grounded_info = await get_grounded_info(query)
-            if grounded_info:
-                parts = split_message(grounded_info)
-                for part in parts:
-                    await update.message.reply_text(part, parse_mode="Markdown")
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
-
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
@@ -1194,16 +1095,15 @@ def main():
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
-        
+
 
         # Message handlers
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
-        (filters.TEXT | filters.CAPTION) & 
-        (filters.Entity("mention") | filters.REPLY), 
-        handle_mention
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
+            handle_mention
         ))
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
@@ -1217,7 +1117,7 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):  # <-- Tambahkan ini
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
@@ -1231,15 +1131,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Update waktu terakhir pengguna mengirim pesan
     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-
-    # Cek jenis chat
-    chat_type = update.message.chat.type
-
-    # Jika di grup, pastikan ada mention bot
-    if chat_type in ["group", "supergroup"]:
-        message_text = update.message.text or ""
-        if f'@{context.bot.username}' not in message_text:
-            return  # Abaikan pesan di grup tanpa mention
 
     # Lanjutkan pemrosesan pesan
     await handle_text(update, context)
