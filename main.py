@@ -1043,10 +1043,12 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         raise Exception("Gagal memperbarui sesi.")
 
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
+    # Sanitasi input
     sanitized_text = sanitize_input(message_text)
 
     # Cek rate limit
@@ -1055,9 +1057,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Handle /gambar command
+    # Cek jika pesan mengandung perintah /gambar atau /image
     if sanitized_text.lower().startswith(('/gambar', '/image')):
+        # Extract the prompt
         prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
+
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
             return
@@ -1106,7 +1110,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-    try:
+    try:  # <-- Tambahkan blok try di sini
         response = await process_with_smart_context(session['messages'][-10:])
         
         if response:
@@ -1122,13 +1126,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for part in response_parts:
                 await update.message.reply_text(part)
                 
-    except Exception as e:
+    except Exception as e:  # <-- Blok except sekarang valid karena ada blok try
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
-            
-except Exception as e:
-    logger.exception("Error dalam pemrosesan pesan")
-    await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
