@@ -933,8 +933,8 @@ async def get_grounded_info(query: str) -> Optional[str]:
         if not api_key or not search_engine_id:
             logger.error("Google API key atau search engine ID tidak ditemukan.")
             return None
-        
-        url = f"https://www.googleapis.com/customsearch/v1?q={urllib.parse.quote(query)}&key={api_key}&cx={search_engine_id}"
+        query = f"{query} dalam Bahasa Indonesia"
+        url = f"https://www.googleapis.com/customsearch/v1?q={urllib.parse.quote(query)}&key={api_key}&cx={search_engine_id}&lr=lang_id"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
@@ -1143,15 +1143,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         if query:  # Pastikan query tidak kosong
             grounded_info = await get_grounded_info(query)
             if grounded_info:
-                logger.info(f"Hasil pencarian: {grounded_info}")  # Log hasil pencarian
-                parts = split_message(grounded_info)
-                for part in parts:
-                    await update.message.reply_text(part, parse_mode="Markdown")
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
-        else:
-            await update.message.reply_text("Mohon berikan query pencarian. Contoh: 'tunjukkan sumber tentang Python'")
-        return
+    parts = split_message(grounded_info)
+    for part in parts:
+        await update.message.reply_text(part, parse_mode="Markdown")
+else:
+    await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
