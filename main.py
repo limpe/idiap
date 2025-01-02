@@ -256,11 +256,17 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
 async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        # Konfigurasi kunci API (INI SANGAT PENTING!)
+        genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+
+        model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
         last_message = messages[-1]['content']
-        
+
+        # Struktur 'contents' harus berupa list of parts
+        contents = [{"parts": [{"text": last_message}]}]
+
         response = model.generate_content(
-            contents=last_message,
+            contents=contents, # Perbaikan: gunakan struktur yang benar
             tools=[{"name": "google_search_retrieval"}],
             generation_config={
                 "temperature": 0.7,
@@ -268,21 +274,23 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
                 "top_k": 40,
             }
         )
-        
+
         main_response = response.text
         sources = []
-        
-        if hasattr(response, 'search_results'):
-            for result in response.search_results:
-                sources.append(f"Sumber: {result.title} - {result.snippet}")
-        
+
+        if hasattr(response, 'search_queries'): # Cek search queries terlebih dahulu
+            for query in response.search_queries:
+                if hasattr(query, 'results'): # Baru cek results di dalam query
+                    for result in query.results:
+                        sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}") # Tambahkan URL
+
         final_response = main_response
         if sources:
             final_response += "\n\nReferensi:\n" + "\n".join(sources)
-        
+
         return final_response
     except Exception as e:
-        logger.exception("Error in Gemini grounded processing")
+        logger.exception("Error in Gemini grounded processing") # Gunakan logger.exception untuk mencatat stack trace
         return None
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
