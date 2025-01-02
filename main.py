@@ -255,15 +255,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        logger.info("Memulai pemrosesan dengan Gemini Grounded...")
-        
-        # Konfigurasi Gemini
-        genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-        model = genai.GenerativeModel("gemini-1.0-pro")
-        last_message = messages[-1]['content']
-        logger.info(f"Pesan terakhir yang diproses: {last_message}")
 
         # Generate respons dengan grounding
         response = model.generate_content(
@@ -275,7 +266,7 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
                 "top_k": 40,
             }
         )
-        logger.info(f"Respons dari Gemini: {response}")
+        logger.info(f"Struktur lengkap respons Gemini: {response}")  # Log struktur respons
 
         # Ekstrak teks utama
         main_response = response.text
