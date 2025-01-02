@@ -1135,19 +1135,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Cek apakah pesan mengandung salah satu kata kunci
     if any(keyword in sanitized_text.lower() for keyword in search_keywords):
-    # Ambil query pencarian (hapus semua kata kunci)
-    query = sanitized_text.lower()
-    for keyword in search_keywords:
-        query = query.replace(keyword, "").strip()
+        # Ambil query pencarian (hapus semua kata kunci)
+        query = sanitized_text.lower()
+        for keyword in search_keywords:
+            query = query.replace(keyword, "").strip()
         
-    if query:  # Pastikan query tidak kosong
-        grounded_info = await get_grounded_info(query)
-        if grounded_info:
-            parts = split_message(grounded_info)
-            for part in parts:
-                await update.message.reply_text(part, parse_mode="Markdown")
-        else:
-            await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
+        if query:  # Pastikan query tidak kosong
+            grounded_info = await get_grounded_info(query)
+            if grounded_info:
+                parts = split_message(grounded_info)
+                for part in parts:
+                    await update.message.reply_text(part, parse_mode="Markdown")
+            else:
+                await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
