@@ -1106,7 +1106,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-    try:
     response = await process_with_smart_context(session['messages'][-10:])
     
     if response:
