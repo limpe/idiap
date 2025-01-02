@@ -946,6 +946,7 @@ async def get_grounded_info(query: str) -> Optional[str]:
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
+                    logger.info(f"Google API Response: {data}")  # Log the response
                     if 'items' in data and len(data['items']) > 0:
                         first_result = data['items'][0]
                         return f"{first_result['title']}: {first_result['snippet']}"
