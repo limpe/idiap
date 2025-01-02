@@ -867,19 +867,102 @@ async def initialize_session(chat_id: int) -> None:
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    # Ekstrak kata kunci yang relevan dari histori percakapan
-    relevant_keywords = extract_relevant_keywords(messages)
+    try:
+        # Get latest user message
+        latest_message = messages[-1]['content']
+        
+        # Check if we need grounding (complex/time-sensitive query)
+        if needs_grounding(latest_message):
+            grounded_info = await get_grounded_info(latest_message)
+            if grounded_info:
+                # Incorporate grounded info into context
+                context_message = {
+                    "role": "system",
+                    "content": f"Informasi terkini: {grounded_info}"
+                }
+                messages.insert(0, context_message)
+        
+        # Ekstrak kata kunci yang relevan dari histori percakapan
+        relevant_keywords = extract_relevant_keywords(messages)
+        
+        # Tambahkan informasi penting ke konteks
+        if relevant_keywords:
+            messages.insert(0, {
+                "role": "system",
+                "content": f"Informasi penting: {', '.join(relevant_keywords)}"
+            })
+        
+        # Proses pesan dengan model AI (Gemini atau Mistral)
+        response = await process_with_gemini(messages)
+        if not response:
+            response = await process_with_mistral(messages)
+        
+        return response
+        
+    except Exception as e:
+        logger.exception("Error in smart context processing")
+        # Fallback to original processing
+        return await process_with_mistral(messages)
+
+def needs_grounding(message: str) -> bool:
+    """
+    Menentukan apakah pesan memerlukan grounding dengan Google Penelusuran.
+    """
+    # Kata kunci yang menunjukkan kebutuhan akan informasi terkini atau faktual
+    grounding_keywords = [
+        "terbaru", "hari ini", "kemarin", "minggu ini", "bulan ini", "tahun ini",
+        "update", "informasi terkini", "fakta", "statistik", "data", "berita",
+        "trend", "viral", "terkini", "sekarang", "saat ini"
+    ]
     
-    # Tambahkan informasi penting ke konteks
-    if relevant_keywords:
-        messages.insert(0, {"role": "system", "content": f"Informasi penting: {', '.join(relevant_keywords)}"})
+    # Pertanyaan yang memerlukan grounding
+    grounding_questions = [
+        "apa yang terjadi", "bagaimana kabar", "apa berita terbaru", "apa trend terbaru",
+        "apa yang viral", "apa statistik", "apa data", "apa fakta", "apa update"
+    ]
     
-    # Proses pesan dengan model AI (Gemini atau Mistral)
-    response = await process_with_gemini(messages)
-    if not response:
-        response = await process_with_mistral(messages)
+    # Cek apakah pesan mengandung kata kunci atau pertanyaan yang memerlukan grounding
+    message_lower = message.lower()
+    if any(keyword in message_lower for keyword in grounding_keywords):
+        return True
+    if any(question in message_lower for question in grounding_questions):
+        return True
     
-    return response
+    return False
+
+async def get_grounded_info(query: str) -> Optional[str]:
+    """
+    Mendapatkan informasi terkini dari Google Penelusuran berdasarkan query.
+    """
+    try:
+        # Gunakan API Google Custom Search atau layanan serupa
+        api_key = os.getenv('GEMINI_API_KEY')
+        search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
+        
+        if not api_key or not search_engine_id:
+            logger.error("Google API key atau search engine ID tidak ditemukan.")
+            return None
+        
+        url = f"https://www.googleapis.com/customsearch/v1?q={urllib.parse.quote(query)}&key={api_key}&cx={search_engine_id}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if 'items' in data and len(data['items']) > 0:
+                        # Ambil hasil pencarian pertama
+                        first_result = data['items'][0]
+                        return f"{first_result['title']}: {first_result['snippet']}"
+                    else:
+                        logger.info("Tidak ada hasil pencarian yang ditemukan.")
+                        return None
+                else:
+                    logger.error(f"Error saat melakukan pencarian Google: {response.status}")
+                    return None
+    except Exception as e:
+        logger.exception("Error dalam mendapatkan informasi terkini dari Google Penelusuran")
+        return None
+
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
