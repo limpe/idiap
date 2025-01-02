@@ -1135,19 +1135,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Cek apakah pesan mengandung salah satu kata kunci
     if any(keyword in sanitized_text.lower() for keyword in search_keywords):
-        # Ambil query pencarian (hapus semua kata kunci)
-        query = sanitized_text.lower()
-        for keyword in search_keywords:
-            query = query.replace(keyword, "").strip()
-        
-        if query:  # Pastikan query tidak kosong
-            grounded_info = await get_grounded_info(query)
-            if grounded_info:
-    parts = split_message(grounded_info)
-    for part in parts:
-        await update.message.reply_text(part, parse_mode="Markdown")
-else:
-    await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
+    # Ambil query pencarian (hapus semua kata kunci)
+    query = sanitized_text.lower()
+    for keyword in search_keywords:
+        query = query.replace(keyword, "").strip()
+    
+    if query:  # Pastikan query tidak kosong
+        grounded_info = await get_grounded_info(query)
+        if grounded_info:
+            parts = split_message(grounded_info)
+            for part in parts:
+                await update.message.reply_text(part, parse_mode="Markdown")
+        else:
+            await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1190,9 +1190,10 @@ def main():
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
-
+        
 
         # Message handlers
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
