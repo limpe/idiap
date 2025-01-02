@@ -257,10 +257,15 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
 async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
+        logger.info("Memulai pemrosesan dengan Gemini Grounded...")
+        
+        # Konfigurasi Gemini
         genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
         last_message = messages[-1]['content']
+        logger.info(f"Pesan terakhir yang diproses: {last_message}")
 
+        # Generate respons dengan grounding
         response = model.generate_content(
             contents=[{"parts": [{"text": last_message}]}],
             tools=[{"name": "google_search_retrieval"}],
@@ -270,55 +275,75 @@ async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Option
                 "top_k": 40,
             }
         )
+        logger.info(f"Respons dari Gemini: {response}")
 
+        # Ekstrak teks utama
         main_response = response.text
-        sources = []
+        logger.info(f"Teks utama dari respons: {main_response}")
 
+        # Ekstrak sumber pencarian (grounding)
+        sources = []
         if hasattr(response, 'search_queries'):
+            logger.info("Search queries ditemukan di respons.")
             for query in response.search_queries:
                 if hasattr(query, 'results'):
+                    logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
                     for result in query.results:
                         sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
+                        logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
+        else:
+            logger.warning("Tidak ada search queries di respons.")
 
+        # Gabungkan teks utama dengan sumber (jika ada)
         final_response = main_response
         if sources:
             final_response += "\n\nReferensi:\n" + "\n".join(sources)
+            logger.info(f"Final response dengan grounding: {final_response}")
+        else:
+            logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
 
         return final_response
     except Exception as e:
-        logger.exception("Error in Gemini grounded processing")
+        logger.exception("Error dalam pemrosesan Gemini Grounded")
         return None
 
-async def process_with_smart_context(messages: List[Dict[str, str]]) -> Union[str, Tuple[None, str]]:
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
+        logger.info("Memulai pemrosesan dengan konteks cerdas...")
+        
+        # Coba Gemini Grounded terlebih dahulu
         try:
             response = await asyncio.wait_for(process_with_gemini_grounded(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Gemini Grounded.")
+                return response
         except asyncio.TimeoutError:
-            logger.warning("Gemini grounded timed out, falling back to regular Gemini")
-            response = None
+            logger.warning("Gemini Grounded timeout, beralih ke Gemini biasa.")
 
-        if response is None:
-            try:
-                response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
-            except asyncio.TimeoutError:
-                logger.warning("Regular Gemini timed out, falling back to Mistral")
-                response = None
+        # Coba Gemini biasa
+        try:
+            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Gemini biasa.")
+                return response
+        except asyncio.TimeoutError:
+            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
 
-        if response is None:
-            try:
-                response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
-            except asyncio.TimeoutError:
-                logger.error("Mistral timed out")
-                response = None
+        # Coba Mistral
+        try:
+            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Mistral.")
+                return response
+        except asyncio.TimeoutError:
+            logger.error("Mistral timeout.")
 
-        if response is None:
-            logger.error("All models failed!")
-            return None, "All models failed!"
-
-        return response
+        logger.error("Semua model gagal memproses pesan.")
+        return None
     except Exception as e:
-        logger.exception(f"Error in smart context processing: {e}")
-        return None, str(e)
+        logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
+        return None
+
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
