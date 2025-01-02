@@ -1,6 +1,6 @@
 search_keywords = [
     "cari",
-    "cuaca hari ini",
+    "referensi",
     "tunjukkan sumber",
     "berikan informasi",
     "apa itu",
