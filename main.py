@@ -1043,7 +1043,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         raise Exception("Gagal memperbarui sesi.")
 
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message_text:
         message_text = update.message.text or ""
 
@@ -1106,21 +1106,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-   try:
-    response = await process_with_smart_context(session['messages'][-10:])
-    
-    if response:
-        # Filter hasil respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
+    try:
+        response = await process_with_smart_context(session['messages'][-10:])
+        
+        if response:
+            # Filter hasil respons sebelum dikirim ke pengguna
+            filtered_response = await filter_text(response)
 
-        # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+            # Tambahkan respons asisten ke sesi
+            session['messages'].append({"role": "assistant", "content": filtered_response})
+            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-        # Pecah respons jika terlalu panjang
-        response_parts = split_message(filtered_response)
-        for part in response_parts:
-            await update.message.reply_text(part)
+            # Pecah respons jika terlalu panjang
+            response_parts = split_message(filtered_response)
+            for part in response_parts:
+                await update.message.reply_text(part)
+                
+    except Exception as e:
+        logger.exception("Error dalam pemrosesan pesan")
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
             
 except Exception as e:
     logger.exception("Error dalam pemrosesan pesan")
