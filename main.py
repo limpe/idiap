@@ -1062,11 +1062,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
-    # Sanitasi input
     sanitized_text = sanitize_input(message_text)
 
     # Cek rate limit
@@ -1075,7 +1073,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Cek jika pesan mengandung perintah /gambar atau /image
+    # Handle /gambar command
     if sanitized_text.lower().startswith(('/gambar', '/image')):
         # Extract the prompt
         prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
@@ -1128,7 +1126,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-    try:  # <-- Tambahkan blok try di sini
+    try:
         response = await process_with_smart_context(session['messages'][-10:])
         
         if response:
@@ -1144,7 +1142,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             for part in response_parts:
                 await update.message.reply_text(part)
                 
-    except Exception as e:  # <-- Blok except sekarang valid karena ada blok try
+    except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
         
