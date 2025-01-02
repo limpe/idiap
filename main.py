@@ -738,19 +738,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
-        
-async def cleanup_sessions(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Memulai proses pembersihan sesi yang tidak aktif")
-    try:
-        for key in redis_client.scan_iter("session:*"):
-            session = json.loads(redis_client.get(key))
-            last_update = session.get('last_update', 0)
-
-            if datetime.now().timestamp() - last_update > CONVERSATION_TIMEOUT:
-                redis_client.delete(key)
-                logger.info(f"Sesi dengan kunci {key} telah dihapus karena tidak aktif")
-    except redis.RedisError as e:
-        logger.error(f"Gagal membersihkan sesi: {str(e)}")
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup."""
@@ -946,6 +933,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         # Tambahkan pesan baru ke sesi
         session['messages'].append(message)
 
+        # Perbarui last_update
+        session['last_update'] = datetime.now().timestamp()
+
         # Tentukan kompleksitas percakapan
         complexity = determine_conversation_complexity(session['messages'])
 
@@ -957,9 +947,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             session['messages'] = session['messages'][-max_messages:]
             logger.info(f"Pesan di sesi untuk chat_id {chat_id} dibatasi hingga {max_messages} pesan")
 
-        # Simpan sesi ke Redis
+        # Simpan sesi ke Redis dan atur TTL
         redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)  # Atur TTL
         logger.info(f"Sesi berhasil diperbarui untuk chat_id {chat_id}")
     except redis.RedisError as e:
         logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
@@ -1068,26 +1058,20 @@ def main():
         application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("carigambar", search_image_command))
 
-        # Message handlers dengan prioritas
+        # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        
-        # Handler baru untuk text dengan mention di grup
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
             (filters.Entity("mention") | filters.REPLY), 
             handle_mention
         ))
-        
-        # Handler baru untuk chat pribadi
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
             handle_text
         ))
 
-        # Cleanup session setiap jam
-        application.job_queue.run_repeating(cleanup_sessions, interval=3600, first=10)
-
+        # Jalankan bot
         application.run_polling()
 
     except Exception as e:
