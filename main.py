@@ -15,7 +15,7 @@ import re
 
 
 from keywords import complex_keywords
-
+from carigoogle import search_keywords, get_search_reference  # Import dari carigoogle.py
 
 from collections import Counter
 from typing import Optional, List, Dict
@@ -122,21 +122,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text)
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
-    """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
     parts = []
     while len(text) > max_length:
-        # Cari posisi pemotongan terdekat (misalnya, setelah baris baru atau spasi)
         split_index = text.rfind("\n", 0, max_length)
         if split_index == -1:
             split_index = text.rfind(" ", 0, max_length)
-        if split_index == -1:  # Jika tidak ada baris baru atau spasi, potong langsung
+        if split_index == -1:
             split_index = max_length
-
-        # Tambahkan bagian ke daftar
         parts.append(text[:split_index].strip())
         text = text[split_index:].strip()
-
-    # Tambahkan sisa teks
     parts.append(text)
     return parts
 
@@ -1074,7 +1068,6 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    # Jika message_text tidak diberikan, ambil dari update.message
     if not message_text:
         message_text = update.message.text or ""
 
@@ -1134,6 +1127,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
     else:
         session = json.loads(session_json)
+
+    # Cek apakah pesan mengandung salah satu kata kunci
+    if any(keyword in sanitized_text.lower() for keyword in search_keywords):
+        # Ambil query pencarian (hapus semua kata kunci)
+        query = sanitized_text.lower()
+        for keyword in search_keywords:
+            query = query.replace(keyword, "").strip()
+        
+        if query:  # Pastikan query tidak kosong
+            grounded_info = await get_grounded_info(query)
+            if grounded_info:
+                parts = split_message(grounded_info)
+                for part in parts:
+                    await update.message.reply_text(part, parse_mode="Markdown")
+            else:
+                await update.message.reply_text("Maaf, tidak dapat menemukan informasi yang relevan.")
+        else:
+            await update.message.reply_text("Mohon berikan query pencarian. Contoh: 'tunjukkan sumber tentang Python'")
+        return
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
