@@ -787,11 +787,28 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Cek jika di grup dan tidak mengandung "PAIDI" atau mention bot
+    # Cek jika di grup dan tidak mengandung mention bot, reply ke bot, atau kata "PAIDI"
     if chat_type in ["group", "supergroup"]:
         bot_username = context.bot.username
-        if not (f"@{bot_username}" in message_text or "PAIDI" in message_text.upper()):
-            logger.info("Pesan di grup tanpa mention atau kata 'PAIDI' diabaikan.")
+        should_process = False
+
+        # Cek mention bot
+        if f"@{bot_username}" in message_text:
+            message_text = message_text.replace(f"@{bot_username}", "").strip()
+            should_process = True
+
+        # Cek reply ke pesan bot
+        elif update.message.reply_to_message and \
+             update.message.reply_to_message.from_user.id == context.bot.id:
+            should_process = True
+
+        # Cek kata kunci "PAIDI"
+        elif "PAIDI" in message_text.upper():
+            should_process = True
+
+        # Jika tidak memenuhi syarat, abaikan pesan
+        if not should_process:
+            logger.info("Pesan di grup tanpa mention, reply ke bot, atau kata 'PAIDI' diabaikan.")
             return
 
     # Lanjutkan pemrosesan pesan
