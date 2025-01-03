@@ -12,6 +12,7 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
+import bleach
 
 
 from keywords import complex_keywords
@@ -50,19 +51,15 @@ def check_required_settings():
     return True
 
 def sanitize_input(text: str) -> str:
-    # Remove potentially dangerous characters
-    return re.sub(r'[<>"\';&]', '', text)
+    # Daftar tag dan atribut yang diizinkan
+    allowed_tags = ['b', 'i']  # Mengizinkan tag <b> dan <i>
+    allowed_attributes = {}  # Tidak mengizinkan atribut apa pun
 
-# Konfigurasi logging dengan format yang lebih detail
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log')  # Menyimpan log ke file
-    ]
-)
-logger = logging.getLogger(__name__)
+    # Membersihkan teks menggunakan Bleach
+    cleaned_text = bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes)
+
+    return cleaned_text
+
 
 
 # Environment variables
@@ -876,9 +873,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
+            # Sanitasi input teks
+            sanitized_text = sanitize_input(message_text)
+
             # Cek apakah pesan mengandung perintah /gambar atau /image
-            if message_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, message_text)
+            if sanitized_text.lower().startswith(('/gambar', '/image')):
+                await handle_text(update, context, sanitized_text)
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -889,15 +889,15 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, message_text):
+            if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Tambahkan pesan pengguna ke sesi
-            session['messages'].append({"role": "user", "content": message_text})
-            await update_session(chat_id, {"role": "user", "content": message_text})
+            # Tambahkan pesan pengguna ke sesi (setelah disanitasi)
+            session['messages'].append({"role": "user", "content": sanitized_text})
+            await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
             # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
             system_message = {
@@ -1073,6 +1073,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Membersihkan input teks menggunakan Bleach
     sanitized_text = sanitize_input(message_text)
 
     # Cek rate limit
