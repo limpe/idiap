@@ -32,7 +32,7 @@ from typing import Union, Tuple
 
 import openrouteservice
 from openrouteservice.directions import directions
-from openrouteservice.geocode import pelias_search, reverse_geocode
+from openrouteservice.geocode import pelias_search, pelias_reverse
 from openrouteservice.isochrones import isochrones
 from openrouteservice.pois import pois
 from openrouteservice.elevation import elevation
@@ -804,7 +804,7 @@ def geocode_location(location: str) -> Optional[List[float]]:
 def reverse_geocode_location(coords: List[float]) -> Optional[str]:
     """Dapatkan nama lokasi dari koordinat."""
     try:
-        reverse_geocode_data = reverse_geocode(ors_client, point=coords)
+        reverse_geocode_data = pelias_reverse(ors_client, point=coords)
         if reverse_geocode_data['features']:
             return reverse_geocode_data['features'][0]['properties']['label']
     except Exception as e:
