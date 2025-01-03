@@ -394,7 +394,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
             logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
             response = gemini_model.generate_content(
                 contents=[{"parts": [{"text": last_message}]}],
-                tools=[{"google_search": {}}],  # Ganti 'google_search_retrieval' dengan 'google_search'
+                tools=[{"google_search_retrieval": {}}],  # Coba gunakan 'google_search_retrieval'
                 generation_config={
                     "temperature": 0.7,
                     "top_p": 0.8,
