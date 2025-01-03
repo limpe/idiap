@@ -12,3 +12,5 @@ groq
 redis
 together
 google-generativeai
+folium
+openrouteservice
