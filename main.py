@@ -32,7 +32,7 @@ from typing import Union, Tuple
 
 import openrouteservice
 from openrouteservice.directions import directions
-from openrouteservice.geocode import pelias_search, pelias_reverse
+from openrouteservice.geocode import pelias_search
 from openrouteservice.isochrones import isochrones
 from openrouteservice.pois import pois
 from openrouteservice.elevation import elevation
@@ -835,7 +835,12 @@ def get_isochrone(coords: List[float], range_type: str, value: int, profile: str
 def get_pois(coords: List[float], category: str) -> Optional[Dict]:
     """Dapatkan POI di sekitar lokasi."""
     try:
-        pois_data = pois(ors_client, request='pois', geojson={'type': 'Point', 'coordinates': coords}, filters={'category_ids': [category]})
+        pois_data = pelias_search(
+            ors_client,
+            text=category,  # Kategori atau nama tempat
+            focus_point=coords,  # Koordinat lokasi
+            boundary_circle=dict(lat=coords[1], lon=coords[0], radius=5000)  # Radius pencarian (dalam meter)
+        )
         return pois_data
     except Exception as e:
         logger.error(f"Error getting POIs: {e}")
