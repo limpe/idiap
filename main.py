@@ -32,7 +32,7 @@ from typing import List, Dict
 from typing import Union, Tuple
 
 genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 
 # Konstanta untuk batasan ukuran file
