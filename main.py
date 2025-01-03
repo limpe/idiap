@@ -422,7 +422,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
     except Exception as e:
         logger.exception("Error in processing image with Gemini")
-        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
+        return "Terjadi kesalahan saat memproses gambar ."
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
