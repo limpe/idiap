@@ -12,7 +12,7 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
-import requests
+
 
 from keywords import complex_keywords
 from collections import Counter
@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -63,6 +64,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
@@ -71,7 +73,6 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-OPENROUTE_API_KEY = os.getenv('OPENROUTE_API_KEY')
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -99,6 +100,7 @@ bot_statistics = {
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
@@ -148,126 +150,6 @@ def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
         return "medium"
     else:
         return "simple"
-
-async def geocode_location(search_text: str) -> Optional[dict]:
-    """
-    Mencari lokasi menggunakan OpenRouteService Geocode API.
-    
-    :param search_text: Teks pencarian (misalnya, nama tempat atau alamat).
-    :return: Dictionary yang berisi hasil pencarian atau None jika terjadi kesalahan.
-    """
-    try:
-        headers = {
-            'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
-        }
-        
-        # Buat URL untuk request ke OpenRouteService Geocode API
-        url = f"https://api.openrouteservice.org/geocode/search?api_key={OPENROUTE_API_KEY}&text={search_text}"
-        
-        # Lakukan request ke OpenRouteService
-        response = requests.get(url, headers=headers)
-        
-        # Cek status code
-        if response.status_code == 200:
-            # Parse response JSON
-            geocode_data = response.json()
-            return geocode_data
-        else:
-            logger.error(f"Error in OpenRouteService Geocode API call: {response.status_code} - {response.reason}")
-            return None
-    except Exception as e:
-        logger.exception("Error in geocode_location")
-        return None
-
-async def send_leaflet_map(update: Update, coordinates: list):
-    """
-    Mengirim peta Leaflet sebagai file HTML ke pengguna Telegram.
-
-    :param update: Objek Update dari Telegram.
-    :param coordinates: List koordinat [lat, lon].
-    """
-    try:
-        # Buat peta Leaflet dalam bentuk HTML
-        leaflet_html = await get_leaflet_map(coordinates)
-        
-        if not leaflet_html:
-            await update.message.reply_text("Maaf, tidak dapat membuat peta.")
-            return
-
-        # Simpan HTML ke file sementara
-        with tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8') as temp_file:
-            temp_file.write(leaflet_html)
-            temp_file_path = temp_file.name
-
-        # Kirim file HTML ke Telegram
-        with open(temp_file_path, 'rb') as file:
-            await update.message.reply_document(
-                document=file,
-                caption="Berikut adalah peta lokasi yang Anda minta."
-            )
-
-    except Exception as e:
-        logger.exception(f"Error in send_leaflet_map: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim peta.")
-    finally:
-        # Hapus file sementara setelah dikirim
-        if 'temp_file_path' in locals():
-            try:
-                import os
-                os.remove(temp_file_path)
-            except Exception as e:
-                logger.error(f"Gagal menghapus file sementara: {e}")
-
-async def handle_location_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    search_text = update.message.text
-    geocode_result = await geocode_location(search_text)
-    if geocode_result and 'features' in geocode_result and len(geocode_result['features']) > 0:
-        first_result = geocode_result['features'][0]
-        coordinates = first_result['geometry']['coordinates']  # [lon, lat]
-        await send_leaflet_map(update, [coordinates[1], coordinates[0]])
-    else:
-        await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
-
-async def get_leaflet_map(coordinates: list, zoom: int = 14) -> Optional[str]:
-    """
-    Membuat peta interaktif menggunakan Leaflet.
-    
-    :param coordinates: List koordinat [lat, lon].
-    :param zoom: Tingkat zoom peta (default: 14).
-    :return: HTML string yang berisi peta Leaflet.
-    """
-    try:
-        # Buat HTML untuk peta Leaflet
-        leaflet_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Leaflet Map</title>
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-            <style>
-                #map {{ width: 600px; height: 400px; }}
-            </style>
-        </head>
-        <body>
-            <div id="map"></div>
-            <script>
-                var map = L.map('map').setView([{coordinates[0]}, {coordinates[1]}], {zoom});
-
-                L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                }}).addTo(map);
-
-                L.marker([{coordinates[0]}, {coordinates[1]}]).addTo(map)
-                    .bindPopup('Lokasi yang dicari');
-            </script>
-        </body>
-        </html>
-        """
-        return leaflet_html
-    except Exception as e:
-        logger.exception("Error in get_leaflet_map")
-        return None
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -379,7 +261,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             contents=[{"parts": [{"text": last_message}]}],
             tools=[{"name": "google_search_retrieval"}],
             generation_config={
-                "temperature": 0.06,
+                "temperature": 0.7,
                 "top_p": 0.8,
                 "top_k": 40,
             }
@@ -472,7 +354,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
     except Exception as e:
         logger.exception("Error in processing image with Gemini")
-        return "Terjadi kesalahan saat memproses gambar ."
+        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
@@ -662,7 +544,7 @@ def get_max_conversation_messages(complexity: str) -> int:
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "").replace("tim di Google", "Rakyat Jelata")
+    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1188,9 +1070,6 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    """
-    Menangani pesan teks dari pengguna, termasuk pencarian lokasi dan perintah lainnya.
-    """
     if not message_text:
         message_text = update.message.text or ""
 
@@ -1233,40 +1112,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
         finally:
             await processing_msg.delete()
-        return
-
-    # Cek apakah pesan berkaitan dengan pencarian lokasi
-    if "cari lokasi" in sanitized_text.lower() or "tempat" in sanitized_text.lower():
-        try:
-            # Ambil teks pencarian dari pesan pengguna
-            search_text = sanitized_text.replace("cari lokasi", "").replace("tempat", "").strip()
-            
-            if search_text:
-                # Dapatkan hasil pencarian lokasi dari OpenRouteService Geocode API
-                geocode_result = await geocode_location(search_text)
-                
-                if geocode_result and 'features' in geocode_result and len(geocode_result['features']) > 0:
-                    # Ambil hasil pertama dari pencarian
-                    first_result = geocode_result['features'][0]
-                    location_name = first_result['properties']['name']
-                    coordinates = first_result['geometry']['coordinates']  # [lon, lat]
-                    
-                    # Format respons teks
-                    response_text = (
-                        f"📍 **Lokasi Ditemukan:** {location_name}\n"
-                        f"🌐 **Koordinat:** {coordinates[1]}, {coordinates[0]}\n"
-                        f"🔍 **Detail:** {first_result['properties'].get('label', 'Tidak ada detail tambahan')}"
-                    )
-                    
-                    # Kirim peta Leaflet sebagai file HTML
-                    await send_leaflet_map(update, [coordinates[1], coordinates[0]])
-                else:
-                    await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
-            else:
-                await update.message.reply_text("Mohon berikan nama tempat atau alamat yang ingin dicari.")
-        except Exception as e:
-            logger.exception("Error in processing geocode request")
-            await update.message.reply_text("Terjadi kesalahan saat memproses permintaan pencarian lokasi.")
         return
 
     # Tambahkan statistik
