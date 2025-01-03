@@ -36,7 +36,7 @@ from openrouteservice.geocode import pelias_search
 from openrouteservice.isochrones import isochrones
 
 from openrouteservice.elevation import elevation_point
-from openrouteservice.distance_matrix import matrix
+from openrouteservice import distance_matrix
 # Inisialisasi client OpenRouteService
 ors_client = openrouteservice.Client(key=os.getenv('OPENROUTE_API_KEY'))
 
@@ -864,7 +864,7 @@ def get_elevation(coords: List[float]) -> Optional[float]:
 def get_matrix(coords_list: List[List[float]], profile: str = 'driving-car') -> Optional[Dict]:
     """Dapatkan matriks jarak dan waktu antara beberapa lokasi."""
     try:
-        matrix_data = matrix(
+        matrix_data = distance_matrix(
             ors_client,
             locations=coords_list,
             profile=profile,
