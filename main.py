@@ -392,7 +392,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
         # Gunakan grounding jika diperlukan
         if use_grounding:
             logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
-            response = model.generate_content(
+            response = gemini_model.generate_content(
                 contents=[{"parts": [{"text": last_message}]}],
                 tools=[{"google_search_retrieval": {}}],  # Aktifkan grounding
                 generation_config={
@@ -406,7 +406,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
             response = chat.send_message(last_message)
 
         # Logging: Struktur lengkap respons Gemini
-        #logger.info(f"Struktur lengkap respons Gemini: {response}")
+        logger.info(f"Struktur lengkap respons Gemini: {response}")
 
         # Ekstrak teks utama dari respons
         main_response = response.text
