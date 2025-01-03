@@ -12,6 +12,7 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
+import requests
 
 
 from keywords import complex_keywords
@@ -61,6 +62,11 @@ def check_required_settings():
 def sanitize_input(text: str) -> str:
     # Remove potentially dangerous characters
     return re.sub(r'[<>"\';&]', '', text)
+def is_location_related(text: str) -> bool:
+    """Cek apakah pesan terkait lokasi atau rute."""
+    location_keywords = ["lokasi", "di mana", "rute", "jarak", "peta", "arah", "navigasi"]
+    return any(keyword in text.lower() for keyword in location_keywords)
+
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -370,19 +376,11 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Ambil pesan terakhir dari pengguna
         last_message = messages[-1]['content']
 
-        # Cek jenis permintaan pengguna
+        # Cek apakah pesan terkait lokasi atau rute
         if is_location_related(last_message):
             return await handle_location_or_route_request(last_message)
-        elif is_isochrone_related(last_message):
-            return await handle_isochrone_request(last_message)
-        elif is_poi_related(last_message):
-            return await handle_poi_request(last_message)
-        elif is_elevation_related(last_message):
-            return await handle_elevation_request(last_message)
-        elif is_matrix_related(last_message):
-            return await handle_matrix_request(last_message)
 
-        # Jika tidak terkait OpenRouteService, lanjutkan pemrosesan dengan Gemini
+        # Jika tidak terkait lokasi/rute, lanjutkan pemrosesan dengan Gemini
         system_message = {
             "role": "system",
             "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
@@ -479,6 +477,38 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
     except Exception as e:
         logger.exception("Error in processing image with Pixtral multiple")
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
+
+async def handle_location_or_route_request(text: str) -> Optional[str]:
+    """Tangani permintaan terkait lokasi atau rute."""
+    if "lokasi" in text.lower() or "di mana" in text.lower():
+        # Tangani permintaan lokasi
+        location_name = extract_location_name(text)
+        if location_name:
+            coords = geocode_location(location_name)
+            if coords:
+                map_image = create_static_map(coords, location_name)
+                if map_image:
+                    await send_map_image(update, map_image, location_name)
+                    return f"Lokasi {location_name} berada di koordinat {coords}."
+            return f"Maaf, tidak dapat menemukan lokasi {location_name}."
+
+    elif "rute" in text.lower() or "jarak" in text.lower():
+        # Tangani permintaan rute
+        locations = extract_locations(text)
+        if len(locations) >= 2:
+            coords_start = geocode_location(locations[0])
+            coords_end = geocode_location(locations[1])
+            if coords_start and coords_end:
+                route = get_route(coords_start, coords_end)
+                if route:
+                    route_info = format_route_info(route)
+                    map_image = create_route_map(coords_start, coords_end, route)
+                    if map_image:
+                        await send_map_image(update, map_image, "Rute dari {} ke {}".format(locations[0], locations[1]))
+                        return route_info
+                return f"Maaf, tidak dapat menemukan rute dari {locations[0]} ke {locations[1]}."
+
+    return None
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan optimasi untuk Railway"""
