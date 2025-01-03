@@ -14,3 +14,4 @@ together
 google-generativeai
 folium
 openrouteservice
+requests
