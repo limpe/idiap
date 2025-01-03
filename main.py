@@ -12,7 +12,6 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
-import requests
 
 
 from keywords import complex_keywords
@@ -31,15 +30,6 @@ from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
-import openrouteservice
-from openrouteservice.directions import directions
-from openrouteservice.geocode import pelias_search
-from openrouteservice.isochrones import isochrones
-
-from openrouteservice.elevation import elevation_point
-from openrouteservice import distance_matrix
-# Inisialisasi client OpenRouteService
-ors_client = openrouteservice.Client(key=os.getenv('OPENROUTE_API_KEY'))
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -62,19 +52,6 @@ def check_required_settings():
 def sanitize_input(text: str) -> str:
     # Remove potentially dangerous characters
     return re.sub(r'[<>"\';&]', '', text)
-def is_location_related(text: str) -> bool:
-    """Cek apakah pesan terkait lokasi atau rute."""
-    location_keywords = ["lokasi", "di mana", "rute", "jarak", "peta", "arah", "navigasi"]
-    return any(keyword in text.lower() for keyword in location_keywords)
-
-def extract_location_name(text: str) -> Optional[str]:
-    """Ekstrak nama lokasi dari pesan pengguna."""
-    if "di mana" in text.lower():
-        return text.split("di mana")[-1].strip()
-    elif "lokasi" in text.lower():
-        return text.split("lokasi")[-1].strip()
-    return None
-
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -381,27 +358,24 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Ambil pesan terakhir dari pengguna
-        last_message = messages[-1]['content']
-
-        # Cek apakah pesan terkait lokasi atau rute
-        if is_location_related(last_message):
-            return await handle_location_or_route_request(last_message)
-
-        # Jika tidak terkait lokasi/rute, lanjutkan pemrosesan dengan Gemini
+        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
         system_message = {
             "role": "system",
-            "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
+            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
-        messages.insert(0, system_message)
+        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
 
+        # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
             if msg['role'] == 'system':
-                continue
+                continue  # Skip system messages (tidak perlu dikonversi)
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
+        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
+        
+        # Kirim pesan terakhir ke Gemini
         last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
         response = chat.send_message(last_message)
         
@@ -409,6 +383,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
     except Exception as e:
         logger.exception("Error in processing with Gemini")
+        # Fallback ke Mistral jika Gemini gagal
         try:
             return await process_with_mistral(messages)
         except:
@@ -485,38 +460,6 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
     except Exception as e:
         logger.exception("Error in processing image with Pixtral multiple")
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
-
-async def handle_location_or_route_request(text: str) -> Optional[str]:
-    """Tangani permintaan terkait lokasi atau rute."""
-    if "lokasi" in text.lower() or "di mana" in text.lower():
-        # Tangani permintaan lokasi
-        location_name = extract_location_name(text)
-        if location_name:
-            coords = geocode_location(location_name)
-            if coords:
-                map_image = create_static_map(coords, location_name)
-                if map_image:
-                    await send_map_image(update, map_image, location_name)
-                    return f"Lokasi {location_name} berada di koordinat {coords}."
-            return f"Maaf, tidak dapat menemukan lokasi {location_name}."
-
-    elif "rute" in text.lower() or "jarak" in text.lower():
-        # Tangani permintaan rute
-        locations = extract_locations(text)
-        if len(locations) >= 2:
-            coords_start = geocode_location(locations[0])
-            coords_end = geocode_location(locations[1])
-            if coords_start and coords_end:
-                route = get_route(coords_start, coords_end)
-                if route:
-                    route_info = format_route_info(route)
-                    map_image = create_route_map(coords_start, coords_end, route)
-                    if map_image:
-                        await send_map_image(update, map_image, "Rute dari {} ke {}".format(locations[0], locations[1]))
-                        return route_info
-                return f"Maaf, tidak dapat menemukan rute dari {locations[0]} ke {locations[1]}."
-
-    return None
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """Proses file suara menjadi teks dengan optimasi untuk Railway"""
@@ -826,92 +769,6 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             "❌ Terjadi kesalahan. Silakan coba lagi nanti."
         )
-
-# Fungsi Geocoding
-def geocode_location(location: str) -> Optional[List[float]]:
-    """Dapatkan koordinat dari nama lokasi."""
-    try:
-        geocode = pelias_search(ors_client, text=location)
-        if geocode['features']:
-            return geocode['features'][0]['geometry']['coordinates']  # [longitude, latitude]
-    except Exception as e:
-        logger.error(f"Error geocoding location: {e}")
-        return None
-
-# map Fungsi Reverse Geocoding
-def reverse_geocode_location(coords: List[float]) -> Optional[str]:
-    """Dapatkan nama lokasi dari koordinat."""
-    try:
-        reverse_geocode_data = pelias_reverse(ors_client, point=coords)
-        if reverse_geocode_data['features']:
-            return reverse_geocode_data['features'][0]['properties']['label']
-    except Exception as e:
-        logger.error(f"Error reverse geocoding: {e}")
-        return None
-
-# Fungsi Directions
-def get_route(start: List[float], end: List[float], profile: str = 'driving-car') -> Optional[Dict]:
-    """Dapatkan rute antara dua lokasi."""
-    try:
-        route = directions(ors_client, coordinates=[start, end], profile=profile, format='geojson')
-        return route
-    except Exception as e:
-        logger.error(f"Error getting route: {e}")
-        return None
-
-# Fungsi Isochrones
-def get_isochrone(coords: List[float], range_type: str, value: int, profile: str = 'driving-car') -> Optional[Dict]:
-    """Dapatkan isochrone untuk lokasi tertentu."""
-    try:
-        isochrone = isochrones(ors_client, locations=[coords], range_type=range_type, range=[value], profile=profile)
-        return isochrone
-    except Exception as e:
-        logger.error(f"Error getting isochrone: {e}")
-        return None
-
-# Fungsi POIs
-def get_pois(coords: List[float], category: str) -> Optional[Dict]:
-    """Dapatkan POI di sekitar lokasi."""
-    try:
-        pois_data = pelias_search(
-            ors_client,
-            text=category,  # Kategori atau nama tempat
-            focus_point=coords,  # Koordinat lokasi
-            boundary_circle=dict(lat=coords[1], lon=coords[0], radius=5000)  # Radius pencarian (dalam meter)
-        )
-        return pois_data
-    except Exception as e:
-        logger.error(f"Error getting POIs: {e}")
-        return None
-
-# Fungsi Elevation
-def get_elevation(coords: List[float]) -> Optional[float]:
-    """Dapatkan elevasi untuk lokasi tertentu."""
-    try:
-        elevation_data = elevation_point(
-            ors_client,
-            format_in='point',
-            geometry=coords
-        )
-        return elevation_data['geometry']['coordinates'][2]  # Elevasi dalam meter
-    except Exception as e:
-        logger.error(f"Error getting elevation: {e}")
-        return None
-
-# Fungsi Matrix
-def get_matrix(coords_list: List[List[float]], profile: str = 'driving-car') -> Optional[Dict]:
-    """Dapatkan matriks jarak dan waktu antara beberapa lokasi."""
-    try:
-        matrix_data = distance_matrix(
-            ors_client,
-            locations=coords_list,
-            profile=profile,
-            metrics=['distance', 'duration']  # Hitung jarak dan waktu
-        )
-        return matrix_data
-    except Exception as e:
-        logger.error(f"Error getting matrix: {e}")
-        return None
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
