@@ -29,8 +29,6 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
-from typing import Optional, Dict
-
 
 
 # Konstanta untuk batasan ukuran file
@@ -152,23 +150,6 @@ def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
         return "medium"
     else:
         return "simple"
-
-async def search_location(query: str) -> Optional[Dict]:
-    """
-    Mencari lokasi menggunakan Nominatim API.
-    """
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"https://nominatim.openstreetmap.org/search?q={query}&format=json"
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if result:
-                        return result[0]  # Mengembalikan hasil pertama
-    except Exception as e:
-        logger.exception("Error searching location with Nominatim API")
-    return None
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -377,34 +358,10 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Cek apakah pesan terakhir mengandung kata kunci lokasi
-        last_message = messages[-1]['content'].lower()
-        if any(keyword in last_message for keyword in ["lokasi", "maps", "peta", "di mana"]):
-            # Ekstrak query lokasi dari pesan
-            query = last_message.replace("lokasi", "").replace("maps", "").replace("peta", "").replace("di mana", "").strip()
-            
-            if query:
-                # Cari lokasi menggunakan Nominatim API
-                location = await search_location(query)
-                
-                if location:
-                    name = location.get('display_name', 'Tidak diketahui')
-                    lat = float(location['lat'])
-                    lon = float(location['lon'])
-                    
-                    # Format respons
-                    response = f"Lokasi: {name}\n© OpenStreetMap contributors"
-                    return response
-                else:
-                    return "Maaf, lokasi tidak ditemukan."
-            else:
-                return "Mohon berikan nama tempat yang ingin dicari. Contoh: 'lokasi Monas'"
-
-        # Jika bukan permintaan lokasi, lanjutkan ke proses AI chat biasa
         # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
         system_message = {
             "role": "system",
-            "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
+            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
         messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
 
