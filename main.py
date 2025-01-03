@@ -392,16 +392,16 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
 
         # Gunakan grounding jika diperlukan
         if use_grounding:
-            logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
-            response = gemini_model.generate_content(
-                contents=[{"parts": [{"text": last_message}]}],
-                tools=[{"google_search_retrieval": {}}],  # Coba gunakan 'google_search_retrieval'
-                generation_config={
-                    "temperature": 0.7,
-                    "top_p": 0.8,
-                    "top_k": 40,
-                }
-            )
+        logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
+        response = gemini_model.generate_content(
+            contents=contents,
+            tools=[{"google_search": {}}],  # Use 'google_search' instead of 'google_search_retrieval'
+            generation_config={
+                "temperature": 0.06,
+                "top_p": 0.8,
+                "top_k": 40,
+            }
+        )
         else:
             logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
             response = chat.send_message(last_message)
