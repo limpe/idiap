@@ -30,7 +30,6 @@ from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
-
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
@@ -63,7 +62,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
 
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -101,7 +99,6 @@ bot_statistics = {
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
@@ -181,8 +178,8 @@ async def geocode_location(search_text: str) -> Optional[dict]:
     except Exception as e:
         logger.exception("Error in geocode_location")
         return None
-        
-    async def send_leaflet_map(update: Update, coordinates: list):
+
+async def send_leaflet_map(update: Update, coordinates: list):
     """
     Mengirim peta Leaflet sebagai file HTML ke pengguna Telegram.
 
@@ -230,7 +227,7 @@ async def handle_location_search(update: Update, context: ContextTypes.DEFAULT_T
         await send_leaflet_map(update, [coordinates[1], coordinates[0]])
     else:
         await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
-        
+
 async def get_leaflet_map(coordinates: list, zoom: int = 14) -> Optional[str]:
     """
     Membuat peta interaktif menggunakan Leaflet.
@@ -271,8 +268,6 @@ async def get_leaflet_map(coordinates: list, zoom: int = 14) -> Optional[str]:
     except Exception as e:
         logger.exception("Error in get_leaflet_map")
         return None
-
-
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
