@@ -36,7 +36,7 @@ from openrouteservice.geocode import pelias_search
 from openrouteservice.isochrones import isochrones
 
 from openrouteservice.elevation import elevation_point
-from openrouteservice import matrix
+from openrouteservice.distance_matrix import matrix
 # Inisialisasi client OpenRouteService
 ors_client = openrouteservice.Client(key=os.getenv('OPENROUTE_API_KEY'))
 
