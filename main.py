@@ -1212,8 +1212,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
+    # Cek kata kunci yang terdeteksi
+    detected_keywords = [keyword for keyword in ["kapan", "berita", "hari ini", "terbaru"] if keyword in sanitized_text.lower()]
+    logger.info(f"Kata kunci yang terdeteksi: {detected_keywords}")
+
     # Cek apakah pesan memerlukan grounding
-    use_grounding = any(keyword in sanitized_text.lower() for keyword in ["kapan", "berita", "hari ini", "terbaru"])
+    use_grounding = bool(detected_keywords)
     logger.info(f"Pesan memerlukan grounding: {use_grounding}")
 
     # Proses pesan dengan konteks cerdas
