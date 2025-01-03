@@ -35,7 +35,7 @@ from openrouteservice.directions import directions
 from openrouteservice.geocode import pelias_search
 from openrouteservice.isochrones import isochrones
 
-from openrouteservice.elevation import elevation
+from openrouteservice.elevation import elevation_point
 from openrouteservice.matrix import matrix
 # Inisialisasi client OpenRouteService
 ors_client = openrouteservice.Client(key=os.getenv('OPENROUTE_API_KEY'))
@@ -850,7 +850,11 @@ def get_pois(coords: List[float], category: str) -> Optional[Dict]:
 def get_elevation(coords: List[float]) -> Optional[float]:
     """Dapatkan elevasi untuk lokasi tertentu."""
     try:
-        elevation_data = elevation(ors_client, format_in='point', geometry=coords)
+        elevation_data = elevation_point(
+            ors_client,
+            format_in='point',
+            geometry=coords
+        )
         return elevation_data['geometry']['coordinates'][2]  # Elevasi dalam meter
     except Exception as e:
         logger.error(f"Error getting elevation: {e}")
