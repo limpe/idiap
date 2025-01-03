@@ -151,6 +151,37 @@ def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
     else:
         return "simple"
 
+async def geocode_location(search_text: str) -> Optional[dict]:
+    """
+    Mencari lokasi menggunakan OpenRouteService Geocode API.
+    
+    :param search_text: Teks pencarian (misalnya, nama tempat atau alamat).
+    :return: Dictionary yang berisi hasil pencarian atau None jika terjadi kesalahan.
+    """
+    try:
+        headers = {
+            'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
+        }
+        
+        # Buat URL untuk request ke OpenRouteService Geocode API
+        url = f"https://api.openrouteservice.org/geocode/search?api_key={OPENROUTE_API_KEY}&text={search_text}"
+        
+        # Lakukan request ke OpenRouteService
+        response = requests.get(url, headers=headers)
+        
+        # Cek status code
+        if response.status_code == 200:
+            # Parse response JSON
+            geocode_data = response.json()
+            return geocode_data
+        else:
+            logger.error(f"Error in OpenRouteService Geocode API call: {response.status_code} - {response.reason}")
+            return None
+    except Exception as e:
+        logger.exception("Error in geocode_location")
+        return None
+
+
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Parse waktu dan pesan dari perintah pengguna
@@ -1112,6 +1143,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
         finally:
             await processing_msg.delete()
+        return
+
+    # Cek apakah pesan berkaitan dengan pencarian lokasi
+    if "cari lokasi" in sanitized_text.lower() or "tempat" in sanitized_text.lower():
+        try:
+            # Ambil teks pencarian dari pesan pengguna
+            search_text = sanitized_text.replace("cari lokasi", "").replace("tempat", "").strip()
+            
+            if search_text:
+                # Dapatkan hasil pencarian lokasi dari OpenRouteService Geocode API
+                geocode_result = await geocode_location(search_text)
+                
+                if geocode_result and 'features' in geocode_result and len(geocode_result['features']) > 0:
+                    # Ambil hasil pertama dari pencarian
+                    first_result = geocode_result['features'][0]
+                    location_name = first_result['properties']['name']
+                    coordinates = first_result['geometry']['coordinates']  # [lon, lat]
+                    
+                    # Format respons
+                    response_text = (
+                        f"📍 **Lokasi Ditemukan:** {location_name}\n"
+                        f"🌐 **Koordinat:** {coordinates[1]}, {coordinates[0]}\n"
+                        f"🔍 **Detail:** {first_result['properties'].get('label', 'Tidak ada detail tambahan')}"
+                    )
+                    
+                    await update.message.reply_text(response_text, parse_mode="Markdown")
+                else:
+                    await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
+            else:
+                await update.message.reply_text("Mohon berikan nama tempat atau alamat yang ingin dicari.")
+        except Exception as e:
+            logger.exception("Error in processing geocode request")
+            await update.message.reply_text("Terjadi kesalahan saat memproses permintaan pencarian lokasi.")
         return
 
     # Tambahkan statistik
