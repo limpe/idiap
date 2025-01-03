@@ -361,7 +361,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
         system_message = {
             "role": "system",
-            "content": "Pastikan semua respons dalam Bahasa Indonesia yang mudah dipahami."
+            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
         messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
 
@@ -376,7 +376,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         chat = gemini_model.start_chat(history=gemini_messages)
         
         # Kirim pesan terakhir ke Gemini
-        last_message = "Pastikan respons singkat padat jelas dalam Bahasa Indonesia. " + messages[-1]['content']
+        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
         response = chat.send_message(last_message)
         
         return response.text
