@@ -182,6 +182,39 @@ async def geocode_location(search_text: str) -> Optional[dict]:
         logger.exception("Error in geocode_location")
         return None
 
+async def get_google_static_map(coordinates: list, zoom: int = 14, size: str = "600x400") -> Optional[BytesIO]:
+    """
+    Mendapatkan gambar peta statis dari Google Maps Static API.
+    
+    :param coordinates: List koordinat [lat, lon].
+    :param zoom: Tingkat zoom peta (default: 14).
+    :param size: Ukuran gambar peta (default: 600x400).
+    :return: BytesIO object yang berisi gambar peta atau None jika terjadi kesalahan.
+    """
+    try:
+        # Ambil API key Google Maps dari environment variable
+        GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+        
+        # Buat URL untuk Google Maps Static API
+        url = f"https://maps.googleapis.com/maps/api/staticmap?center={coordinates[0]},{coordinates[1]}&zoom={zoom}&size={size}&markers=color:red%7C{coordinates[0]},{coordinates[1]}&key={GOOGLE_API_KEY}"
+        
+        # Lakukan request ke Google Maps
+        response = requests.get(url)
+        
+        # Cek status code
+        if response.status_code == 200:
+            # Simpan gambar peta ke BytesIO
+            image_bytes = BytesIO(response.content)
+            image_bytes.seek(0)
+            return image_bytes
+        else:
+            logger.error(f"Error in Google Maps Static API call: {response.status_code} - {response.reason}")
+            return None
+    except Exception as e:
+        logger.exception("Error in get_google_static_map")
+        return None
+
+
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1162,14 +1195,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
                     location_name = first_result['properties']['name']
                     coordinates = first_result['geometry']['coordinates']  # [lon, lat]
                     
-                    # Format respons
+                    # Format respons teks
                     response_text = (
                         f"📍 **Lokasi Ditemukan:** {location_name}\n"
                         f"🌐 **Koordinat:** {coordinates[1]}, {coordinates[0]}\n"
                         f"🔍 **Detail:** {first_result['properties'].get('label', 'Tidak ada detail tambahan')}"
                     )
                     
-                    await update.message.reply_text(response_text, parse_mode="Markdown")
+                    # Dapatkan gambar peta dari Google Maps Static API
+                    map_image = await get_google_static_map([coordinates[1], coordinates[0]])
+                    
+                    if map_image:
+                        # Kirim gambar peta sebagai foto
+                        await update.message.reply_photo(photo=map_image, caption=response_text, parse_mode="Markdown")
+                    else:
+                        await update.message.reply_text(response_text, parse_mode="Markdown")
                 else:
                     await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
             else:
@@ -1218,6 +1258,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
+
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
