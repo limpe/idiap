@@ -876,13 +876,9 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
-            # Sanitasi input
-            sanitized_text = sanitize_input(message_text)
-
-            # Cek rate limit
-            user_id = update.message.from_user.id
-            if not await check_rate_limit(user_id):
-                await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+            # Cek apakah pesan mengandung perintah /gambar atau /image
+            if message_text.lower().startswith(('/gambar', '/image')):
+                await handle_text(update, context, message_text)
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -893,15 +889,15 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text):
+            if await should_reset_context(chat_id, message_text):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
             # Tambahkan pesan pengguna ke sesi
-            session['messages'].append({"role": "user", "content": sanitized_text})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+            session['messages'].append({"role": "user", "content": message_text})
+            await update_session(chat_id, {"role": "user", "content": message_text})
 
             # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
             system_message = {
