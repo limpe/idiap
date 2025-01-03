@@ -30,6 +30,15 @@ from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
+import openrouteservice
+from openrouteservice.directions import directions
+from openrouteservice.geocode import pelias_search, reverse_geocode
+from openrouteservice.isochrones import isochrones
+from openrouteservice.pois import pois
+from openrouteservice.elevation import elevation
+from openrouteservice.matrix import matrix
+# Inisialisasi client OpenRouteService
+ors_client = openrouteservice.Client(key=os.getenv('OPENROUTE_API_KEY'))
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -358,24 +367,35 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
+        # Ambil pesan terakhir dari pengguna
+        last_message = messages[-1]['content']
+
+        # Cek jenis permintaan pengguna
+        if is_location_related(last_message):
+            return await handle_location_or_route_request(last_message)
+        elif is_isochrone_related(last_message):
+            return await handle_isochrone_request(last_message)
+        elif is_poi_related(last_message):
+            return await handle_poi_request(last_message)
+        elif is_elevation_related(last_message):
+            return await handle_elevation_request(last_message)
+        elif is_matrix_related(last_message):
+            return await handle_matrix_request(last_message)
+
+        # Jika tidak terkait OpenRouteService, lanjutkan pemrosesan dengan Gemini
         system_message = {
             "role": "system",
-            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
+            "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
-        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
+        messages.insert(0, system_message)
 
-        # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
             if msg['role'] == 'system':
-                continue  # Skip system messages (tidak perlu dikonversi)
+                continue
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
-        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
-        
-        # Kirim pesan terakhir ke Gemini
         last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
         response = chat.send_message(last_message)
         
@@ -383,7 +403,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
     except Exception as e:
         logger.exception("Error in processing with Gemini")
-        # Fallback ke Mistral jika Gemini gagal
         try:
             return await process_with_mistral(messages)
         except:
@@ -769,6 +788,78 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             "❌ Terjadi kesalahan. Silakan coba lagi nanti."
         )
+
+# Fungsi Geocoding
+def geocode_location(location: str) -> Optional[List[float]]:
+    """Dapatkan koordinat dari nama lokasi."""
+    try:
+        geocode = pelias_search(ors_client, text=location)
+        if geocode['features']:
+            return geocode['features'][0]['geometry']['coordinates']  # [longitude, latitude]
+    except Exception as e:
+        logger.error(f"Error geocoding location: {e}")
+        return None
+
+# map Fungsi Reverse Geocoding
+def reverse_geocode_location(coords: List[float]) -> Optional[str]:
+    """Dapatkan nama lokasi dari koordinat."""
+    try:
+        reverse_geocode_data = reverse_geocode(ors_client, point=coords)
+        if reverse_geocode_data['features']:
+            return reverse_geocode_data['features'][0]['properties']['label']
+    except Exception as e:
+        logger.error(f"Error reverse geocoding: {e}")
+        return None
+
+# Fungsi Directions
+def get_route(start: List[float], end: List[float], profile: str = 'driving-car') -> Optional[Dict]:
+    """Dapatkan rute antara dua lokasi."""
+    try:
+        route = directions(ors_client, coordinates=[start, end], profile=profile, format='geojson')
+        return route
+    except Exception as e:
+        logger.error(f"Error getting route: {e}")
+        return None
+
+# Fungsi Isochrones
+def get_isochrone(coords: List[float], range_type: str, value: int, profile: str = 'driving-car') -> Optional[Dict]:
+    """Dapatkan isochrone untuk lokasi tertentu."""
+    try:
+        isochrone = isochrones(ors_client, locations=[coords], range_type=range_type, range=[value], profile=profile)
+        return isochrone
+    except Exception as e:
+        logger.error(f"Error getting isochrone: {e}")
+        return None
+
+# Fungsi POIs
+def get_pois(coords: List[float], category: str) -> Optional[Dict]:
+    """Dapatkan POI di sekitar lokasi."""
+    try:
+        pois_data = pois(ors_client, request='pois', geojson={'type': 'Point', 'coordinates': coords}, filters={'category_ids': [category]})
+        return pois_data
+    except Exception as e:
+        logger.error(f"Error getting POIs: {e}")
+        return None
+
+# Fungsi Elevation
+def get_elevation(coords: List[float]) -> Optional[float]:
+    """Dapatkan elevasi untuk lokasi tertentu."""
+    try:
+        elevation_data = elevation(ors_client, format_in='point', geometry=coords)
+        return elevation_data['geometry']['coordinates'][2]  # Elevasi dalam meter
+    except Exception as e:
+        logger.error(f"Error getting elevation: {e}")
+        return None
+
+# Fungsi Matrix
+def get_matrix(coords_list: List[List[float]], profile: str = 'driving-car') -> Optional[Dict]:
+    """Dapatkan matriks jarak dan waktu antara beberapa lokasi."""
+    try:
+        matrix_data = matrix(ors_client, locations=coords_list, profile=profile)
+        return matrix_data
+    except Exception as e:
+        logger.error(f"Error getting matrix: {e}")
+        return None
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
