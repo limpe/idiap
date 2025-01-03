@@ -31,6 +31,9 @@ from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
+genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
@@ -89,8 +92,6 @@ MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
