@@ -73,7 +73,7 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-OPENROUTE_API_KEY os.getenv('OPENROUTE_API_KEY')
+OPENROUTE_API_KEY = os.getenv('OPENROUTE_API_KEY')
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
