@@ -394,7 +394,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
             logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
             response = gemini_model.generate_content(
                 contents=[{"parts": [{"text": last_message}]}],
-                tools=[{"google_search_retrieval": {}}],  # Aktifkan grounding
+                tools=[{"google_search_retrieval": {}}],  # Menggunakan google_search_retrieval
                 generation_config={
                     "temperature": 0.7,
                     "top_p": 0.8,
@@ -440,7 +440,6 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
             return await process_with_mistral(messages)
         except:
             return None
-
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
