@@ -404,11 +404,11 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
                 logger.info(f"Struktur lengkap respons Gemini: {response}")
 
                 # Ekstrak teks utama dari respons
-                if isinstance(response, dict) and "candidates" in response:
-                    main_response = response["candidates"][0]["content"]["parts"][0]["text"]
-                    else:
+                if hasattr(response, 'candidates') and response.candidates:
+                    main_response = response.candidates[0].content.parts[0].text
+                else:
                     main_response = "Tidak ada respons yang valid."
-                    logger.info(f"Teks utama dari respons: {main_response}")
+                logger.info(f"Teks utama dari respons: {main_response}")
 
                 # Ekstrak sumber pencarian (grounding) jika ada
                 sources = []
