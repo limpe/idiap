@@ -34,7 +34,7 @@ import openrouteservice
 from openrouteservice.directions import directions
 from openrouteservice.geocode import pelias_search
 from openrouteservice.isochrones import isochrones
-from openrouteservice.pois import pois
+
 from openrouteservice.elevation import elevation
 from openrouteservice.matrix import matrix
 # Inisialisasi client OpenRouteService
