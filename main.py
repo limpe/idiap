@@ -367,21 +367,20 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
     try:
-        # Logging: Cek apakah grounding diaktifkan
         logger.info(f"Menggunakan grounding: {use_grounding}")
 
-        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
+        # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
         system_message = {
             "role": "system",
             "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
-        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
+        messages.insert(0, system_message)
 
-        # Konversi format pesan ke format yang diterima Gemini
+        # Konversi pesan ke format Gemini
         gemini_messages = []
         for msg in messages:
             if msg['role'] == 'system':
-                continue  # Skip system messages (tidak perlu dikonversi)
+                continue
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
@@ -390,25 +389,25 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
         # Kirim pesan terakhir ke Gemini
         last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
 
-        # Gunakan grounding jika diperlukan
+        # Coba dengan grounding jika diperlukan
         if use_grounding:
-            logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
-            contents = [{"parts": [{"text": last_message}]}]  # Define contents here
-            response = gemini_model.generate_content(
-            contents=contents,
-            tools=[{"google_search": {}}],
-            generation_config={
-            "temperature": 0.06,
-            "top_p": 0.8,
-            "top_k": 40,
-            }
-        )
+            try:
+                response = gemini_model.generate_content(
+                    contents=[{"parts": [{"text": last_message}]}],
+                    tools=[{"name": "google_search_retrieval"}],  # Pastikan nama alat benar
+                    generation_config={
+                        "temperature": 0.06,
+                        "top_p": 0.8,
+                        "top_k": 40,
+                    }
+                )
+            except ValueError as e:
+                logger.error(f"Error dalam penggunaan google_search: {str(e)}")
+                # Fallback ke Gemini tanpa grounding
+                response = chat.send_message(last_message)
         else:
             logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
             response = chat.send_message(last_message)
-
-        # Logging: Struktur lengkap respons Gemini
-        logger.info(f"Struktur lengkap respons Gemini: {response}")
 
         # Ekstrak teks utama dari respons
         main_response = response.text
@@ -436,7 +435,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
         return final_response
 
     except Exception as e:
-        logger.exception("Error dalam pemrosesan Gemini Grounded")
+        logger.exception("Error dalam pemrosesan Gemini")
         # Fallback ke Mistral jika Gemini gagal
         try:
             return await process_with_mistral(messages)
