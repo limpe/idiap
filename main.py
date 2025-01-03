@@ -662,7 +662,7 @@ def get_max_conversation_messages(complexity: str) -> int:
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
+    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "").replace("tim di Google", "Rakyat Jelata")
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
