@@ -195,6 +195,10 @@ async def get_google_static_map(coordinates: list, zoom: int = 14, size: str = "
         # Ambil API key Google Maps dari environment variable
         GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
         
+        if not GOOGLE_API_KEY:
+            logger.error("GOOGLE_API_KEY tidak ditemukan di environment variables.")
+            return None
+        
         # Buat URL untuk Google Maps Static API
         url = f"https://maps.googleapis.com/maps/api/staticmap?center={coordinates[0]},{coordinates[1]}&zoom={zoom}&size={size}&markers=color:red%7C{coordinates[0]},{coordinates[1]}&key={GOOGLE_API_KEY}"
         
@@ -209,12 +213,11 @@ async def get_google_static_map(coordinates: list, zoom: int = 14, size: str = "
             return image_bytes
         else:
             logger.error(f"Error in Google Maps Static API call: {response.status_code} - {response.reason}")
+            logger.error(f"Response text: {response.text}")
             return None
     except Exception as e:
         logger.exception("Error in get_google_static_map")
         return None
-
-
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
