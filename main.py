@@ -181,43 +181,70 @@ async def geocode_location(search_text: str) -> Optional[dict]:
     except Exception as e:
         logger.exception("Error in geocode_location")
         return None
+        
+    async def send_leaflet_map(update: Update, coordinates: list):
+            leaflet_html = await get_leaflet_map(coordinates)
+            if leaflet_html:
+            with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as temp_file:
+            temp_file.write(leaflet_html.encode('utf-8'))
+            temp_file_path = temp_file.name
 
-async def get_google_static_map(coordinates: list, zoom: int = 14, size: str = "600x400") -> Optional[BytesIO]:
+        # Kirim file HTML ke Telegram
+        await update.message.reply_document(document=open(temp_file_path, 'rb'))
+    else:
+        await update.message.reply_text("Maaf, tidak dapat membuat peta.")
+
+async def handle_location_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    search_text = update.message.text
+    geocode_result = await geocode_location(search_text)
+    if geocode_result and 'features' in geocode_result and len(geocode_result['features']) > 0:
+        first_result = geocode_result['features'][0]
+        coordinates = first_result['geometry']['coordinates']  # [lon, lat]
+        await send_leaflet_map(update, [coordinates[1], coordinates[0]])
+    else:
+        await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
+        
+async def get_leaflet_map(coordinates: list, zoom: int = 14) -> Optional[str]:
     """
-    Mendapatkan gambar peta statis dari Google Maps Static API.
+    Membuat peta interaktif menggunakan Leaflet.
     
     :param coordinates: List koordinat [lat, lon].
     :param zoom: Tingkat zoom peta (default: 14).
-    :param size: Ukuran gambar peta (default: 600x400).
-    :return: BytesIO object yang berisi gambar peta atau None jika terjadi kesalahan.
+    :return: HTML string yang berisi peta Leaflet.
     """
     try:
-        # Ambil API key Google Maps dari environment variable
-        GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-        
-        if not GOOGLE_API_KEY:
-            logger.error("GOOGLE_API_KEY tidak ditemukan di environment variables.")
-            return None
-        
-        # Buat URL untuk Google Maps Static API
-        url = f"https://maps.googleapis.com/maps/api/staticmap?center={coordinates[0]},{coordinates[1]}&zoom={zoom}&size={size}&markers=color:red%7C{coordinates[0]},{coordinates[1]}&key={GOOGLE_API_KEY}"
-        
-        # Lakukan request ke Google Maps
-        response = requests.get(url)
-        
-        # Cek status code
-        if response.status_code == 200:
-            # Simpan gambar peta ke BytesIO
-            image_bytes = BytesIO(response.content)
-            image_bytes.seek(0)
-            return image_bytes
-        else:
-            logger.error(f"Error in Google Maps Static API call: {response.status_code} - {response.reason}")
-            logger.error(f"Response text: {response.text}")
-            return None
+        # Buat HTML untuk peta Leaflet
+        leaflet_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Leaflet Map</title>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <style>
+                #map {{ width: 600px; height: 400px; }}
+            </style>
+        </head>
+        <body>
+            <div id="map"></div>
+            <script>
+                var map = L.map('map').setView([{coordinates[0]}, {coordinates[1]}], {zoom});
+
+                L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }}).addTo(map);
+
+                L.marker([{coordinates[0]}, {coordinates[1]}]).addTo(map)
+                    .bindPopup('Lokasi yang dicari');
+            </script>
+        </body>
+        </html>
+        """
+        return leaflet_html
     except Exception as e:
-        logger.exception("Error in get_google_static_map")
+        logger.exception("Error in get_leaflet_map")
         return None
+
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -329,7 +356,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             contents=[{"parts": [{"text": last_message}]}],
             tools=[{"name": "google_search_retrieval"}],
             generation_config={
-                "temperature": 0.7,
+                "temperature": 0.06,
                 "top_p": 0.8,
                 "top_k": 40,
             }
@@ -1205,12 +1232,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
                         f"🔍 **Detail:** {first_result['properties'].get('label', 'Tidak ada detail tambahan')}"
                     )
                     
-                    # Dapatkan gambar peta dari Google Maps Static API
-                    map_image = await get_google_static_map([coordinates[1], coordinates[0]])
+                    # Dapatkan peta Leaflet
+                    leaflet_html = await get_leaflet_map([coordinates[1], coordinates[0]])
                     
-                    if map_image:
-                        # Kirim gambar peta sebagai foto
-                        await update.message.reply_photo(photo=map_image, caption=response_text, parse_mode="Markdown")
+                    if leaflet_html:
+                        # Simpan HTML ke file sementara
+                        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as temp_file:
+                            temp_file.write(leaflet_html.encode('utf-8'))
+                            temp_file_path = temp_file.name
+
+                        # Kirim file HTML ke Telegram
+                        await update.message.reply_document(
+                            document=open(temp_file_path, 'rb'),
+                            caption=response_text,
+                            parse_mode="Markdown"
+                        )
                     else:
                         await update.message.reply_text(response_text, parse_mode="Markdown")
                 else:
@@ -1261,7 +1297,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
-
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
