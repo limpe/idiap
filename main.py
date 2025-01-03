@@ -432,10 +432,9 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
                 return final_response
 
             except Exception as e:
-                logger.error(f"Error dalam penggunaan google_search: {str(e)}")
-                # Fallback ke Gemini tanpa grounding
-                response = chat.send_message(last_message)
-                return response.text
+                logger.error(f"Error dalam penggunaan grounding: {str(e)}")
+                # Fallback ke pencarian manual
+                return await process_with_manual_grounding(messages)
 
         else:
             logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
