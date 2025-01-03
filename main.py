@@ -401,38 +401,46 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
                         "top_k": 40,
                     }
                 )
-            except ValueError as e:
+                logger.info(f"Struktur lengkap respons Gemini: {response}")
+
+                # Ekstrak teks utama dari respons
+                if hasattr(response, 'candidates') and response.candidates:
+                    main_response = response.candidates[0].content.parts[0].text
+                else:
+                    main_response = "Tidak ada respons yang valid."
+                logger.info(f"Teks utama dari respons: {main_response}")
+
+                # Ekstrak sumber pencarian (grounding) jika ada
+                sources = []
+                if hasattr(response, 'search_queries'):
+                    logger.info("Search queries ditemukan di respons.")
+                    for query in response.search_queries:
+                        if hasattr(query, 'results'):
+                            logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
+                            for result in query.results:
+                                sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
+                                logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
+
+                # Gabungkan teks utama dengan sumber (jika ada)
+                final_response = main_response
+                if sources:
+                    final_response += "\n\nReferensi:\n" + "\n".join(sources)
+                    logger.info(f"Final response dengan grounding: {final_response}")
+                else:
+                    logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
+
+                return final_response
+
+            except Exception as e:
                 logger.error(f"Error dalam penggunaan google_search: {str(e)}")
                 # Fallback ke Gemini tanpa grounding
                 response = chat.send_message(last_message)
+                return response.text
+
         else:
             logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
             response = chat.send_message(last_message)
-
-        # Ekstrak teks utama dari respons
-        main_response = response.text
-        logger.info(f"Teks utama dari respons: {main_response}")
-
-        # Ekstrak sumber pencarian (grounding) jika ada
-        sources = []
-        if use_grounding and hasattr(response, 'search_queries'):
-            logger.info("Search queries ditemukan di respons.")
-            for query in response.search_queries:
-                if hasattr(query, 'results'):
-                    logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
-                    for result in query.results:
-                        sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
-                        logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
-
-        # Gabungkan teks utama dengan sumber (jika ada)
-        final_response = main_response
-        if sources:
-            final_response += "\n\nReferensi:\n" + "\n".join(sources)
-            logger.info(f"Final response dengan grounding: {final_response}")
-        else:
-            logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
-
-        return final_response
+            return response.text
 
     except Exception as e:
         logger.exception("Error dalam pemrosesan Gemini")
