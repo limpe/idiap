@@ -67,6 +67,14 @@ def is_location_related(text: str) -> bool:
     location_keywords = ["lokasi", "di mana", "rute", "jarak", "peta", "arah", "navigasi"]
     return any(keyword in text.lower() for keyword in location_keywords)
 
+def extract_location_name(text: str) -> Optional[str]:
+    """Ekstrak nama lokasi dari pesan pengguna."""
+    if "di mana" in text.lower():
+        return text.split("di mana")[-1].strip()
+    elif "lokasi" in text.lower():
+        return text.split("lokasi")[-1].strip()
+    return None
+
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
