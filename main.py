@@ -60,6 +60,17 @@ def sanitize_input(text: str) -> str:
 
     return cleaned_text
 
+# Konfigurasi logging dengan format yang lebih detail
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('bot.log')  # Menyimpan log ke file
+    ]
+)
+logger = logging.getLogger(__name__)
+
 
 
 # Environment variables
