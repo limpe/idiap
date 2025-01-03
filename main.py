@@ -81,13 +81,12 @@ MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
-genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-gemini_model = genai.GenerativeModel("gemini-pro")
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
-
 
 # Statistik penggunaan
 bot_statistics = {
@@ -389,33 +388,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             return await process_with_mistral(messages)
         except:
             return None
-
-async def process_with_gemini_grounded(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        last_message = messages[-1]['content']
-        safety_settings = {
-            "HARM_CATEGORY_HARASSMENT": "block_none",
-            "HARM_CATEGORY_HATE_SPEECH": "block_none",
-            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
-            "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
-        }
-        
-        model = genai.GenerativeModel('gemini-pro',
-                                    safety_settings=safety_settings)
-        
-        response = model.generate_content(
-            last_message,
-            generation_config={
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 40
-            }
-        )
-        
-        return response.text
-    except Exception as e:
-        logger.exception("Error dalam Gemini Grounded")
-        return None
 
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
