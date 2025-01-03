@@ -269,7 +269,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             contents=[{"parts": [{"text": last_message}]}],
             tools=[{"name": "google_search_retrieval"}],
             generation_config={
-                "temperature": 0.7,
+                "temperature": 0.06,
                 "top_p": 0.8,
                 "top_k": 40,
             }
@@ -366,6 +366,9 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
     try:
+        # Logging: Cek apakah grounding diaktifkan
+        logger.info(f"Menggunakan grounding: {use_grounding}")
+
         # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
         system_message = {
             "role": "system",
@@ -388,6 +391,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
 
         # Gunakan grounding jika diperlukan
         if use_grounding:
+            logger.info("Mengaktifkan grounding untuk mencari informasi terkini.")
             response = model.generate_content(
                 contents=[{"parts": [{"text": last_message}]}],
                 tools=[{"google_search_retrieval": {}}],  # Aktifkan grounding
@@ -398,28 +402,39 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
                 }
             )
         else:
+            logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
             response = chat.send_message(last_message)
+
+        # Logging: Struktur lengkap respons Gemini
+        logger.info(f"Struktur lengkap respons Gemini: {response}")
 
         # Ekstrak teks utama dari respons
         main_response = response.text
+        logger.info(f"Teks utama dari respons: {main_response}")
 
         # Ekstrak sumber pencarian (grounding) jika ada
         sources = []
         if use_grounding and hasattr(response, 'search_queries'):
+            logger.info("Search queries ditemukan di respons.")
             for query in response.search_queries:
                 if hasattr(query, 'results'):
+                    logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
                     for result in query.results:
                         sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
+                        logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
 
         # Gabungkan teks utama dengan sumber (jika ada)
         final_response = main_response
         if sources:
             final_response += "\n\nReferensi:\n" + "\n".join(sources)
+            logger.info(f"Final response dengan grounding: {final_response}")
+        else:
+            logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
 
         return final_response
 
     except Exception as e:
-        logger.exception("Error in processing with Gemini")
+        logger.exception("Error dalam pemrosesan Gemini Grounded")
         # Fallback ke Mistral jika Gemini gagal
         try:
             return await process_with_mistral(messages)
@@ -1198,7 +1213,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Cek apakah pesan memerlukan grounding
-    use_grounding = any(keyword in sanitized_text.lower() for keyword in ["kapan", "berita", "hari ini"])
+    use_grounding = any(keyword in sanitized_text.lower() for keyword in ["kapan", "berita", "hari ini", "terbaru"])
+    logger.info(f"Pesan memerlukan grounding: {use_grounding}")
 
     # Proses pesan dengan konteks cerdas
     try:
