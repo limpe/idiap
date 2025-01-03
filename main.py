@@ -183,16 +183,43 @@ async def geocode_location(search_text: str) -> Optional[dict]:
         return None
         
     async def send_leaflet_map(update: Update, coordinates: list):
-            leaflet_html = await get_leaflet_map(coordinates)
-            if leaflet_html:
-            with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as temp_file:
-            temp_file.write(leaflet_html.encode('utf-8'))
+    """
+    Mengirim peta Leaflet sebagai file HTML ke pengguna Telegram.
+
+    :param update: Objek Update dari Telegram.
+    :param coordinates: List koordinat [lat, lon].
+    """
+    try:
+        # Buat peta Leaflet dalam bentuk HTML
+        leaflet_html = await get_leaflet_map(coordinates)
+        
+        if not leaflet_html:
+            await update.message.reply_text("Maaf, tidak dapat membuat peta.")
+            return
+
+        # Simpan HTML ke file sementara
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8') as temp_file:
+            temp_file.write(leaflet_html)
             temp_file_path = temp_file.name
 
         # Kirim file HTML ke Telegram
-        await update.message.reply_document(document=open(temp_file_path, 'rb'))
-    else:
-        await update.message.reply_text("Maaf, tidak dapat membuat peta.")
+        with open(temp_file_path, 'rb') as file:
+            await update.message.reply_document(
+                document=file,
+                caption="Berikut adalah peta lokasi yang Anda minta."
+            )
+
+    except Exception as e:
+        logger.exception(f"Error in send_leaflet_map: {e}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim peta.")
+    finally:
+        # Hapus file sementara setelah dikirim
+        if 'temp_file_path' in locals():
+            try:
+                import os
+                os.remove(temp_file_path)
+            except Exception as e:
+                logger.error(f"Gagal menghapus file sementara: {e}")
 
 async def handle_location_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     search_text = update.message.text
@@ -244,6 +271,7 @@ async def get_leaflet_map(coordinates: list, zoom: int = 14) -> Optional[str]:
     except Exception as e:
         logger.exception("Error in get_leaflet_map")
         return None
+
 
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
