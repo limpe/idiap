@@ -1193,6 +1193,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    """
+    Menangani pesan teks dari pengguna, termasuk pencarian lokasi dan perintah lainnya.
+    """
     if not message_text:
         message_text = update.message.text or ""
 
@@ -1260,23 +1263,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
                         f"🔍 **Detail:** {first_result['properties'].get('label', 'Tidak ada detail tambahan')}"
                     )
                     
-                    # Dapatkan peta Leaflet
-                    leaflet_html = await get_leaflet_map([coordinates[1], coordinates[0]])
-                    
-                    if leaflet_html:
-                        # Simpan HTML ke file sementara
-                        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as temp_file:
-                            temp_file.write(leaflet_html.encode('utf-8'))
-                            temp_file_path = temp_file.name
-
-                        # Kirim file HTML ke Telegram
-                        await update.message.reply_document(
-                            document=open(temp_file_path, 'rb'),
-                            caption=response_text,
-                            parse_mode="Markdown"
-                        )
-                    else:
-                        await update.message.reply_text(response_text, parse_mode="Markdown")
+                    # Kirim peta Leaflet sebagai file HTML
+                    await send_leaflet_map(update, [coordinates[1], coordinates[0]])
                 else:
                     await update.message.reply_text("Maaf, lokasi tidak ditemukan.")
             else:
