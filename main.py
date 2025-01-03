@@ -401,7 +401,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: boo
                         "top_k": 40,
                     }
                 )
-                logger.info(f"Struktur lengkap respons Gemini: {response}")
+                #logger.info(f"Struktur lengkap respons Gemini: {response}")
 
                 # Ekstrak teks utama dari respons
                 if hasattr(response, 'candidates') and response.candidates:
