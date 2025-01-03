@@ -12,7 +12,7 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
-
+import requests
 
 from keywords import complex_keywords
 from collections import Counter
