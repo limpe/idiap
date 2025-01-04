@@ -889,27 +889,23 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Hanya proses jika di grup
     if chat_type in ["group", "supergroup"]:
-        should_process = False
         message_text = update.message.text or update.message.caption or ""
+        bot_username = context.bot.username
 
         # Cek mention
-        if f'@{context.bot.username}' in message_text:
-            message_text = remove_mention(message_text, context.bot.username)
-            should_process = True
+        if f'@{bot_username}' in message_text:
+            logger.info(f"Mention ditemukan: {message_text}")
+            message_text = remove_mention(message_text, bot_username)
+            await handle_text(update, context, message_text)
+            return
 
         # Cek reply
-        elif update.message.reply_to_message and \
-             update.message.reply_to_message.from_user.id == context.bot.id:
-            should_process = True
+        if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+            logger.info(f"Reply ditemukan: {message_text}")
+            await handle_text(update, context, message_text)
+            return
 
-        if should_process and message_text:
-            # Membersihkan input teks
-            sanitized_text = sanitize_input(message_text)
-
-            # Lanjutkan pemrosesan pesan biasa
-            await handle_text(update, context, sanitized_text)
-        else:
-            logger.info(f"Pesan di grup tanpa mention atau reply yang valid diabaikan: {message_text}")
+        logger.info(f"Pesan di grup tanpa mention atau reply yang valid diabaikan: {message_text}")
 
 
 async def initialize_session(chat_id: int) -> None:
@@ -1116,106 +1112,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         if not (mention_found or is_reply_to_bot):
             logger.info(f"Pesan di grup tanpa mention atau reply diabaikan. Pesan: {message_text}")
             return
-
-    # Membersihkan input teks menggunakan Bleach
-    sanitized_text = sanitize_input(message_text)
-
-    # Cek rate limit
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
-
-    # Handle /gambar command
-    if sanitized_text.lower().startswith(('/gambar', '/image')):
-        # Extract the prompt
-        prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
-
-        if not prompt:
-            await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
-            return
-
-        processing_msg = await update.message.reply_text("Sedang membuat gambar...")
-
-        try:
-            # Generate gambar dengan prompt yang sudah diterjemahkan ke Bahasa Inggris
-            image_data = await generate_image(update, prompt)
-            if image_data:
-                # Convert base64 to image
-                image_bytes = base64.b64decode(image_data)
-                bio = BytesIO(image_bytes)
-                bio.seek(0)
-
-                # Send the image
-                await update.message.reply_photo(
-                    photo=bio,
-                    caption=f"Hasil generate gambar untuk prompt: {prompt}"
-                )
-            else:
-                await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        except Exception as e:
-            logger.exception("Error generating image")
-            await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        finally:
-            await processing_msg.delete()
-        return
-
-    # Tambahkan statistik
-    bot_statistics["total_messages"] += 1
-    bot_statistics["text_messages"] += 1
-
-    # Ambil chat_id dari update
-    chat_id = update.message.chat_id
-
-    # Periksa apakah sesi sudah ada di Redis
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-    else:
-        session = json.loads(session_json)
-
-    # Tambahkan pesan pengguna ke sesi (dalam format yang benar)
-    session['messages'].append({"role": "user", "parts": [{"text": sanitized_text}]})
-    await update_session(chat_id, {"role": "user", "parts": [{"text": sanitized_text}]}, user_id)
-
-    # Debugging: Periksa histori percakapan sebelum dikirim ke Gemini
-    logger.info(f"Histori percakapan yang dikirim ke Gemini: {session['messages']}")
-
-    # Proses pesan dengan konteks cerdas
-    try:
-        # Inisialisasi model Gemini
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
-        
-        # Convert messages to Gemini format if necessary
-        gemini_messages = convert_messages_to_gemini_format(session['messages'])
-        
-        # Mulai chat dengan histori yang ada
-        chat = model.start_chat(history=gemini_messages)
-        
-        # Kirim pesan terakhir ke Gemini
-        response = chat.send_message(sanitized_text, stream=True)
-        
-        # Kumpulkan respons dari model
-        full_response = ""
-        for chunk in response:
-            full_response += chunk.text
-
-        # Filter hasil respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(full_response)
-
-        # Tambahkan respons asisten ke sesi (dalam format yang benar)
-        session['messages'].append({"role": "model", "parts": [{"text": filtered_response}]})
-        await update_session(chat_id, {"role": "model", "parts": [{"text": filtered_response}]}, user_id)
-
-        # Pecah respons jika terlalu panjang
-        response_parts = split_message(filtered_response)
-        for part in response_parts:
-            await update.message.reply_text(part)
-                
-    except Exception as e:
-        logger.exception("Error dalam pemrosesan pesan")
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
         
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1253,7 +1149,7 @@ def main():
         (filters.TEXT | filters.CAPTION) & 
         (filters.Entity("mention") | filters.REPLY), 
         handle_mention
-            ))
+        ))
 
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
