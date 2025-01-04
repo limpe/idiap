@@ -328,14 +328,15 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Coba Gemini biasa
+        # Coba Gemini
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
-                return response 
+                logger.info("Menggunakan respons dari Gemini.")
+                return response
         except asyncio.TimeoutError:
-            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
-
+            logger.warning("Gemini timeout, beralih ke Mistral.")
+        
         # Coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
@@ -344,7 +345,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
                 return response
         except asyncio.TimeoutError:
             logger.error("Mistral timeout.")
-
+        
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
@@ -1076,16 +1077,13 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     try:
-        logger.info(f"Memulai pembaruan sesi untuk chat_id {chat_id}")
         session_json = redis_client.get(f"session:{chat_id}")
         
         if session_json:
             session = json.loads(session_json)
-            logger.info(f"Data sesi ditemukan untuk chat_id {chat_id}")
         else:
             await initialize_session(chat_id)
             session = {'messages': [], 'last_update': datetime.now().timestamp()}
-            logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
 
         # Tambahkan pesan baru ke sesi
         session['messages'].append(message)
@@ -1093,23 +1091,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         # Perbarui last_update
         session['last_update'] = datetime.now().timestamp()
 
-        # Tentukan kompleksitas percakapan
-        complexity = determine_conversation_complexity(session['messages'])
-        logger.info(f"Kompleksitas percakapan: {complexity}")
-
-        # Dapatkan batas pesan berdasarkan kompleksitas
-        max_messages = get_max_conversation_messages(complexity)
-        logger.info(f"Batas pesan untuk kompleksitas {complexity}: {max_messages}")
-
-        # Batasi jumlah pesan dalam sesi
-        if len(session['messages']) > max_messages:
-            session['messages'] = session['messages'][-max_messages:]
-            logger.info(f"Pesan di sesi untuk chat_id {chat_id} dibatasi hingga {max_messages} pesan")
-
         # Simpan sesi ke Redis dan atur TTL
         redis_client.set(f"session:{chat_id}", json.dumps(session))
         redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-        logger.info(f"Sesi berhasil diperbarui untuk chat_id {chat_id}")
     except redis.RedisError as e:
         logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal memperbarui sesi.")
