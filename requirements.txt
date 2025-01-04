@@ -8,9 +8,7 @@ python-dotenv
 Pillow
 aiohttp[speedups]
 psutil
-groq
 redis
-together
 google-generativeai
 requests
 bleach
