@@ -1102,10 +1102,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Abaikan pesan di grup tanpa mention atau reply
     chat_type = update.message.chat.type
     if chat_type in ["group", "supergroup"]:
-        if not (f'@{context.bot.username}' in message_text or
-                (update.message.reply_to_message and
-                 update.message.reply_to_message.from_user.id == context.bot.id)):
-            logger.info("Pesan di grup tanpa mention atau reply diabaikan.")
+        # Cek mention
+        bot_username = context.bot.username.lower()
+        mention_found = f"@{bot_username}" in message_text.lower()
+
+        # Cek reply ke bot
+        is_reply_to_bot = (
+            update.message.reply_to_message and
+            update.message.reply_to_message.from_user.id == context.bot.id
+        )
+
+        # Jika tidak ada mention atau reply, abaikan pesan
+        if not (mention_found or is_reply_to_bot):
+            logger.info(f"Pesan di grup tanpa mention atau reply diabaikan. Pesan: {message_text}")
             return
 
     # Membersihkan input teks menggunakan Bleach
