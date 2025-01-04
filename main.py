@@ -313,8 +313,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
-                logger.info("Menggunakan respons dari Gemini biasa.")
-                return response
+                return response 
         except asyncio.TimeoutError:
             logger.warning("Gemini biasa timeout, beralih ke Mistral.")
 
