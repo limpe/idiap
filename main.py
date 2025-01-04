@@ -30,6 +30,19 @@ from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
+# Konfigurasi logger
+logging.basicConfig(
+    level=logging.INFO,  # Atur level logging ke INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Format pesan log
+    handlers=[
+        logging.StreamHandler()  # Output log ke console
+    ]
+)
+
+# Inisialisasi logger
+logger = logging.getLogger(__name__)
+
+
 
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
