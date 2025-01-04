@@ -367,87 +367,59 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
     try:
-        logger.info(f"Menggunakan grounding: {use_grounding}")
-
-        # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
-        system_message = {
-            "role": "system",
-            "content": "Pastikan semua respons diberikan cukup detail, padat, dan jelas dalam Bahasa Indonesia yang mudah dipahami."
-        }
-        messages.insert(0, system_message)
-
-        # Konversi pesan ke format Gemini
-        gemini_messages = []
-        for msg in messages:
-            if msg['role'] == 'system':
-                continue
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
-
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
-
-        # Kirim pesan terakhir ke Gemini
-        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
-
-        # Coba dengan grounding jika diperlukan
+        last_message = messages[-1]['content']
+        
         if use_grounding:
-            try:
-                response = gemini_model.generate_content(
-                    contents=[{"parts": [{"text": last_message}]}],
-                    tools=[{"name": "google_search_retrieval"}],  # Pastikan nama alat benar
-                    generation_config={
-                        "temperature": 0.06,
-                        "top_p": 0.8,
-                        "top_k": 40,
+            # Proper grounding configuration
+            safety_settings = {
+                "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+                "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+            }
+            
+            generation_config = {
+                "temperature": 0.6,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 2048,
+            }
+            
+            response = gemini_model.generate_content(
+                contents=[{"parts": [{"text": last_message}]}],
+                generation_config=generation_config,
+                safety_settings=safety_settings,
+                tools=[{
+                    "google_search": {
+                        "enable_auto_cite": True,
+                        "enable_structured_snippets": True
                     }
-                )
-                #logger.info(f"Struktur lengkap respons Gemini: {response}")
-
-                # Ekstrak teks utama dari respons
-                if hasattr(response, 'candidates') and response.candidates:
-                    main_response = response.candidates[0].content.parts[0].text
-                else:
-                    main_response = "Tidak ada respons yang valid."
-                logger.info(f"Teks utama dari respons: {main_response}")
-
-                # Ekstrak sumber pencarian (grounding) jika ada
-                sources = []
-                if hasattr(response, 'search_queries'):
-                    logger.info("Search queries ditemukan di respons.")
-                    for query in response.search_queries:
-                        if hasattr(query, 'results'):
-                            logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
-                            for result in query.results:
-                                sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
-                                logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
-
-                # Gabungkan teks utama dengan sumber (jika ada)
-                final_response = main_response
-                if sources:
-                    final_response += "\n\nReferensi:\n" + "\n".join(sources)
-                    logger.info(f"Final response dengan grounding: {final_response}")
-                else:
-                    logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
-
-                return final_response
-
-            except Exception as e:
-                logger.error(f"Error dalam penggunaan grounding: {str(e)}")
-                # Fallback ke pencarian manual
-                return await process_with_manual_grounding(messages)
-
+                }]
+            )
+            
+            # Extract search results and citations
+            citations = []
+            if hasattr(response, 'citations'):
+                for citation in response.citations:
+                    citations.append(f"- {citation.source.title}: {citation.source.url}")
+            
+            final_response = response.text
+            if citations:
+                final_response += "\n\nSumber:\n" + "\n".join(citations)
+                
+            return final_response
+            
         else:
-            logger.info("Grounding tidak diaktifkan, menggunakan respons biasa.")
-            response = chat.send_message(last_message)
+            # Regular non-grounded response
+            response = gemini_model.generate_content(
+                contents=[{"parts": [{"text": last_message}]}],
+                generation_config={"temperature": 0.7}
+            )
             return response.text
-
+            
     except Exception as e:
-        logger.exception("Error dalam pemrosesan Gemini")
-        # Fallback ke Mistral jika Gemini gagal
-        try:
-            return await process_with_mistral(messages)
-        except:
-            return None
+        logger.exception("Error in Gemini processing")
+        return None
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -1007,41 +979,23 @@ async def initialize_session(chat_id: int) -> None:
 
 async def process_with_smart_context(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
     try:
-        logger.info("Memulai pemrosesan dengan konteks cerdas...")
-
-        # Coba Gemini Grounded terlebih dahulu jika diperlukan
+        # Try Gemini with grounding first if needed
         if use_grounding:
             try:
-                response = await asyncio.wait_for(process_with_gemini(messages, use_grounding=True), timeout=10)
+                response = await asyncio.wait_for(
+                    process_with_gemini(messages, use_grounding=True),
+                    timeout=15  # Increased timeout for grounding
+                )
                 if response:
-                    logger.info("Menggunakan respons dari Gemini Grounded.")
                     return response
             except asyncio.TimeoutError:
-                logger.warning("Gemini Grounded timeout, beralih ke Gemini biasa.")
-
-        # Coba Gemini biasa
-        try:
-            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Gemini biasa.")
-                return response
-        except asyncio.TimeoutError:
-            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
-
-        # Coba Mistral
-        try:
-            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Mistral.")
-                return response
-        except asyncio.TimeoutError:
-            logger.error("Mistral timeout.")
-
-        logger.error("Semua model gagal memproses pesan.")
-        return None
-
+                logger.warning("Grounded response timed out, falling back to regular processing")
+                
+        # Continue with regular processing...
+        return await process_with_mistral(messages)
+        
     except Exception as e:
-        logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
+        logger.exception("Error in smart context processing")
         return None
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
@@ -1073,6 +1027,15 @@ def is_same_topic(last_message: str, current_message: str, context_messages: Lis
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
+
+def needs_grounding(text: str) -> bool:
+    grounding_keywords = {
+        "kapan", "berita", "hari ini", "terbaru", "update", "terkini",
+        "sekarang", "saat ini", "baru-baru ini", "minggu ini", "bulan ini",
+        "tahun ini", "sejarah", "fakta", "data", "statistik", "penelitian"
+    }
+    
+    return any(keyword in text.lower() for keyword in grounding_keywords)
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
