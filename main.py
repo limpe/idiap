@@ -1050,7 +1050,7 @@ async def update_session(chat_id: int, message: Dict[str, str], user_id: int) ->
             session = {'messages': [], 'last_update': datetime.now().timestamp()}
             logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
 
-        # Tambahkan pesan baru ke sesi
+        # Tambahkan pesan baru ke sesi (dalam format yang benar)
         session['messages'].append(message)
 
         # Perbarui last_update
@@ -1076,7 +1076,6 @@ async def update_session(chat_id: int, message: Dict[str, str], user_id: int) ->
     except redis.RedisError as e:
         logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal memperbarui sesi.")
-
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     if not message_text:
@@ -1149,7 +1148,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Tambahkan pesan pengguna ke sesi
+    # Tambahkan pesan pengguna ke sesi (dalam format yang benar)
     session['messages'].append({"role": "user", "parts": [sanitized_text]})
     await update_session(chat_id, {"role": "user", "parts": [sanitized_text]}, user_id)
 
@@ -1172,7 +1171,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         # Filter hasil respons sebelum dikirim ke pengguna
         filtered_response = await filter_text(full_response)
 
-        # Tambahkan respons asisten ke sesi
+        # Tambahkan respons asisten ke sesi (dalam format yang benar)
         session['messages'].append({"role": "model", "parts": [filtered_response]})
         await update_session(chat_id, {"role": "model", "parts": [filtered_response]}, user_id)
 
