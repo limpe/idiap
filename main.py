@@ -912,6 +912,11 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await handle_text(update, context, sanitized_text)
                 return
 
+            # Tangani pertanyaan matematika
+            if "berapa" in sanitized_text.lower():
+                await handle_text(update, context, sanitized_text)
+                return
+
             # Lanjutkan pemrosesan pesan biasa
             chat_id = update.message.chat_id
 
@@ -1162,6 +1167,33 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             await processing_msg.delete()
         return
 
+    # Tangani pertanyaan matematika
+    if "berapa" in sanitized_text.lower():
+        if "ditambah" in sanitized_text.lower():
+            # Tangani pertanyaan lanjutan seperti "jika ditambah 5 berapa"
+            if 'last_result' in context.user_data:
+                last_result = context.user_data['last_result']
+                try:
+                    # Ekstrak angka yang ingin ditambahkan
+                    angka_tambahan = int(re.search(r'\d+', sanitized_text).group())
+                    new_result = last_result + angka_tambahan
+                    await update.message.reply_text(f"{last_result} + {angka_tambahan} = {new_result}")
+                    context.user_data['last_result'] = new_result  # Simpan hasil baru
+                except Exception as e:
+                    await update.message.reply_text("Maaf, saya tidak mengerti angka yang ingin ditambahkan.")
+            else:
+                await update.message.reply_text("Maaf, saya tidak tahu angka sebelumnya. Coba tanyakan seperti '2+2 berapa' terlebih dahulu.")
+        else:
+            # Tangani pertanyaan matematika dasar seperti "2+2 berapa"
+            try:
+                expression = sanitized_text.replace("berapa", "").strip()
+                result = eval(expression)  # Hati-hati, eval bisa berbahaya jika tidak dikontrol
+                await update.message.reply_text(f"{expression} = {result}")
+                context.user_data['last_result'] = result  # Simpan hasil
+            except Exception as e:
+                await update.message.reply_text("Maaf, saya tidak bisa menghitung itu.")
+        return
+
     # Tambahkan statistik
     bot_statistics["total_messages"] += 1
     bot_statistics["text_messages"] += 1
@@ -1201,11 +1233,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
-        
-async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    redis_client.delete(f"session:{chat_id}")
-    await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
 def main():
     if not check_required_settings():
