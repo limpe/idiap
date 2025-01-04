@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
+from transformers import pipeline
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -121,6 +122,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
+
+sentiment_analyzer = pipeline("sentiment-analysis", model="indonesian-nlp/wav2vec2-indonesian-javanese-sundanese-sentiment")
+
+def analyze_sentiment(text: str) -> str:
+    """
+    Menganalisis sentimen teks dalam Bahasa Indonesia.
+    Mengembalikan label sentimen (positif, negatif, atau netral).
+    """
+    try:
+        result = sentiment_analyzer(text)
+        return result[0]["label"]
+    except Exception as e:
+        logger.error(f"Error analyzing sentiment: {str(e)}")
+        return "netral"
 
 
 
@@ -374,25 +389,44 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
-        system_message = {
-            "role": "system",
-            "content": "Pastikan semua respons diberikan cukup jelas dalam Bahasa Indonesia yang mudah dipahami."
-        }
-        messages.insert(0, system_message)
+        # Ambil pesan terakhir dari pengguna
+        last_message = messages[-1]['content']
+
+        # Analisis sentimen pesan pengguna
+        sentiment = analyze_sentiment(last_message)
+
+        # Tambahkan instruksi sistem berdasarkan sentimen (tanpa mengubah pesan asli)
+        if sentiment == "positif":
+            system_message = {
+                "role": "system",
+                "content": "Pengguna merasa positif. Berikan respons yang ramah dan bersemangat."
+            }
+        elif sentiment == "negatif":
+            system_message = {
+                "role": "system",
+                "content": "Pengguna merasa negatif. Berikan respons yang menenangkan dan empatik."
+            }
+        else:
+            system_message = {
+                "role": "system",
+                "content": "Pengguna merasa netral. Berikan respons yang informatif dan jelas."
+            }
+
+        # Buat salinan pesan untuk dikirim ke Gemini (agar tidak mengubah pesan asli)
+        gemini_messages = messages.copy()
+        gemini_messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
 
         # Konversi format pesan ke format yang diterima Gemini
-        gemini_messages = []
-        for msg in messages:
+        gemini_formatted_messages = []
+        for msg in gemini_messages:
             if msg['role'] == 'system':
-                continue  # Skip system messages
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
+                continue  # Skip system messages (tidak perlu dikonversi)
+            gemini_formatted_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
+        chat = gemini_model.start_chat(history=gemini_formatted_messages)
         
         # Kirim pesan terakhir ke Gemini
-        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
         response = chat.send_message(last_message)
         
         return response.text
