@@ -26,6 +26,7 @@ from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
+from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
