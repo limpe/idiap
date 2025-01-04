@@ -70,6 +70,14 @@ def sanitize_input(text: str) -> str:
 
     return cleaned_text
 
+def remove_mention(text: str, bot_username: str) -> str:
+    """
+    Menghapus mention bot dari teks.
+    Contoh: "@paidih_bot saya punya 3 gajah" -> "saya punya 3 gajah"
+    """
+    mention = f"@{bot_username}"
+    return text.replace(mention, "").strip()
+
 
 
 # Environment variables
@@ -875,14 +883,14 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup."""
     chat_type = update.message.chat.type
 
-    # Hanya proses jika di grup dan ada mention atau reply ke bot
+    # Hanya proses jika di grup
     if chat_type in ["group", "supergroup"]:
         should_process = False
         message_text = update.message.text or update.message.caption or ""
 
         # Cek mention
         if f'@{context.bot.username}' in message_text:
-            message_text = message_text.replace(f'@{context.bot.username}', '').strip()
+            message_text = remove_mention(message_text, context.bot.username)
             should_process = True
 
         # Cek reply
@@ -891,57 +899,13 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
-            # Sanitasi input teks
+            # Membersihkan input teks
             sanitized_text = sanitize_input(message_text)
 
-            # Cek apakah pesan mengandung perintah /gambar atau /image
-            if sanitized_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, sanitized_text)
-                return
-
             # Lanjutkan pemrosesan pesan biasa
-            chat_id = update.message.chat_id
-            user_id = update.message.from_user.id
-
-            # Periksa apakah sesi Redis sudah ada
-            if not redis_client.exists(f"session:{chat_id}"):
-                await initialize_session(chat_id)
-
-            # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text, user_id):
-                await initialize_session(chat_id)
-
-            # Ambil sesi dari Redis
-            session = json.loads(redis_client.get(f"session:{chat_id}"))
-
-            # Tambahkan pesan pengguna ke sesi (setelah disanitasi)
-            session['messages'].append({"role": "user", "content": sanitized_text, "user_id": user_id})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text, "user_id": user_id}, user_id)
-
-            # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
-            system_message = {
-                "role": "system",
-                "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia yang mudah dipahami."
-            }
-            session['messages'].insert(0, system_message)
-
-            # Proses pesan dengan konteks cerdas
-            response = await process_with_smart_context(session['messages'][-10:])
-            
-            if response:
-                # Filter hasil respons
-                filtered_response = await filter_text(response)
-
-                # Tambahkan respons asisten ke sesi
-                session['messages'].append({"role": "assistant", "content": filtered_response})
-                await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
-
-                # Kirim respons ke pengguna
-                response_parts = split_message(filtered_response)
-                for part in response_parts:
-                    await update.message.reply_text(part)
+            await handle_text(update, context, sanitized_text)
         else:
-            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
+            logger.info("Pesan di grup tanpa mention atau reply yang valid diabaikan.")
 
 
 async def initialize_session(chat_id: int) -> None:
@@ -1118,6 +1082,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Abaikan pesan di grup tanpa mention atau reply
+    chat_type = update.message.chat.type
+    if chat_type in ["group", "supergroup"]:
+        if not (f'@{context.bot.username}' in message_text or
+                (update.message.reply_to_message and
+                 update.message.reply_to_message.from_user.id == context.bot.id)):
+            logger.info("Pesan di grup tanpa mention atau reply diabaikan.")
+            return
+
     # Membersihkan input teks menggunakan Bleach
     sanitized_text = sanitize_input(message_text)
 
@@ -1177,8 +1150,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": sanitized_text, "user_id": user_id})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text, "user_id": user_id}, user_id)
+    session['messages'].append({"role": "user", "parts": [sanitized_text]})
+    await update_session(chat_id, {"role": "user", "parts": [sanitized_text]}, user_id)
 
     # Proses pesan dengan konteks cerdas
     try:
@@ -1200,8 +1173,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         filtered_response = await filter_text(full_response)
 
         # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
+        session['messages'].append({"role": "model", "parts": [filtered_response]})
+        await update_session(chat_id, {"role": "model", "parts": [filtered_response]}, user_id)
 
         # Pecah respons jika terlalu panjang
         response_parts = split_message(filtered_response)
