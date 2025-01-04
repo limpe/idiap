@@ -151,7 +151,6 @@ def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
     # Cek kata kunci tertentu untuk menentukan kompleksitas
     for message in messages:
         if any(keyword in message['content'].lower() for keyword in complex_keywords):
-            logger.info(f"Kata kunci kompleks ditemukan: {message['content']}")
             logger.info("Kompleksitas ditingkatkan ke: complex (karena kata kunci kompleks).")
             return "complex"
 
