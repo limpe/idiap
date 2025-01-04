@@ -925,21 +925,22 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Lanjutkan pemrosesan pesan biasa
             chat_id = update.message.chat_id
+            user_id = update.message.from_user.id
 
             # Periksa apakah sesi Redis sudah ada
             if not redis_client.exists(f"session:{chat_id}"):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text):
+            if await should_reset_context(chat_id, sanitized_text, user_id):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
             # Tambahkan pesan pengguna ke sesi (setelah disanitasi)
-            session['messages'].append({"role": "user", "content": sanitized_text})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+            session['messages'].append({"role": "user", "content": sanitized_text, "user_id": user_id})
+            await update_session(chat_id, {"role": "user", "content": sanitized_text, "user_id": user_id}, user_id)
 
             # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
             system_message = {
@@ -957,7 +958,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Tambahkan respons asisten ke sesi
                 session['messages'].append({"role": "assistant", "content": filtered_response})
-                await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+                await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
 
                 # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
@@ -1041,7 +1042,18 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-async def should_reset_context(chat_id: int, message: str) -> bool:
+async def should_reset_context(chat_id: int, message: str, user_id: int) -> bool:
+    """
+    Menentukan apakah konteks percakapan perlu direset.
+
+    Args:
+        chat_id (int): ID chat pengguna.
+        message (str): Pesan yang dikirim oleh pengguna.
+        user_id (int): ID pengguna yang mengirim pesan.
+
+    Returns:
+        bool: True jika konteks perlu direset, False jika tidak.
+    """
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
@@ -1066,7 +1078,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             return True
 
         # Reset jika percakapan sudah terlalu panjang
-        complexity = determine_conversation_complexity(session['messages'])
+        complexity = determine_conversation_complexity(session['messages'], user_id)
         max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
