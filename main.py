@@ -955,6 +955,20 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
+
+def convert_messages_to_gemini_format(messages):
+    converted_messages = []
+    for msg in messages:
+        if "content" in msg:
+            # Convert old format to new format
+            converted_messages.append({
+                "role": msg["role"],
+                "parts": [{"text": msg["content"]}]
+            })
+        elif "parts" in msg:
+            # Already in the correct format
+            converted_messages.append(msg)
+    return converted_messages
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
@@ -1154,7 +1168,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Tambahkan pesan pengguna ke sesi (dalam format yang benar)
     session['messages'].append({"role": "user", "parts": [{"text": sanitized_text}]})
-    await update_session(chat_id, {"role": "user", "parts": [sanitized_text]}, user_id)
+    await update_session(chat_id, {"role": "user", "parts": [{"text": sanitized_text}]}, user_id)
 
     # Debugging: Periksa histori percakapan sebelum dikirim ke Gemini
     logger.info(f"Histori percakapan yang dikirim ke Gemini: {session['messages']}")
@@ -1164,8 +1178,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         # Inisialisasi model Gemini
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
         
+        # Convert messages to Gemini format if necessary
+        gemini_messages = convert_messages_to_gemini_format(session['messages'])
+        
         # Mulai chat dengan histori yang ada
-        chat = model.start_chat(history=session['messages'])
+        chat = model.start_chat(history=gemini_messages)
         
         # Kirim pesan terakhir ke Gemini
         response = chat.send_message(sanitized_text, stream=True)
@@ -1179,8 +1196,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         filtered_response = await filter_text(full_response)
 
         # Tambahkan respons asisten ke sesi (dalam format yang benar)
-        session['messages'].append({"role": "model", "parts": [filtered_response]})
-        await update_session(chat_id, {"role": "model", "parts": [filtered_response]}, user_id)
+        session['messages'].append({"role": "model", "parts": [{"text": filtered_response}]})
+        await update_session(chat_id, {"role": "model", "parts": [{"text": filtered_response}]}, user_id)
 
         # Pecah respons jika terlalu panjang
         response_parts = split_message(filtered_response)
