@@ -1152,10 +1152,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "parts": [sanitized_text]})
     await update_session(chat_id, {"role": "user", "parts": [sanitized_text]}, user_id)
 
-    # Debugging: Periksa histori percakapan, API key, dan model Gemini
+    # Debugging: Periksa histori percakapan sebelum dikirim ke Gemini
     logger.info(f"Histori percakapan yang dikirim ke Gemini: {session['messages']}")
-    logger.info(f"API Key Gemini: {GOOGLE_API_KEY}")
-    logger.info(f"Model Gemini: {gemini_model}")
 
     # Proses pesan dengan konteks cerdas
     try:
