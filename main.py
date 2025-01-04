@@ -268,13 +268,29 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         # Generate respons dengan grounding
         response = model.generate_content(
             contents=[{"parts": [{"text": last_message}]}],
-            tools=[{"name": "google_search_retrieval"}],
-            generation_config={
-                "temperature": 0.06,
-                "top_p": 0.8,
-                "top_k": 40,
+            tools = [{
+            "name": "google_search",
+             "parameters": {
+            "type": "object",
+              "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query"
             }
-        )
+         },
+         "required": ["query"]
+             }
+        }]
+
+        response = gemini_model.generate_content(
+            contents=[{"parts": [{"text": last_message}]}],
+            tools=tools,
+            generation_config={
+              "temperature": 0.6,
+             "top_p": 0.8,
+              "top_k": 40,
+             }
+            )
         logger.info(f"Struktur lengkap respons Gemini: {response}")  # Log struktur respons
 
         # Ekstrak teks utama
