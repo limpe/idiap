@@ -12,6 +12,7 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
+import bleach
 
 
 from keywords import complex_keywords
@@ -21,12 +22,10 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pydub import AudioSegment
 from langdetect import detect
-from groq import Groq
 from PIL import Image
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
-from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
 
@@ -50,19 +49,15 @@ def check_required_settings():
     return True
 
 def sanitize_input(text: str) -> str:
-    # Remove potentially dangerous characters
-    return re.sub(r'[<>"\';&]', '', text)
+    # Daftar tag dan atribut yang diizinkan
+    allowed_tags = ['b', 'i']  # Mengizinkan tag <b> dan <i>
+    allowed_attributes = {}  # Tidak mengizinkan atribut apa pun
 
-# Konfigurasi logging dengan format yang lebih detail
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log')  # Menyimpan log ke file
-    ]
-)
-logger = logging.getLogger(__name__)
+    # Membersihkan teks menggunakan Bleach
+    cleaned_text = bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes)
+
+    return cleaned_text
+
 
 
 # Environment variables
@@ -299,18 +294,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         return None
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        logger.info("Memulai pemrosesan dengan konteks cerdas...")
-        
-        # Coba Gemini Grounded terlebih dahulu
-        try:
-            response = await asyncio.wait_for(process_with_gemini_grounded(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Gemini Grounded.")
-                return response
-        except asyncio.TimeoutError:
-            logger.warning("Gemini Grounded timeout, beralih ke Gemini biasa.")
-
+   
         # Coba Gemini biasa
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
@@ -876,9 +860,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
+            # Sanitasi input teks
+            sanitized_text = sanitize_input(message_text)
+
             # Cek apakah pesan mengandung perintah /gambar atau /image
-            if message_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, message_text)
+            if sanitized_text.lower().startswith(('/gambar', '/image')):
+                await handle_text(update, context, sanitized_text)
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -889,15 +876,15 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, message_text):
+            if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Tambahkan pesan pengguna ke sesi
-            session['messages'].append({"role": "user", "content": message_text})
-            await update_session(chat_id, {"role": "user", "content": message_text})
+            # Tambahkan pesan pengguna ke sesi (setelah disanitasi)
+            session['messages'].append({"role": "user", "content": sanitized_text})
+            await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
             # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
             system_message = {
@@ -1073,6 +1060,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Membersihkan input teks menggunakan Bleach
     sanitized_text = sanitize_input(message_text)
 
     # Cek rate limit
@@ -1237,7 +1225,7 @@ Berikut adalah daftar perintah yang tersedia:
 /reset - Mereset sesi percakapan Anda.
 /carigambar - Mencari gambar serupa menggunakan Google Lens.
 /gambar <prompt> - Generate gambar berdasarkan prompt.
-/reminder <waktu> <pesan> - Mengatur pengingat.
+/reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
