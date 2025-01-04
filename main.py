@@ -1213,15 +1213,16 @@ def main():
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
-
+        
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
-        ))
+        (filters.TEXT | filters.CAPTION) & 
+        (filters.Entity("mention") | filters.REPLY), 
+        handle_mention
+            ))
+
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
             handle_message
