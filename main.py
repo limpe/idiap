@@ -378,10 +378,12 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
-        for msg in messages:
-            if msg['role'] == 'system':
-                continue  # Skip system messages
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
+            for msg in session['messages']:
+            gemini_messages.append({
+            "role": msg["role"],
+            "parts": [{"text": msg["content"]}]
+            })
+
 
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
@@ -1149,7 +1151,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi (dalam format yang benar)
-    session['messages'].append({"role": "user", "parts": [sanitized_text]})
+    session['messages'].append({"role": "user", "parts": [{"text": sanitized_text}]})
     await update_session(chat_id, {"role": "user", "parts": [sanitized_text]}, user_id)
 
     # Debugging: Periksa histori percakapan sebelum dikirim ke Gemini
