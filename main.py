@@ -43,8 +43,6 @@ logging.basicConfig(
 # Inisialisasi logger
 logger = logging.getLogger(__name__)
 
-
-translator = Translator()
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
@@ -227,6 +225,8 @@ async def check_rate_limit(user_id: int) -> bool:
     redis_client.incr(key)
     redis_client.expire(key, 60)
     return True
+
+translator = Translator()
 
 def translate_to_english(text: str) -> str:
     """
