@@ -228,7 +228,7 @@ async def check_rate_limit(user_id: int) -> bool:
     redis_client.expire(key, 60)
     return True
 
-async def translate_to_english(text: str) -> str:
+def translate_to_english(text: str) -> str:
     """
     Menerjemahkan teks ke Bahasa Inggris.
     Jika terjadi error, kembalikan teks asli.
@@ -245,8 +245,8 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
     Generate gambar berdasarkan prompt.
     Prompt akan diterjemahkan ke Bahasa Inggris sebelum dikirim ke API.
     """
-    # Terjemahkan prompt ke Bahasa Inggris
-    english_prompt = await translate_to_english(prompt)
+    # Terjemahkan prompt ke Bahasa Inggris (tanpa await)
+    english_prompt = translate_to_english(prompt)
     logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
 
     try:
