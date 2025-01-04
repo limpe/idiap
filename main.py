@@ -295,7 +295,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         return None
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-   
+    try:
         # Coba Gemini biasa
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
