@@ -13,3 +13,4 @@ google-generativeai
 requests
 bleach
 together
+googletrans
