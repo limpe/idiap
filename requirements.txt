@@ -13,5 +13,4 @@ google-generativeai
 requests
 bleach
 together
-googletrans
 deep-translator
