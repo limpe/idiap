@@ -791,7 +791,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Ambil sesi dari Redis
         session = json.loads(redis_client.get(f"session:{chat_id}"))
-
+        logger.info(f"Sesi saat ini: {session}")
+        
         # Update statistik
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
@@ -814,6 +815,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
             if not prompt:
                 prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+                logger.info(f"Prompt yang digunakan: {prompt}")
             else:
                 # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
                 prompt += " jawab dalam Bahasa Indonesia."
@@ -910,14 +912,15 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = await process_with_smart_context(session['messages'][-10:])
             
             if response:
-                # Filter hasil respons sebelum dikirim ke pengguna
+                # Filter hasil respons
                 filtered_response = await filter_text(response)
+                logger.info(f"Respons bot: {filtered_response}")
 
                 # Tambahkan respons asisten ke sesi
                 session['messages'].append({"role": "assistant", "content": filtered_response})
                 await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-                # Pecah respons jika terlalu panjang
+                # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
                 for part in response_parts:
                     await update.message.reply_text(part)
@@ -1010,23 +1013,18 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # Reset jika percakapan sudah terlalu lama
+        # Reset jika percakapan sudah terlalu lama (misalnya, 8 jam)
         if time_diff > CONVERSATION_TIMEOUT:
             return True
-
         # Reset jika pesan mengandung kata kunci awal percakapan
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih']
         starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
         if starts_with_keyword:
             return True
 
-        # Tentukan kompleksitas percakapan
-        complexity = determine_conversation_complexity(session['messages'])
-
-        # Dapatkan batas pesan berdasarkan kompleksitas
-        max_messages = get_max_conversation_messages(complexity)
-
         # Reset jika percakapan sudah terlalu panjang
+        complexity = determine_conversation_complexity(session['messages'])
+        max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
             return True
 
