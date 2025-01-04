@@ -13,8 +13,9 @@ import aiohttp
 import google.generativeai as genai
 import re
 import bleach
+import googletrans
 
-
+from googletrans import Translator
 from keywords import complex_keywords
 from collections import Counter
 from typing import Optional, List, Dict
@@ -43,7 +44,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-
+translator = Translator()
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
 
@@ -123,6 +124,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
+
+
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
     """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
@@ -225,10 +228,26 @@ async def check_rate_limit(user_id: int) -> bool:
     redis_client.expire(key, 60)
     return True
 
+async def translate_to_english(text: str) -> str:
+    """
+    Menerjemahkan teks ke Bahasa Inggris.
+    Jika terjadi error, kembalikan teks asli.
+    """
+    try:
+        translation = translator.translate(text, dest="en")
+        return translation.text
+    except Exception as e:
+        logger.error(f"Error translating text to English: {str(e)}")
+        return text  # Kembalikan teks asli jika terjemahan gagal
+
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
-    if not prompt or len(prompt.strip()) < 5:
-        await update.message.reply_text("Prompt tidak boleh kosong atau terlalu pendek. Minimal 5 karakter.")
-        return None
+    """
+    Generate gambar berdasarkan prompt.
+    Prompt akan diterjemahkan ke Bahasa Inggris sebelum dikirim ke API.
+    """
+    # Terjemahkan prompt ke Bahasa Inggris
+    english_prompt = await translate_to_english(prompt)
+    logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
 
     try:
         headers = {
@@ -237,7 +256,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         }
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
-            "prompt": prompt,
+            "prompt": english_prompt,  # Gunakan prompt yang sudah diterjemahkan
             "width": 1440,
             "height": 960,
             "steps": 4,
