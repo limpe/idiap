@@ -12,7 +12,6 @@ import gtts
 import aiohttp
 import google.generativeai as genai
 import re
-import bleach
 
 
 from keywords import complex_keywords
@@ -30,9 +29,6 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
-
-genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 
 # Konstanta untuk batasan ukuran file
@@ -54,14 +50,8 @@ def check_required_settings():
     return True
 
 def sanitize_input(text: str) -> str:
-    # Daftar tag dan atribut yang diizinkan
-    allowed_tags = ['b', 'i']  # Mengizinkan tag <b> dan <i>
-    allowed_attributes = {}  # Tidak mengizinkan atribut apa pun
-
-    # Membersihkan teks menggunakan Bleach
-    cleaned_text = bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes)
-
-    return cleaned_text
+    # Remove potentially dangerous characters
+    return re.sub(r'[<>"\';&]', '', text)
 
 # Konfigurasi logging dengan format yang lebih detail
 logging.basicConfig(
@@ -73,7 +63,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
 
 
 # Environment variables
@@ -92,6 +81,8 @@ MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
@@ -268,29 +259,13 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         # Generate respons dengan grounding
         response = model.generate_content(
             contents=[{"parts": [{"text": last_message}]}],
-            tools = [{
-            "name": "google_search",
-             "parameters": {
-            "type": "object",
-              "properties": {
-            "query": {
-                "type": "string",
-                "description": "Search query"
-            }
-         },
-         "required": ["query"]
-             }
-        }]
-
-        response = gemini_model.generate_content(
-            contents=[{"parts": [{"text": last_message}]}],
-            tools=tools,
+            tools=[{"name": "google_search_retrieval"}],
             generation_config={
-              "temperature": 0.6,
-             "top_p": 0.8,
-              "top_k": 40,
-             }
-            )
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 40,
+            }
+        )
         logger.info(f"Struktur lengkap respons Gemini: {response}")  # Log struktur respons
 
         # Ekstrak teks utama
@@ -381,61 +356,39 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
-async def process_with_gemini(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
+async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        last_message = messages[-1]['content']
+        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
+        system_message = {
+            "role": "system",
+            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
+        }
+        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
+
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if msg['role'] == 'system':
+                continue  # Skip system messages (tidak perlu dikonversi)
+            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
+
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
         
-        if use_grounding:
-            # Proper grounding configuration
-            safety_settings = {
-                "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
-                "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
-                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
-                "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
-            }
-            
-            generation_config = {
-                "temperature": 0.6,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 2048,
-            }
-            
-            response = gemini_model.generate_content(
-                contents=[{"parts": [{"text": last_message}]}],
-                generation_config=generation_config,
-                safety_settings=safety_settings,
-                tools=[{
-                    "google_search": {
-                        "enable_auto_cite": True,
-                        "enable_structured_snippets": True
-                    }
-                }]
-            )
-            
-            # Extract search results and citations
-            citations = []
-            if hasattr(response, 'citations'):
-                for citation in response.citations:
-                    citations.append(f"- {citation.source.title}: {citation.source.url}")
-            
-            final_response = response.text
-            if citations:
-                final_response += "\n\nSumber:\n" + "\n".join(citations)
-                
-            return final_response
-            
-        else:
-            # Regular non-grounded response
-            response = gemini_model.generate_content(
-                contents=[{"parts": [{"text": last_message}]}],
-                generation_config={"temperature": 0.7}
-            )
-            return response.text
-            
+        # Kirim pesan terakhir ke Gemini
+        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
+        response = chat.send_message(last_message)
+        
+        return response.text
+
     except Exception as e:
-        logger.exception("Error in Gemini processing")
-        return None
+        logger.exception("Error in processing with Gemini")
+        # Fallback ke Mistral jika Gemini gagal
+        try:
+            return await process_with_mistral(messages)
+        except:
+            return None
+
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -923,12 +876,9 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             should_process = True
 
         if should_process and message_text:
-            # Sanitasi input teks
-            sanitized_text = sanitize_input(message_text)
-
             # Cek apakah pesan mengandung perintah /gambar atau /image
-            if sanitized_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, sanitized_text)
+            if message_text.lower().startswith(('/gambar', '/image')):
+                await handle_text(update, context, message_text)
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -939,15 +889,15 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text):
+            if await should_reset_context(chat_id, message_text):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Tambahkan pesan pengguna ke sesi (setelah disanitasi)
-            session['messages'].append({"role": "user", "content": sanitized_text})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+            # Tambahkan pesan pengguna ke sesi
+            session['messages'].append({"role": "user", "content": message_text})
+            await update_session(chat_id, {"role": "user", "content": message_text})
 
             # Tambahkan instruksi sistem agar respons dalam Bahasa Indonesia
             system_message = {
@@ -993,26 +943,20 @@ async def initialize_session(chat_id: int) -> None:
         raise Exception("Gagal menginisialisasi sesi.")
 
 
-async def process_with_smart_context(messages: List[Dict[str, str]], use_grounding: bool = False) -> Optional[str]:
-    try:
-        # Try Gemini with grounding first if needed
-        if use_grounding:
-            try:
-                response = await asyncio.wait_for(
-                    process_with_gemini(messages, use_grounding=True),
-                    timeout=15  # Increased timeout for grounding
-                )
-                if response:
-                    return response
-            except asyncio.TimeoutError:
-                logger.warning("Grounded response timed out, falling back to regular processing")
-                
-        # Continue with regular processing...
-        return await process_with_mistral(messages)
-        
-    except Exception as e:
-        logger.exception("Error in smart context processing")
-        return None
+async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
+    # Ekstrak kata kunci yang relevan dari histori percakapan
+    relevant_keywords = extract_relevant_keywords(messages)
+    
+    # Tambahkan informasi penting ke konteks
+    if relevant_keywords:
+        messages.insert(0, {"role": "system", "content": f"Informasi penting: {', '.join(relevant_keywords)}"})
+    
+    # Proses pesan dengan model AI (Gemini atau Mistral)
+    response = await process_with_gemini(messages)
+    if not response:
+        response = await process_with_mistral(messages)
+    
+    return response
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
@@ -1043,15 +987,6 @@ def is_same_topic(last_message: str, current_message: str, context_messages: Lis
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
-
-def needs_grounding(text: str) -> bool:
-    grounding_keywords = {
-        "kapan", "berita", "hari ini", "terbaru", "update", "terkini",
-        "sekarang", "saat ini", "baru-baru ini", "minggu ini", "bulan ini",
-        "tahun ini", "sejarah", "fakta", "data", "statistik", "penelitian"
-    }
-    
-    return any(keyword in text.lower() for keyword in grounding_keywords)
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
@@ -1198,18 +1133,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Cek kata kunci yang terdeteksi
-    detected_keywords = [keyword for keyword in ["kapan", "berita", "hari ini", "terbaru"] if keyword in sanitized_text.lower()]
-    logger.info(f"Kata kunci yang terdeteksi: {detected_keywords}")
-
-    # Cek apakah pesan memerlukan grounding
-    use_grounding = bool(detected_keywords)
-    logger.info(f"Pesan memerlukan grounding: {use_grounding}")
-
     # Proses pesan dengan konteks cerdas
     try:
-        response = await process_with_smart_context(session['messages'][-10:], use_grounding=use_grounding)
-
+        response = await process_with_smart_context(session['messages'][-10:])
+        
         if response:
             # Filter hasil respons sebelum dikirim ke pengguna
             filtered_response = await filter_text(response)
@@ -1222,7 +1149,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             response_parts = split_message(filtered_response)
             for part in response_parts:
                 await update.message.reply_text(part)
-
+                
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
@@ -1310,7 +1237,7 @@ Berikut adalah daftar perintah yang tersedia:
 /reset - Mereset sesi percakapan Anda.
 /carigambar - Mencari gambar serupa menggunakan Google Lens.
 /gambar <prompt> - Generate gambar berdasarkan prompt.
-/reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
+/reminder <waktu> <pesan> - Mengatur pengingat.
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
