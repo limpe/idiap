@@ -14,4 +14,3 @@ requests
 bleach
 together
 deep-translator
-transformers
