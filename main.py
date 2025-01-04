@@ -226,6 +226,10 @@ async def check_rate_limit(user_id: int) -> bool:
     return True
 
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
+    if not prompt or len(prompt.strip()) < 5:
+        await update.message.reply_text("Prompt tidak boleh kosong atau terlalu pendek. Minimal 5 karakter.")
+        return None
+
     try:
         headers = {
             "Authorization": f"Bearer {TOGETHER_API_KEY}",
@@ -240,9 +244,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             "samples": 1,
             "cfg_scale": 7.5,
             "n": 1,
-            "nsfw": True,  # Mengizinkan konten NSFW
-            "response_format": "b64_json",
-            "allow_nsfw": True  # Parameter tambahan untuk NSFW
+            "response_format": "b64_json"
         }
 
         async with aiohttp.ClientSession() as session:
@@ -255,10 +257,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Error generating image: {error_text}")
-                    
-                    # Tangani error NSFW
-                    if "NSFW content" in error_text:
-                        await update.message.reply_text("Maaf, konten terdeteksi sebagai NSFW. Coba dengan prompt yang berbeda.")
                     return None
 
                 result = await response.json()
@@ -364,15 +362,15 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
         system_message = {
             "role": "system",
-            "content": "Pastikan semua respons diberikan cukup detail,padat dan jelas dalam Bahasa Indonesia yang mudah dipahami."
+            "content": "Pastikan semua respons diberikan cukup jelas dalam Bahasa Indonesia yang mudah dipahami."
         }
-        messages.insert(0, system_message)  # Tambahkan instruksi sistem di awal
+        messages.insert(0, system_message)
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
             if msg['role'] == 'system':
-                continue  # Skip system messages (tidak perlu dikonversi)
+                continue  # Skip system messages
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
@@ -384,13 +382,15 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         
         return response.text
 
+    except genai.exceptions.APIError as e:
+        logger.error(f"API Error: {str(e)}")
+        return "Maaf, terjadi kesalahan saat menghubungi server Gemini. Mohon coba lagi nanti."
+    except asyncio.TimeoutError:
+        logger.error("Timeout saat memproses dengan Gemini.")
+        return "Maaf, proses memakan waktu terlalu lama. Mohon coba lagi nanti."
     except Exception as e:
         logger.exception("Error in processing with Gemini")
-        # Fallback ke Mistral jika Gemini gagal
-        try:
-            return await process_with_mistral(messages)
-        except:
-            return None
+        return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
 
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
@@ -465,7 +465,15 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
 async def process_voice_to_text(update: Update) -> Optional[str]:
-    """Proses file suara menjadi teks dengan optimasi untuk Railway"""
+    """
+    Proses file suara menjadi teks dengan optimasi untuk Railway.
+
+    Args:
+        update (Update): Objek update dari Telegram yang berisi pesan suara.
+
+    Returns:
+        Optional[str]: Teks hasil transkripsi suara, atau None jika gagal.
+    """
     try:
         logger.info("Memulai pemrosesan pesan suara...")
         voice_file = await update.message.voice.get_file()
@@ -521,6 +529,7 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
     except Exception as e:
         logger.exception("Error dalam pemrosesan audio")
         raise
+
 
 # Potong audio besar
 def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str]:
@@ -1271,15 +1280,31 @@ Kirim saya pesan atau catatan suara untuk memulai!
     """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+async def track_message_statistics(update: Update):
+    user_id = update.message.from_user.id
+    message_type = "text"
+    if update.message.voice:
+        message_type = "voice"
+    elif update.message.photo:
+        message_type = "photo"
+
+    # Simpan statistik ke Redis
+    redis_client.hincrby(f"user:{user_id}:stats", message_type, 1)
+    redis_client.hincrby(f"user:{user_id}:stats", "total_messages", 1)
+
+async def get_user_statistics(user_id: int) -> Dict[str, int]:
+    stats = redis_client.hgetall(f"user:{user_id}:stats")
+    return {k: int(v) for k, v in stats.items()}
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    active_sessions = len(list(redis_client.scan_iter("session:*")))
+    user_id = update.message.from_user.id
+    user_stats = await get_user_statistics(user_id)
     stats_message = (
-        f"Statistik Bot:\n"
-        f"- Total Pesan: {bot_statistics['total_messages']}\n"
-        f"- Pesan Suara: {bot_statistics['voice_messages']}\n"
-        f"- Pesan Teks: {bot_statistics['text_messages']}\n"
-        f"- Kesalahan: {bot_statistics['errors']}\n"
-        f"- Sesi Aktif: {active_sessions}"
+        f"Statistik Pengguna:\n"
+        f"- Total Pesan: {user_stats.get('total_messages', 0)}\n"
+        f"- Pesan Teks: {user_stats.get('text', 0)}\n"
+        f"- Pesan Suara: {user_stats.get('voice', 0)}\n"
+        f"- Pesan Gambar: {user_stats.get('photo', 0)}"
     )
     await update.message.reply_text(stats_message)
 
