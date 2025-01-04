@@ -337,30 +337,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error dalam pemrosesan Gemini Grounded")
         return None
 
-async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        # Coba Gemini biasa
-        try:
-            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
-            if response:
-                return response 
-        except asyncio.TimeoutError:
-            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
-
-        # Coba Mistral
-        try:
-            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Mistral.")
-                return response
-        except asyncio.TimeoutError:
-            logger.error("Mistral timeout.")
-
-        logger.error("Semua model gagal memproses pesan.")
-        return None
-    except Exception as e:
-        logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
-        return None
 
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
@@ -1098,14 +1074,6 @@ async def should_reset_context(chat_id: int, message: str, user_id: int) -> bool
         return True
         
 async def update_session(chat_id: int, message: Dict[str, str], user_id: int) -> None:
-    """
-    Memperbarui sesi percakapan di Redis.
-
-    Args:
-        chat_id (int): ID chat pengguna.
-        message (Dict[str, str]): Pesan yang akan ditambahkan ke sesi.
-        user_id (int): ID pengguna yang mengirim pesan.
-    """
     try:
         logger.info(f"Memulai pembaruan sesi untuk chat_id {chat_id}")
         session_json = redis_client.get(f"session:{chat_id}")
@@ -1214,20 +1182,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Proses pesan dengan konteks cerdas
     try:
-        response = await process_with_smart_context(session['messages'][-10:])
+        # Inisialisasi model Gemini
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
         
-        if response:
-            # Filter hasil respons sebelum dikirim ke pengguna
-            filtered_response = await filter_text(response)
+        # Mulai chat dengan histori yang ada
+        chat = model.start_chat(history=session['messages'])
+        
+        # Kirim pesan terakhir ke Gemini
+        response = chat.send_message(sanitized_text, stream=True)
+        
+        # Kumpulkan respons dari model
+        full_response = ""
+        for chunk in response:
+            full_response += chunk.text
 
-            # Tambahkan respons asisten ke sesi
-            session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
+        # Filter hasil respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(full_response)
 
-            # Pecah respons jika terlalu panjang
-            response_parts = split_message(filtered_response)
-            for part in response_parts:
-                await update.message.reply_text(part)
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
+
+        # Pecah respons jika terlalu panjang
+        response_parts = split_message(filtered_response)
+        for part in response_parts:
+            await update.message.reply_text(part)
                 
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
