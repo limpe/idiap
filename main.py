@@ -914,7 +914,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if response:
                 # Filter hasil respons
                 filtered_response = await filter_text(response)
-                logger.info(f"Respons bot: {filtered_response}")
 
                 # Tambahkan respons asisten ke sesi
                 session['messages'].append({"role": "assistant", "content": filtered_response})
