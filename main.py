@@ -13,8 +13,8 @@ import aiohttp
 import google.generativeai as genai
 import re
 import bleach
-import googletrans
 
+from deep_translator import GoogleTranslator
 from googletrans import Translator
 from keywords import complex_keywords
 from collections import Counter
