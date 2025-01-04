@@ -378,11 +378,11 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
-            for msg in session['messages']:
-            gemini_messages.append({
-            "role": msg["role"],
-            "parts": [{"text": msg["content"]}]
-            })
+                for msg in session['messages']:
+                gemini_messages.append({
+                "role": msg["role"],
+                "parts": [{"text": msg["content"]}]
+        })
 
 
         # Mulai chat dengan Gemini
