@@ -931,19 +931,32 @@ async def initialize_session(chat_id: int) -> None:
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    # Ekstrak kata kunci yang relevan dari histori percakapan
-    relevant_keywords = extract_relevant_keywords(messages)
-    
-    # Tambahkan informasi penting ke konteks
-    if relevant_keywords:
-        messages.insert(0, {"role": "system", "content": f"Informasi penting: {', '.join(relevant_keywords)}"})
-    
-    # Proses pesan dengan model AI (Gemini atau Mistral)
-    response = await process_with_gemini(messages)
-    if not response:
-        response = await process_with_mistral(messages)
-    
-    return response
+    try:
+        logger.info("Memulai pemrosesan dengan konteks cerdas...")
+        
+        # Coba Gemini biasa
+        try:
+            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Gemini biasa.")
+                return response
+        except asyncio.TimeoutError:
+            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
+
+        # Coba Mistral
+        try:
+            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Mistral.")
+                return response
+        except asyncio.TimeoutError:
+            logger.error("Mistral timeout.")
+
+        logger.error("Semua model gagal memproses pesan.")
+        return None
+    except Exception as e:
+        logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
+        return None
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     context_text = " ".join([msg['content'] for msg in messages])
