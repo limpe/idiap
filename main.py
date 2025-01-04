@@ -70,14 +70,6 @@ def sanitize_input(text: str) -> str:
 
     return cleaned_text
 
-def remove_mention(text: str, bot_username: str) -> str:
-    """
-    Menghapus mention bot dari teks.
-    Contoh: "@paidih_bot saya punya 3 gajah" -> "saya punya 3 gajah"
-    """
-    mention = f"@{bot_username}"
-    return text.replace(mention, "").strip()
-
 
 
 # Environment variables
@@ -895,8 +887,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Cek mention
         if f'@{bot_username}' in message_text:
             logger.info(f"Mention ditemukan: {message_text}")
-            message_text = remove_mention(message_text, bot_username)
-            await handle_text(update, context, message_text)
+            await handle_text(update, context, message_text)  # Proses pesan dengan mention
             return
 
         # Cek reply
@@ -906,7 +897,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         logger.info(f"Pesan di grup tanpa mention atau reply yang valid diabaikan: {message_text}")
-
 
 async def initialize_session(chat_id: int) -> None:
     """Inisialisasi sesi baru di Redis"""
