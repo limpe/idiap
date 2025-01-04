@@ -598,7 +598,6 @@ async def send_voice_response(update: Update, text: str):
 
         with open(temp_file.name, 'rb') as voice_file:
             await update.message.reply_voice(voice=voice_file)
-
     finally:
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
@@ -946,17 +945,15 @@ async def initialize_session(chat_id: int) -> None:
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        logger.info("Memulai pemrosesan dengan konteks cerdas...")
-        
-        # Coba Gemini biasa
+        # Coba Gemini
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
-                logger.info("Menggunakan respons dari Gemini biasa.")
+                logger.info("Menggunakan respons dari Gemini.")
                 return response
         except asyncio.TimeoutError:
-            logger.warning("Gemini biasa timeout, beralih ke Mistral.")
-
+            logger.warning("Gemini timeout, beralih ke Mistral.")
+        
         # Coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
@@ -965,7 +962,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
                 return response
         except asyncio.TimeoutError:
             logger.error("Mistral timeout.")
-
+        
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
