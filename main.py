@@ -228,14 +228,13 @@ async def check_rate_limit(user_id: int) -> bool:
 
 translator = Translator()
 
-def translate_to_english(text: str) -> str:
+async def translate_to_english(text: str) -> str:
     """
-    Menerjemahkan teks ke Bahasa Inggris.
-    Jika terjadi error, kembalikan teks asli.
+    Menerjemahkan teks ke Bahasa Inggris menggunakan deep-translator.
     """
     try:
-        translation = translator.translate(text, dest="en")
-        return translation.text
+        translation = GoogleTranslator(source='auto', target='en').translate(text)
+        return translation
     except Exception as e:
         logger.error(f"Error translating text to English: {str(e)}")
         return text  # Kembalikan teks asli jika terjemahan gagal
@@ -245,8 +244,8 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
     Generate gambar berdasarkan prompt.
     Prompt akan diterjemahkan ke Bahasa Inggris sebelum dikirim ke API.
     """
-    # Terjemahkan prompt ke Bahasa Inggris (tanpa await)
-    english_prompt = translate_to_english(prompt)
+    # Terjemahkan prompt ke Bahasa Inggris (dengan await)
+    english_prompt = await translate_to_english(prompt)
     logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
 
     try:
