@@ -1183,9 +1183,9 @@ def main():
         # Initialize Gemini
         if GOOGLE_API_KEY:
             genai.configure(api_key=GOOGLE_API_KEY)
-            logger.info("Gemini initialized successfully with grounding support")
+            logger.info("Gemini initialized successfully with GOOGLE_API_KEY")
         else:
-            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur grounding tidak akan berfungsi")
+            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur tidak akan berfungsi")
 
         # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
