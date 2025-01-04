@@ -146,18 +146,24 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
 def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
     # Hitung jumlah pesan
     num_messages = len(messages)
+    logger.info(f"Jumlah pesan dalam percakapan: {num_messages}")
 
     # Cek kata kunci tertentu untuk menentukan kompleksitas
     for message in messages:
         if any(keyword in message['content'].lower() for keyword in complex_keywords):
+            logger.info(f"Kata kunci kompleks ditemukan: {message['content']}")
+            logger.info("Kompleksitas ditingkatkan ke: complex (karena kata kunci kompleks).")
             return "complex"
 
     # Tentukan kompleksitas berdasarkan jumlah pesan
     if num_messages > 15:
+        logger.info("Kompleksitas ditingkatkan ke: complex (jumlah pesan > 15).")
         return "complex"
     elif num_messages > 5:
+        logger.info("Kompleksitas ditingkatkan ke: medium (jumlah pesan > 5).")
         return "medium"
     else:
+        logger.info("Kompleksitas tetap: simple (jumlah pesan <= 5).")
         return "simple"
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
