@@ -1015,7 +1015,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             return True
 
         # Reset jika pesan mengandung kata kunci awal percakapan
-        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', terimakasih']
+        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih']
         starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
         if starts_with_keyword:
             return True
