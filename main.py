@@ -905,7 +905,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Lanjutkan pemrosesan pesan biasa
             await handle_text(update, context, sanitized_text)
         else:
-            logger.info("Pesan di grup tanpa mention atau reply yang valid diabaikan.")
+            logger.info(f"Pesan di grup tanpa mention atau reply yang valid diabaikan: {message_text}")
 
 
 async def initialize_session(chat_id: int) -> None:
