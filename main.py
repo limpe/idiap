@@ -15,7 +15,6 @@ import re
 import bleach
 
 from deep_translator import GoogleTranslator
-from googletrans import Translator
 from keywords import complex_keywords
 from collections import Counter
 from typing import Optional, List, Dict
@@ -225,8 +224,6 @@ async def check_rate_limit(user_id: int) -> bool:
     redis_client.incr(key)
     redis_client.expire(key, 60)
     return True
-
-translator = Translator()
 
 async def translate_to_english(text: str) -> str:
     """
