@@ -1144,6 +1144,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         processing_msg = await update.message.reply_text("Sedang membuat gambar...")
 
         try:
+            # Generate gambar dengan prompt yang sudah diterjemahkan ke Bahasa Inggris
             image_data = await generate_image(update, prompt)
             if image_data:
                 # Convert base64 to image
