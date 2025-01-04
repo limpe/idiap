@@ -1085,7 +1085,15 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
         
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+async def update_session(chat_id: int, message: Dict[str, str], user_id: int) -> None:
+    """
+    Memperbarui sesi percakapan di Redis.
+
+    Args:
+        chat_id (int): ID chat pengguna.
+        message (Dict[str, str]): Pesan yang akan ditambahkan ke sesi.
+        user_id (int): ID pengguna yang mengirim pesan.
+    """
     try:
         logger.info(f"Memulai pembaruan sesi untuk chat_id {chat_id}")
         session_json = redis_client.get(f"session:{chat_id}")
@@ -1104,8 +1112,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         # Perbarui last_update
         session['last_update'] = datetime.now().timestamp()
 
-        # Tentukan kompleksitas percakapan
-        complexity = determine_conversation_complexity(session['messages'])
+        # Tentukan kompleksitas percakapan berdasarkan pengirim pesan
+        complexity = determine_conversation_complexity(session['messages'], user_id)
         logger.info(f"Kompleksitas percakapan: {complexity}")
 
         # Dapatkan batas pesan berdasarkan kompleksitas
@@ -1190,11 +1198,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text, "user_id": user_id})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text, "user_id": user_id})
-
-    # Tentukan kompleksitas percakapan berdasarkan pengirim pesan
-    complexity = determine_conversation_complexity(session['messages'], user_id)
-    logger.info(f"Kompleksitas percakapan untuk pengguna {user_id}: {complexity}")
+    await update_session(chat_id, {"role": "user", "content": sanitized_text, "user_id": user_id}, user_id)
 
     # Proses pesan dengan konteks cerdas
     try:
@@ -1206,7 +1210,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
             # Tambahkan respons asisten ke sesi
             session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+            await update_session(chat_id, {"role": "assistant", "content": filtered_response}, user_id)
 
             # Pecah respons jika terlalu panjang
             response_parts = split_message(filtered_response)
