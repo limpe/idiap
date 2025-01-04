@@ -1078,6 +1078,12 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
+
+async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /reset"""
+    chat_id = update.message.chat_id
+    redis_client.delete(f"session:{chat_id}")  # Hapus sesi dari Redis
+    await update.message.reply_text("Sesi percakapan Anda telah direset.")
         
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     try:
