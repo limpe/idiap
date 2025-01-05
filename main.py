@@ -150,7 +150,7 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> s
     Menentukan kompleksitas percakapan berdasarkan input pengguna.
     """
     # Ambil hanya pesan dari pengguna (role 'user')
-    user_messages = [msg['content'] for msg in messages if msg.get('role') == 'user']
+    user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
     
     # Gabungkan semua pesan pengguna menjadi satu teks
     user_text = " ".join(user_messages).lower()
@@ -175,7 +175,6 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> s
     else:
         logger.info("Kompleksitas tetap: simple (jumlah pesan pengguna <= 5).")
         return "simple"
-
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
