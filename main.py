@@ -685,7 +685,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Proses pesan suara menjadi teks
             text = await process_voice_to_text(update)
             if text:
-                await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{text}")
+                # Pecah teks hasil transkripsi jika terlalu panjang
+                text_parts = split_message(text)
+                for part in text_parts:
+                    await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{part}")
 
                 # Ambil sesi dari Redis
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
@@ -704,7 +707,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     # Filter dan kirim respons
                     filtered_response = await filter_text(response)
-                    await update.message.reply_text(filtered_response)
+                    response_parts = split_message(filtered_response)
+                    for part in response_parts:
+                        await update.message.reply_text(part)
                     await send_voice_response(update, filtered_response)
             else:
                 await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
