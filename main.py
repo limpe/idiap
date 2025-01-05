@@ -101,6 +101,7 @@ MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
+client = Together()
 
 # Statistik penggunaan
 bot_statistics = {
@@ -257,43 +258,37 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         english_prompt = await translate_to_english(prompt)
         logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
 
-        # Panggil API untuk menghasilkan gambar
-        headers = {
-            "Authorization": f"Bearer {TOGETHER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "black-forest-labs/FLUX.1-schnell-Free",
-            "prompt": english_prompt,
-            "width": 1440,
-            "height": 960,
-            "steps": 4,
-            "samples": 1,
-            "cfg_scale": 7.5,
-            "n": 1,
-        }
+        # Inisialisasi Together client
+        client = Together()
+        
+        try:
+            # Generate gambar menggunakan Together API
+            response = client.images.generate(
+                prompt=english_prompt,
+                model="black-forest-labs/FLUX.1-schnell-Free",
+                width=1440,
+                height=960,
+                steps=4,
+                n=1,
+                response_format="b64_json"
+            )
+            
+            # Ambil base64 string dari response
+            if response and hasattr(response, 'data') and len(response.data) > 0:
+                return response.data[0].b64_json
+            
+            logger.error("No image data in response")
+            return None
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.together.xyz/inference",
-                headers=headers,
-                json=data,
-                timeout=60
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Error generating image: {error_text}")
-                    return None
-
-                result = await response.json()
-                if 'output' in result and 'data' in result['output']:
-                    return result['output']['data']
-                return None
+        except Exception as api_error:
+            logger.error(f"Together API error: {str(api_error)}")
+            return None
 
     except Exception as e:
         logger.exception("Error in generate_image")
         return None
 
+# Langkah 3: Update fungsi handle_generate_image
 async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Cek apakah ini di grup dan ada mention ke bot
