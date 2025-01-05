@@ -431,7 +431,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         logger.exception("Error in processing with Gemini")
         return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
 
-
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
         base64_image = await encode_image(image_path)
@@ -691,9 +690,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 session['messages'].append({"role": "user", "content": text})
                 await update_session(chat_id, {"role": "user", "content": text})
 
-                # Proses pesan dengan Mistral
-                mistral_messages = session['messages'][-50:]
-                response = await process_with_mistral(mistral_messages)
+                # Proses pesan dengan Gemini
+                response = await process_with_gemini(session['messages'])
 
                 if response:
                     # Tambahkan respons asisten ke sesi
@@ -1155,7 +1153,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         })
 
     try:
-        response = await process_with_smart_context(session['messages'][-10:])
+        response = await process_with_gemini(session['messages'])
         
         if response:
             filtered_response = await filter_text(response)
