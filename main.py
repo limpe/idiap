@@ -142,29 +142,37 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     # Tambahkan sisa teks
     parts.append(text)
     return parts
-
 def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
-    # Hitung jumlah pesan
-    num_messages = len(messages)
-    logger.info(f"Jumlah pesan dalam percakapan: {num_messages}")
-
-    # Cek kata kunci tertentu untuk menentukan kompleksitas
-    for message in messages:
-        if any(keyword in message['content'].lower() for keyword in complex_keywords):
-            logger.info(f"Kata kunci kompleks ditemukan: {message['content']}")
-            logger.info("Kompleksitas ditingkatkan ke: complex (karena kata kunci kompleks).")
-            return "complex"
-
-    # Tentukan kompleksitas berdasarkan jumlah pesan
-    if num_messages > 15:
-        logger.info("Kompleksitas ditingkatkan ke: complex (jumlah pesan > 15).")
+    """
+    Menentukan kompleksitas percakapan berdasarkan input pengguna.
+    """
+    # Ambil hanya pesan dari pengguna (role 'user')
+    user_messages = [msg['content'] for msg in messages if msg.get('role') == 'user']
+    
+    # Gabungkan semua pesan pengguna menjadi satu teks
+    user_text = " ".join(user_messages).lower()
+    
+    # Cek kata kunci kompleks dalam input pengguna
+    if any(keyword in user_text for keyword in complex_keywords):
+        logger.info(f"Kata kunci kompleks ditemukan dalam input pengguna: {user_text}")
+        logger.info("Kompleksitas ditingkatkan ke: complex (karena kata kunci kompleks).")
         return "complex"
-    elif num_messages > 5:
-        logger.info("Kompleksitas ditingkatkan ke: medium (jumlah pesan > 5).")
+    
+    # Hitung jumlah pesan pengguna
+    num_user_messages = len(user_messages)
+    logger.info(f"Jumlah pesan pengguna dalam percakapan: {num_user_messages}")
+    
+    # Tentukan kompleksitas berdasarkan jumlah pesan pengguna
+    if num_user_messages > 15:
+        logger.info("Kompleksitas ditingkatkan ke: complex (jumlah pesan pengguna > 15).")
+        return "complex"
+    elif num_user_messages > 5:
+        logger.info("Kompleksitas ditingkatkan ke: medium (jumlah pesan pengguna > 5).")
         return "medium"
     else:
-        logger.info("Kompleksitas tetap: simple (jumlah pesan <= 5).")
+        logger.info("Kompleksitas tetap: simple (jumlah pesan pengguna <= 5).")
         return "simple"
+
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -348,14 +356,14 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tentukan kompleksitas percakapan
+        # Tentukan kompleksitas percakapan berdasarkan input pengguna
         complexity = determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
         if complexity == "simple":
             system_message = {
                 "role": "user",  # Gunakan role 'user' karena 'system' tidak didukung
-                "parts": [{"text": "Selalu berikan respons singkat dan jelas dalam Bahasa Indonesia."}]
+                "parts": [{"text": "Berikan respons singkat dan jelas dalam Bahasa Indonesia."}]
             }
         elif complexity == "medium":
             system_message = {
@@ -1024,7 +1032,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tentukan kompleksitas percakapan
+        # Tentukan kompleksitas percakapan berdasarkan input pengguna
         complexity = determine_conversation_complexity(messages)
         
         # Coba Gemini
