@@ -348,25 +348,35 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Hapus pesan dengan role 'system' karena tidak didukung oleh Gemini API
-        messages = [msg for msg in messages if msg.get('role') != 'system']
-
-        # Tambahkan instruksi sistem dalam Bahasa Indonesia
-        system_message = {
-            "role": "user",  # Gunakan role 'user' karena 'system' tidak didukung
-            "parts": [{"text": "Selalu berikan respons dalam Bahasa Indonesia yang jelas dan mudah dipahami."}]
-        }
+        # Tentukan kompleksitas percakapan
+        complexity = determine_conversation_complexity(messages)
+        
+        # Tambahkan instruksi sistem berdasarkan kompleksitas
+        if complexity == "simple":
+            system_message = {
+                "role": "user",  # Gunakan role 'user' karena 'system' tidak didukung
+                "parts": [{"text": "Selalu berikan respons singkat dan jelas dalam Bahasa Indonesia."}]
+            }
+        elif complexity == "medium":
+            system_message = {
+                "role": "user",
+                "parts": [{"text": "Berikan respons yang lebih detail dalam Bahasa Indonesia, namun tetap mudah dipahami."}]
+            }
+        elif complexity == "complex":
+            system_message = {
+                "role": "user",
+                "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
+            }
+        
+        # Sisipkan instruksi sistem di awal pesan
         messages.insert(0, system_message)
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
-            # Pastikan pesan memiliki format yang benar
             if 'parts' in msg and isinstance(msg['parts'], list):
-                # Jika parts sudah dalam format yang benar, langsung tambahkan
                 gemini_messages.append(msg)
             elif 'content' in msg:
-                # Jika menggunakan format lama (content), konversi ke format Gemini
                 gemini_messages.append({
                     "role": msg['role'],
                     "parts": [{"text": msg['content']}]
@@ -391,12 +401,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Kembalikan teks respons
         return response.text
 
-    except Exception as e:  # Penanganan exception yang lebih umum
-        logger.error(f"API Error: {str(e)}")
-        return "Maaf, terjadi kesalahan saat menghubungi server Gemini. Mohon coba lagi nanti."
-    except asyncio.TimeoutError:
-        logger.error("Timeout saat memproses dengan Gemini.")
-        return "Maaf, proses memakan waktu terlalu lama. Mohon coba lagi nanti."
     except Exception as e:
         logger.exception("Error in processing with Gemini")
         return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
@@ -1020,6 +1024,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
+        # Tentukan kompleksitas percakapan
+        complexity = determine_conversation_complexity(messages)
+        
         # Coba Gemini
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
