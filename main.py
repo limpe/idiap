@@ -247,23 +247,53 @@ async def translate_to_english(text: str) -> str:
         logger.error(f"Error translating text to English: {str(e)}")
         return text  # Kembalikan teks asli jika terjemahan gagal
 
-async def generate_image(update: Update, prompt: str) -> Optional[str]:
-    """
-    Generate gambar berdasarkan prompt.
-    Prompt akan diterjemahkan ke Bahasa Inggris sebelum dikirim ke API.
-    """
-    # Terjemahkan prompt ke Bahasa Inggris (dengan await)
-    english_prompt = await translate_to_english(prompt)
-    logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
-
+async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # Cek apakah ini di grup dan ada mention ke bot
+        if update.message.chat.type in ["group", "supergroup"]:
+            if not f"@{context.bot.username}" in update.message.text:
+                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
+                return  # Abaikan jika tidak ada mention di grup
+
+        # Ambil prompt dari pesan pengguna
+        prompt = " ".join(context.args)  # Gabungkan semua argumen setelah /gambar
+        if not prompt:
+            await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
+            return
+
+        # Kirim pesan "Sedang memproses..."
+        processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
+
+        # Panggil fungsi untuk menghasilkan gambar
+        image_url = await generate_image(update, prompt)
+
+        if image_url:
+            # Kirim gambar ke pengguna
+            await update.message.reply_photo(image_url)
+        else:
+            await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
+
+        # Hapus pesan "Sedang memproses..."
+        await processing_msg.delete()
+
+    except Exception as e:
+        logger.error(f"Error dalam handle_generate_image: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
+
+async def generate_image(update: Update, prompt: str) -> Optional[str]:
+    try:
+        # Terjemahkan prompt ke Bahasa Inggris (jika diperlukan)
+        english_prompt = await translate_to_english(prompt)
+        logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
+
+        # Panggil API untuk menghasilkan gambar
         headers = {
             "Authorization": f"Bearer {TOGETHER_API_KEY}",
             "Content-Type": "application/json"
         }
         data = {
             "model": "black-forest-labs/FLUX.1-schnell-Free",
-            "prompt": english_prompt,  # Gunakan prompt yang sudah diterjemahkan
+            "prompt": english_prompt,
             "width": 1440,
             "height": 960,
             "steps": 4,
@@ -292,48 +322,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 
     except Exception as e:
         logger.exception("Error in generate_image")
-        return None
-
-        # Generate respons dengan grounding
-        response = model.generate_content(
-            contents=[{"parts": [{"text": last_message}]}],
-            tools=[{"name": "google_search_retrieval"}],
-            generation_config={
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 40,
-            }
-        )
-        logger.info(f"Struktur lengkap respons Gemini: {response}")  # Log struktur respons
-
-        # Ekstrak teks utama
-        main_response = response.text
-        logger.info(f"Teks utama dari respons: {main_response}")
-
-        # Ekstrak sumber pencarian (grounding)
-        sources = []
-        if hasattr(response, 'search_queries'):
-            logger.info("Search queries ditemukan di respons.")
-            for query in response.search_queries:
-                if hasattr(query, 'results'):
-                    logger.info(f"Hasil pencarian ditemukan untuk query: {query}")
-                    for result in query.results:
-                        sources.append(f"Sumber: {result.title} - {result.snippet} - {result.url}")
-                        logger.info(f"Menambahkan sumber: {result.title} - {result.url}")
-        else:
-            logger.warning("Tidak ada search queries di respons.")
-
-        # Gabungkan teks utama dengan sumber (jika ada)
-        final_response = main_response
-        if sources:
-            final_response += "\n\nReferensi:\n" + "\n".join(sources)
-            logger.info(f"Final response dengan grounding: {final_response}")
-        else:
-            logger.info("Tidak ada sumber yang ditemukan, hanya mengembalikan teks utama.")
-
-        return final_response
-    except Exception as e:
-        logger.exception("Error dalam pemrosesan Gemini Grounded")
         return None
 
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
@@ -743,7 +731,7 @@ async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
                 if response.status == 200:
                     result = await response.json()
                     if result and isinstance(result, list) and len(result) > 0:
-                        return f"https://telegra.ph{result[0]['src']}"
+                        return f"https://telegra.ph{result[0]['src']}"f
                     else:
                         logger.error(f"Invalid response from Telegraph: {result}")
                 else:
@@ -930,7 +918,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Cek apakah pesan mengandung perintah /gambar atau /image
             if sanitized_text.lower().startswith(('/gambar', '/image')):
-                await handle_text(update, context, sanitized_text)
+                await handle_generate_image(update, context)  # Panggil handler untuk /gambar
                 return
 
             # Lanjutkan pemrosesan pesan biasa
@@ -966,7 +954,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(part)
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
-
+            
 
 async def initialize_session(chat_id: int) -> None:
     """Inisialisasi sesi baru di Redis"""
@@ -1191,10 +1179,11 @@ def main():
         # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))  # Gunakan reset_session yang sudah didefinisikan
+        application.add_handler(CommandHandler("reset", reset_session))
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("gambar", handle_generate_image))  # Tambahkan handler untuk /gambar
 
         # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
