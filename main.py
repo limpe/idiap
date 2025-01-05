@@ -286,10 +286,6 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
         if processing_msg:
             await processing_msg.delete()
 
-    except Exception as e:
-        logger.error(f"Error dalam handle_generate_image: {e}")
-        await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
-
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
     try:
         # Terjemahkan prompt ke Bahasa Inggris (jika diperlukan)
