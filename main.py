@@ -936,7 +936,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for part in response_parts:
                     await update.message.reply_text(part)
         else:
-            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")f
+            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
 
 async def initialize_session(chat_id: int) -> None:
