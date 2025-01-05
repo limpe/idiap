@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
-from stopwords import STOP_WORDS
+from stopwords import stop_words
 from google.generativeai.types import generation_types
 
 
