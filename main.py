@@ -326,32 +326,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error dalam pemrosesan Gemini Grounded")
         return None
 
-async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
-    try:
-        # Coba Gemini
-        try:
-            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Gemini.")
-                return response
-        except asyncio.TimeoutError:
-            logger.warning("Gemini timeout, beralih ke Mistral.")
-        
-        # Coba Mistral
-        try:
-            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Mistral.")
-                return response
-        except asyncio.TimeoutError:
-            logger.error("Mistral timeout.")
-        
-        logger.error("Semua model gagal memproses pesan.")
-        return None
-    except Exception as e:
-        logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
-        return None
-
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
@@ -884,7 +858,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
-
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk pesan yang di-mention atau reply di grup."""
     chat_type = update.message.chat.type
@@ -1185,11 +1158,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
-        
-async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    redis_client.delete(f"session:{chat_id}")
-    await update.message.reply_text("Sesi percakapan Anda telah direset.")
 
 def main():
     if not check_required_settings():
