@@ -251,43 +251,6 @@ async def translate_to_english(text: str) -> str:
         logger.error(f"Error translating text to English: {str(e)}")
         return text  # Kembalikan teks asli jika terjemahan gagal
 
-async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Cek apakah ini di grup dan ada mention ke bot
-        if update.message.chat.type in ["group", "supergroup"]:
-            if not f"@{context.bot.username}" in update.message.text:
-                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
-                return  # Abaikan jika tidak ada mention di grup
-
-        # Ambil prompt dari pesan pengguna
-        prompt = " ".join(context.args)  # Gabungkan semua argumen setelah /gambar
-        if not prompt:
-            await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
-            return
-
-        # Kirim pesan "Sedang memproses..."
-        processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
-
-        try:
-            # Panggil fungsi untuk menghasilkan gambar
-            image_url = await generate_image(update, prompt)
-
-            if image_url:
-                # Kirim gambar ke pengguna
-                await update.message.reply_photo(image_url)
-            else:
-                await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
-        except Exception as e:
-            logger.error(f"Error saat menghasilkan gambar: {e}")
-            await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
-    except Exception as e:
-        logger.error(f"Error dalam handle_generate_image: {e}")
-        await update.message.reply_text("Terjadi kesalahan dalam pemrosesan gambar.")
-    finally:
-        # Hapus pesan "Sedang memproses..."
-        if processing_msg:
-            await processing_msg.delete()
-
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
     try:
         # Terjemahkan prompt ke Bahasa Inggris (jika diperlukan)
@@ -300,20 +263,19 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "black-forest-labs/FLUX.1-schnell-Free",
+            "model": "stabilityai/stable-diffusion-2-1",
             "prompt": english_prompt,
-            "width": 1440,
-            "height": 960,
-            "steps": 4,
+            "width": 1024,
+            "height": 1024,
+            "steps": 20,
             "samples": 1,
             "cfg_scale": 7.5,
             "n": 1,
-            "response_format": "b64_json"
         }
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.together.xyz/v1/images/generations",
+                "https://api.together.xyz/inference",
                 headers=headers,
                 json=data,
                 timeout=60
@@ -324,13 +286,58 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
                     return None
 
                 result = await response.json()
-                if 'data' in result and len(result['data']) > 0:
-                    return result['data'][0]['b64_json']
+                if 'output' in result and 'data' in result['output']:
+                    return result['output']['data']
                 return None
 
     except Exception as e:
         logger.exception("Error in generate_image")
         return None
+
+async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Cek apakah ini di grup dan ada mention ke bot
+        if update.message.chat.type in ["group", "supergroup"]:
+            if not f"@{context.bot.username}" in update.message.text:
+                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
+                return
+
+        # Ambil prompt dari pesan pengguna
+        prompt = " ".join(context.args)  # Gabungkan semua argumen setelah /gambar
+        if not prompt:
+            await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
+            return
+
+        # Kirim pesan "Sedang memproses..."
+        processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
+
+        try:
+            # Panggil fungsi untuk menghasilkan gambar
+            image_data = await generate_image(update, prompt)
+
+            if image_data:
+                # Decode base64 string ke bytes
+                image_bytes = base64.b64decode(image_data)
+                # Kirim gambar menggunakan BytesIO
+                with BytesIO(image_bytes) as bio:
+                    bio.seek(0)
+                    await update.message.reply_photo(photo=bio)
+            else:
+                await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
+
+        except telegram.error.BadRequest as e:
+            logger.error(f"Telegram BadRequest error: {e}")
+            await update.message.reply_text("Format gambar tidak valid.")
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            await update.message.reply_text("Terjadi kesalahan saat mengirim gambar.")
+
+        # Hapus pesan "Sedang memproses..."
+        await processing_msg.delete()
+
+    except Exception as e:
+        logger.error(f"Error dalam handle_generate_image: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
 
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
