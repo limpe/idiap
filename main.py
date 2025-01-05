@@ -291,23 +291,28 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 # Langkah 3: Update fungsi handle_generate_image
 async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Cek apakah ini di grup
-        if update.message.chat.type in ["group", "supergroup"]:
-            # Cek mention di text atau caption
-            message_text = update.message.text or update.message.caption or ""
-            bot_username = context.bot.username.lower()  # Username bot dalam lowercase
-
-            # Cek apakah mention ada di pesan (case-insensitive)
-            if not f"@{bot_username}" in message_text.lower():
+        # Pisahkan command dan pesan
+        message_text = update.message.text or ""
+        is_group = update.message.chat.type in ["group", "supergroup"]
+        bot_username = context.bot.username.lower()
+        
+        # Penanganan untuk grup
+        if is_group:
+            # Cek apakah ada mention bot
+            if f"@{bot_username}" not in message_text.lower():
                 logger.info(f"Pesan di grup tanpa mention yang valid diabaikan. Pesan: {message_text}")
-                return  # Keluar dari fungsi jika tidak ada mention
+                return
 
-        # Ambil prompt dari pesan pengguna
-        args = context.args if context.args is not None else []  # Pastikan args tidak None
-        prompt = " ".join(args)  # Gabungkan semua argumen setelah /gambar
+            # Hapus mention bot dari pesan
+            message_text = message_text.replace(f"@{bot_username}", "").strip()
+        
+        # Ekstrak prompt dari pesan
+        # Hapus command /gambar atau /image dari awal pesan
+        prompt = re.sub(r'^/(?:gambar|image)\s*', '', message_text).strip()
+        
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
-            return  # Keluar dari fungsi jika tidak ada prompt
+            return
 
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
@@ -326,15 +331,9 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                 await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
 
-        except telegram.error.BadRequest as e:
-            logger.error(f"Telegram BadRequest error: {e}")
-            await update.message.reply_text("Format gambar tidak valid.")
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            await update.message.reply_text("Terjadi kesalahan saat mengirim gambar.")
-
-        # Hapus pesan "Sedang memproses..."
-        await processing_msg.delete()
+        finally:
+            # Hapus pesan "Sedang memproses..."
+            await processing_msg.delete()
 
     except Exception as e:
         logger.error(f"Error dalam handle_generate_image: {e}")
