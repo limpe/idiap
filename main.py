@@ -142,7 +142,8 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     # Tambahkan sisa teks
     parts.append(text)
     return parts
-def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
+    
+async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
     """
     Menentukan kompleksitas percakapan berdasarkan input pengguna.
     """
@@ -357,7 +358,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
-        complexity = determine_conversation_complexity(messages)
+        complexity = await determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
         if complexity == "simple":
@@ -1113,7 +1114,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
-        complexity = determine_conversation_complexity(session['messages'])
+        complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
@@ -1228,6 +1229,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
+    # Reset konteks jika diperlukan
+    if await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
@@ -1241,7 +1247,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Proses pesan dengan konteks cerdas
     try:
-        response = await process_with_smart_context(session['messages'][-10:])
+        response = await process_with_gemini(session['messages'][-10:])
         
         if response:
             # Filter hasil respons sebelum dikirim ke pengguna
