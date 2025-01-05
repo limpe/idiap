@@ -880,40 +880,58 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
+    chat_type = update.message.chat.type
     message_text = update.message.text or update.message.caption or ""
 
-    # Cek apakah pesan adalah mention atau reply ke bot
-    if f'@{context.bot.username}' in message_text:
-        message_text = message_text.replace(f'@{context.bot.username}', '').strip()
-    elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
-        message_text = message_text.strip()
-    else:
-        return  # Abaikan jika bukan mention atau reply ke bot
+    # Hanya proses jika di grup dan ada mention atau reply ke bot
+    if chat_type in ["group", "supergroup"]:
+        should_process = False
 
-    # Periksa apakah sesi sudah ada di Redis
-    if not redis_client.exists(f"session:{chat_id}"):
-        await initialize_session(chat_id)
+        # Cek mention
+        if f'@{context.bot.username}' in message_text:
+            message_text = message_text.replace(f'@{context.bot.username}', '').strip()
+            should_process = True
 
-    # Ambil sesi dari Redis
-    session = json.loads(redis_client.get(f"session:{chat_id}"))
+        # Cek reply
+        elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+            should_process = True
 
-    # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": message_text})
-    await update_session(chat_id, {"role": "user", "content": message_text})
+        if should_process and message_text:
+            # Sanitasi input teks
+            sanitized_text = sanitize_input(message_text)
 
-    # Proses pesan dengan konteks cerdas
-    response = await process_with_smart_context(session['messages'][-10:])  # Ambil 10 pesan terakhir
+            # Periksa apakah sesi sudah ada di Redis
+            if not redis_client.exists(f"session:{chat_id}"):
+                await initialize_session(chat_id)
 
-    if response:
-        # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": response})
-        await update_session(chat_id, {"role": "assistant", "content": response})
+            # Ambil sesi dari Redis
+            session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-        # Kirim respons ke pengguna
-        response_parts = split_message(response)
-        for part in response_parts:
-            await update.message.reply_text(part)
+            # Reset konteks jika diperlukan
+            if await should_reset_context(chat_id, sanitized_text):
+                await initialize_session(chat_id)
+
+            # Tambahkan pesan pengguna ke sesi
+            session['messages'].append({"role": "user", "content": sanitized_text})
+            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+
+            # Proses pesan dengan konteks cerdas
+            response = await process_with_smart_context(session['messages'][-10:])  # Ambil 10 pesan terakhir
+
+            if response:
+                # Filter hasil respons
+                filtered_response = await filter_text(response)
+
+                # Tambahkan respons asisten ke sesi
+                session['messages'].append({"role": "assistant", "content": filtered_response})
+                await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+
+                # Kirim respons ke pengguna
+                response_parts = split_message(filtered_response)
+                for part in response_parts:
+                    await update.message.reply_text(part)
+        else:
+            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
 
 
 async def initialize_session(chat_id: int) -> None:
@@ -930,6 +948,27 @@ async def initialize_session(chat_id: int) -> None:
     except redis.RedisError as e:
         logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal menginisialisasi sesi.")
+
+async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    """Perbarui sesi di Redis"""
+    try:
+        session_json = redis_client.get(f"session:{chat_id}")
+        if session_json:
+            session = json.loads(session_json)
+        else:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+
+        # Tambahkan pesan baru ke sesi
+        session['messages'].append(message)
+        session['last_update'] = datetime.now().timestamp()
+
+        # Simpan sesi ke Redis dan atur TTL
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    except redis.RedisError as e:
+        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
+        raise Exception("Gagal memperbarui sesi.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     """Perbarui sesi di Redis"""
@@ -1041,7 +1080,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
 
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']): # Sekarang akan menggunakan threshold=2 secara default
+            if not is_same_topic(last_message, message, session['messages']):
                 logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
                 return True
 
