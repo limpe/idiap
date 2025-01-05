@@ -1034,7 +1034,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
-        complexity = determine_conversation_complexity(messages)
+        complexity = await determine_conversation_complexity(messages)  # Tambahkan await di sini
         
         # Coba Gemini
         try:
@@ -1114,6 +1114,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
+        # Tambahkan await di sini
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
@@ -1247,7 +1248,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Proses pesan dengan konteks cerdas
     try:
-        response = await process_with_gemini(session['messages'][-10:])
+        response = await process_with_smart_context(session['messages'][-10:])  # Pastikan ada await di sini
         
         if response:
             # Filter hasil respons sebelum dikirim ke pengguna
