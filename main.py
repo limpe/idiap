@@ -845,7 +845,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "role": "assistant",
                     "content": filtered_result
                 })
-                session['last_image_analysis'] = filtered_result
+                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
                 await update_session(chat_id, {"role": "assistant", "content": filtered_result})
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
@@ -1192,6 +1192,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
+
+    # Jika ada hasil analisis gambar terakhir, tambahkan ke konteks
+    if 'last_image_analysis' in session:
+        session['messages'].append({
+            "role": "assistant",
+            "content": session['last_image_analysis']
+        })
 
     # Proses pesan dengan konteks cerdas
     try:
