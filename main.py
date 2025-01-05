@@ -1058,50 +1058,6 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
-
-def main():
-    if not check_required_settings():
-        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
-        return
-
-    try:
-        # Initialize Gemini
-        if GOOGLE_API_KEY:
-            genai.configure(api_key=GOOGLE_API_KEY)
-            logger.info("Gemini initialized successfully with GOOGLE_API_KEY")
-        else:
-            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur tidak akan berfungsi")
-
-        # Initialize application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))  # Gunakan reset_session yang sudah didefinisikan
-        application.add_handler(CommandHandler("carigambar", search_image_command))
-        application.add_handler(CommandHandler("ingatkan", set_reminder))
-        application.add_handler(CommandHandler("help", help_command))
-
-        # Message handlers
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
-        ))
-        application.add_handler(MessageHandler(
-            filters.TEXT & filters.ChatType.PRIVATE,
-            handle_message
-        ))
-
-        # Run bot
-        application.run_polling()
-
-    except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        raise
         
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     try:
@@ -1240,7 +1196,7 @@ def main():
         # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", update_session))
+        application.add_handler(CommandHandler("reset", reset_session))  # Gunakan reset_session yang sudah didefinisikan
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
