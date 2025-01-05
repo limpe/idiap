@@ -1,13 +1,14 @@
 complex_keywords = [
     # Kategori Umum
-    "contoh", "penjelasan", "panduan", "penyebab", "solusi", "cara", "tips", "trik", 
+    "penjelasan", "panduan", "penyebab", "solusi", "cara", "tips", "trik", 
     "manfaat", "fungsi", "arti", "definisi", "pengertian", "referensi", "apa itu", 
-    "kenapa", "bagaimana", "petunjuk", "strategi", "praktis", "efektif", "efisien", 
+    "bagaimana", "petunjuk", "strategi", "praktis", "efektif", "efisien", 
     "mudah", "alternatif", "langkah-langkah", "studi kasus", "analisis", "pendekatan", 
-    "tahapan", "proses", "progres", "kemajuan", "diagram", "ilustrasi", "penyelesaian", 
+    "tahapan", "proses", "progres", "kemajuan", "diagram", "ilustrasi", "penyelesaian",
+    "kurang paham"
 
     # Kategori Masalah dan Solusi
-    "masalah", "error", "penyebab utama", "hambatan", "tantangan", "resiko", "perbaikan",
+    "apa yang dimaksud", "error", "penyebab utama", "hambatan", "tantangan", "resiko", "perbaikan",
     "pemecahan masalah", "penyesuaian", "koreksi", "solusi cepat", "diagnosis", "kesalahan",
     "troubleshooting", "repair", "fix", "debugging", "pemulihan", "pengembangan solusi",
     "penyelesaian masalah", "penghapusan error", "pengoptimalan", "pencegahan", "resolusi",
