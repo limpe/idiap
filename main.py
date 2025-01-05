@@ -291,18 +291,23 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
 # Langkah 3: Update fungsi handle_generate_image
 async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Cek apakah ini di grup dan ada mention ke bot
+        # Cek apakah ini di grup
         if update.message.chat.type in ["group", "supergroup"]:
-            if not f"@{context.bot.username}" in update.message.text:
-            logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
-            return
+            # Cek mention di text atau caption
+            message_text = update.message.text or update.message.caption or ""
+            bot_username = context.bot.username.lower()
+            
+            # Cek apakah mention ada di pesan
+            if not f"@{bot_username}" in message_text.lower():
+                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
+                return  # Keluar dari fungsi jika tidak ada mention
 
         # Ambil prompt dari pesan pengguna
         args = context.args if context.args is not None else []  # Pastikan args tidak None
         prompt = " ".join(args)  # Gabungkan semua argumen setelah /gambar
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
-            return
+            return  # Keluar dari fungsi jika tidak ada prompt
 
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
