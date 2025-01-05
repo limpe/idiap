@@ -400,9 +400,17 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Kirim pesan terakhir ke Gemini
         last_message = messages[-1]
         if 'content' in last_message:
-            response = chat.send_message({"text": last_message['content']})
+            try:
+                response = chat.send_message({"text": last_message['content']})
+            except generation_types.StopCandidateException as e:
+                logger.error(f"Error RECITATION: {e}")
+                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
         elif 'parts' in last_message:
-            response = chat.send_message(last_message['parts'][0]['text'])
+            try:
+                response = chat.send_message(last_message['parts'][0]['text'])
+            except generation_types.StopCandidateException as e:
+                logger.error(f"Error RECITATION: {e}")
+                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
         else:
             logger.error("Format pesan terakhir tidak valid")
             return "Maaf, format pesan tidak valid."
@@ -1033,19 +1041,18 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tentukan kompleksitas percakapan berdasarkan input pengguna
-        complexity = await determine_conversation_complexity(messages)  # Tambahkan await di sini
-        
-        # Coba Gemini
+        # Coba Gemini terlebih dahulu
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
                 logger.info("Menggunakan respons dari Gemini.")
                 return response
+        except generation_types.StopCandidateException as e:
+            logger.error(f"Gemini RECITATION error: {e}")
         except asyncio.TimeoutError:
             logger.warning("Gemini timeout, beralih ke Mistral.")
         
-        # Coba Mistral
+        # Jika Gemini gagal, coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
             if response:
