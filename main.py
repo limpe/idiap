@@ -298,7 +298,8 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
                 return
 
         # Ambil prompt dari pesan pengguna
-        prompt = " ".join(context.args)  # Gabungkan semua argumen setelah /gambar
+        args = context.args if context.args is not None else []  # Pastikan args tidak None
+        prompt = " ".join(args)  # Gabungkan semua argumen setelah /gambar
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
             return
