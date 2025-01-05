@@ -731,7 +731,7 @@ async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
                 if response.status == 200:
                     result = await response.json()
                     if result and isinstance(result, list) and len(result) > 0:
-                        return f"https://telegra.ph{result[0]['src']}"f
+                        return f"https://telegra.ph{result[0]['src']}"
                     else:
                         logger.error(f"Invalid response from Telegraph: {result}")
                 else:
