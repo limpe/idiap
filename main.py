@@ -349,28 +349,47 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tambahkan instruksi sistem agar respons default dalam Bahasa Indonesia
+        # Hapus pesan dengan role 'system' karena tidak didukung oleh Gemini API
+        messages = [msg for msg in messages if msg.get('role') != 'system']
+
+        # Tambahkan instruksi sistem dalam Bahasa Indonesia
         system_message = {
-            "role": "system",
-            "content": "Pastikan semua respons diberikan cukup jelas dalam Bahasa Indonesia yang mudah dipahami."
+            "role": "user",  # Gunakan role 'user' karena 'system' tidak didukung
+            "parts": [{"text": "Selalu berikan respons dalam Bahasa Indonesia yang jelas dan mudah dipahami."}]
         }
         messages.insert(0, system_message)
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
-            if 'content' not in msg:  # Pengecekan kunci 'content'
+            # Pastikan pesan memiliki format yang benar
+            if 'parts' in msg and isinstance(msg['parts'], list):
+                # Jika parts sudah dalam format yang benar, langsung tambahkan
+                gemini_messages.append(msg)
+            elif 'content' in msg:
+                # Jika menggunakan format lama (content), konversi ke format Gemini
+                gemini_messages.append({
+                    "role": msg['role'],
+                    "parts": [{"text": msg['content']}]
+                })
+            else:
                 logger.error(f"Pesan tidak valid: {msg}")
                 continue
-            gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         
         # Kirim pesan terakhir ke Gemini
-        last_message = "Pastikan respons dalam Bahasa Indonesia. " + messages[-1]['content']
-        response = chat.send_message(last_message)
-        
+        last_message = messages[-1]
+        if 'content' in last_message:
+            response = chat.send_message({"text": last_message['content']})
+        elif 'parts' in last_message:
+            response = chat.send_message(last_message['parts'][0]['text'])
+        else:
+            logger.error("Format pesan terakhir tidak valid")
+            return "Maaf, format pesan tidak valid."
+
+        # Kembalikan teks respons
         return response.text
 
     except Exception as e:  # Penanganan exception yang lebih umum
