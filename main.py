@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
+from stopwords import STOP_WORDS
 from google.generativeai.types import generation_types
 
 
@@ -1038,22 +1039,13 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     # Ekstrak kata-kata dari teks
     words = re.findall(r'\b\w+\b', context_text.lower())
     word_counts = Counter(words)
-    common_words = word_counts.most_common(top_n)
-
-    # Daftar stop words (kata-kata umum yang tidak relevan)
-    stop_words = {
-        "saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah", "nama",
-        "ini", "itu", "untuk", "dengan", "pada", "dalam", "atau", "dari", "ke", "sebuah",
-        "tidak", "bisa", "akan", "jika", "karena", "oleh", "ada", "sudah", "kami", "kita",
-        "mereka", "jadi", "saat", "lagi", "juga", "semua", "lebih", "kurang", "perlu",
-        "hanya", "sangat", "sama", "setiap", "ketika", "bahwa", "dapat", "tetapi",
-        "seperti", "kemudian", "tanpa", "apakah", "siapa", "dimana", "mengapa",
-        "kapan", "dengan", "oleh", "agar", "supaya", "yaitu", "walaupun", "meskipun",
-        "tersebut", "maupun", "namun", "selain", "setelah", "sebelum", "saat", "karena"
-    }
 
     # Filter kata-kata yang relevan (bukan stop words)
-    relevant_keywords = [word for word, count in common_words if word not in stop_words]
+    relevant_keywords = [word for word, count in word_counts.most_common(top_n) if word not in STOP_WORDS]
+    
+    # Log untuk debugging
+    logger.info(f"Extracted relevant keywords: {relevant_keywords}")
+    
     return relevant_keywords
 
 def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
