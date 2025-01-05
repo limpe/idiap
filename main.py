@@ -294,8 +294,8 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
         # Cek apakah ini di grup dan ada mention ke bot
         if update.message.chat.type in ["group", "supergroup"]:
             if not f"@{context.bot.username}" in update.message.text:
-                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
-                return
+            logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
+            return
 
         # Ambil prompt dari pesan pengguna
         args = context.args if context.args is not None else []  # Pastikan args tidak None
