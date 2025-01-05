@@ -359,8 +359,9 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
         for msg in messages:
-            if msg['role'] == 'system':
-                continue  # Skip system messages
+            if 'content' not in msg:  # Pengecekan kunci 'content'
+                logger.error(f"Pesan tidak valid: {msg}")
+                continue
             gemini_messages.append({"role": msg['role'], "parts": [msg['content']]})
 
         # Mulai chat dengan Gemini
@@ -372,7 +373,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         
         return response.text
 
-    except genai.exceptions.APIError as e:
+    except Exception as e:  # Penanganan exception yang lebih umum
         logger.error(f"API Error: {str(e)}")
         return "Maaf, terjadi kesalahan saat menghubungi server Gemini. Mohon coba lagi nanti."
     except asyncio.TimeoutError:
