@@ -1041,7 +1041,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     word_counts = Counter(words)
 
     # Filter kata-kata yang relevan (bukan stop words)
-    relevant_keywords = [word for word, count in word_counts.most_common(top_n) if word not in STOP_WORDS]
+    relevant_keywords = [word for word, count in word_counts.most_common(top_n) if word not in stop_words]
     
     # Log untuk debugging
     logger.info(f"Extracted relevant keywords: {relevant_keywords}")
