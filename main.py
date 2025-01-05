@@ -29,6 +29,8 @@ from datetime import datetime, timedelta
 from together import Together
 from typing import List, Dict
 from typing import Union, Tuple
+from google.generativeai.types import generation_types
+
 
 # Konfigurasi logger
 logging.basicConfig(
