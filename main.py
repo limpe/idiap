@@ -1056,10 +1056,15 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     relevant_keywords = [word for word, count in common_words if word not in stop_words]
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 2) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 0.5) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
+
+    # Log untuk debugging
+    logger.info(f"Last keywords: {last_keywords}")
+    logger.info(f"Current keywords: {current_keywords}")
+    logger.info(f"Common keywords: {common_keywords}")
 
     common_keywords = set(last_keywords) & set(current_keywords)
     return len(common_keywords) >= threshold
