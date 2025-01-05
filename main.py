@@ -266,17 +266,25 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
 
-        # Panggil fungsi untuk menghasilkan gambar
-        image_url = await generate_image(update, prompt)
+        try:
+            # Panggil fungsi untuk menghasilkan gambar
+            image_url = await generate_image(update, prompt)
 
-        if image_url:
-            # Kirim gambar ke pengguna
-            await update.message.reply_photo(image_url)
-        else:
-            await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
-
+            if image_url:
+                # Kirim gambar ke pengguna
+                await update.message.reply_photo(image_url)
+            else:
+                await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
+        except Exception as e:
+            logger.error(f"Error saat menghasilkan gambar: {e}")
+            await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
+    except Exception as e:
+        logger.error(f"Error dalam handle_generate_image: {e}")
+        await update.message.reply_text("Terjadi kesalahan dalam pemrosesan gambar.")
+    finally:
         # Hapus pesan "Sedang memproses..."
-        await processing_msg.delete()
+        if processing_msg:
+            await processing_msg.delete()
 
     except Exception as e:
         logger.error(f"Error dalam handle_generate_image: {e}")
