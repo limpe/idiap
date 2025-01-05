@@ -263,11 +263,11 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "stabilityai/stable-diffusion-2-1",
+            "model": "black-forest-labs/FLUX.1-schnell-Free",
             "prompt": english_prompt,
-            "width": 1024,
-            "height": 1024,
-            "steps": 20,
+            "width": 1440,
+            "height": 960,
+            "steps": 4,
             "samples": 1,
             "cfg_scale": 7.5,
             "n": 1,
