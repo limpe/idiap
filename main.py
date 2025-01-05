@@ -991,6 +991,27 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal memperbarui sesi.")
 
+async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    """Perbarui sesi di Redis"""
+    try:
+        session_json = redis_client.get(f"session:{chat_id}")
+        if session_json:
+            session = json.loads(session_json)
+        else:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+
+        # Tambahkan pesan baru ke sesi
+        session['messages'].append(message)
+        session['last_update'] = datetime.now().timestamp()
+
+        # Simpan sesi ke Redis dan atur TTL
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    except redis.RedisError as e:
+        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
+        raise Exception("Gagal memperbarui sesi.")
+
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
