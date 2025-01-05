@@ -997,48 +997,6 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
         raise Exception("Gagal memperbarui sesi.")
 
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Perbarui sesi di Redis"""
-    try:
-        session_json = redis_client.get(f"session:{chat_id}")
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-
-        # Tambahkan pesan baru ke sesi
-        session['messages'].append(message)
-        session['last_update'] = datetime.now().timestamp()
-
-        # Simpan sesi ke Redis dan atur TTL
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    except redis.RedisError as e:
-        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
-        raise Exception("Gagal memperbarui sesi.")
-
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Perbarui sesi di Redis"""
-    try:
-        session_json = redis_client.get(f"session:{chat_id}")
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-
-        # Tambahkan pesan baru ke sesi
-        session['messages'].append(message)
-        session['last_update'] = datetime.now().timestamp()
-
-        # Simpan sesi ke Redis dan atur TTL
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    except redis.RedisError as e:
-        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
-        raise Exception("Gagal memperbarui sesi.")
-
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
@@ -1122,12 +1080,10 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             return True
 
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip']
-        starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
-        if starts_with_keyword:
+        if any(message.lower().startswith(keyword) for keyword in keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
-        # Tambahkan await di sini
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
@@ -1146,6 +1102,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
 
+
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
     chat_id = update.message.chat_id
@@ -1156,86 +1113,20 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
-        
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    try:
-        session_json = redis_client.get(f"session:{chat_id}")
-        
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-
-        # Tambahkan pesan baru ke sesi
-        session['messages'].append(message)
-
-        # Perbarui last_update
-        session['last_update'] = datetime.now().timestamp()
-
-        # Simpan sesi ke Redis dan atur TTL
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    except redis.RedisError as e:
-        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
-        raise Exception("Gagal memperbarui sesi.")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     if not message_text:
         message_text = update.message.text or ""
 
-    # Membersihkan input teks menggunakan Bleach
     sanitized_text = sanitize_input(message_text)
 
-    # Cek rate limit
     user_id = update.message.from_user.id
     if not await check_rate_limit(user_id):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Handle /gambar command
-    if sanitized_text.lower().startswith(('/gambar', '/image')):
-        # Extract the prompt
-        prompt = sanitized_text.split(' ', 1)[1] if len(sanitized_text.split(' ', 1)) > 1 else None
-
-        if not prompt:
-            await update.message.reply_text("Mohon berikan prompt untuk generate gambar. Contoh: /gambar kucing lucu")
-            return
-
-        processing_msg = await update.message.reply_text("Sedang membuat gambar...")
-
-        try:
-            # Generate gambar dengan prompt yang sudah diterjemahkan ke Bahasa Inggris
-            image_data = await generate_image(update, prompt)
-            if image_data:
-                # Convert base64 to image
-                image_bytes = base64.b64decode(image_data)
-                bio = BytesIO(image_bytes)
-                bio.seek(0)
-
-                # Send the image
-                await update.message.reply_photo(
-                    photo=bio,
-                    caption=f"Hasil generate gambar untuk prompt: {prompt}"
-                )
-            else:
-                await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        except Exception as e:
-            logger.exception("Error generating image")
-            await update.message.reply_text("Maaf, terjadi kesalahan saat membuat gambar.")
-        finally:
-            await processing_msg.delete()
-        return
-
-    # Tambahkan statistik
-    bot_statistics["total_messages"] += 1
-    bot_statistics["text_messages"] += 1
-
-    # Ambil chat_id dari update
     chat_id = update.message.chat_id
-
-    # Periksa apakah sesi sudah ada di Redis
     session_json = redis_client.get(f"session:{chat_id}")
     if not session_json:
         await initialize_session(chat_id)
@@ -1243,35 +1134,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Reset konteks jika diperlukan
     if await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
-    # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Jika ada hasil analisis gambar terakhir, tambahkan ke konteks
     if 'last_image_analysis' in session:
         session['messages'].append({
             "role": "assistant",
             "content": session['last_image_analysis']
         })
 
-    # Proses pesan dengan konteks cerdas
     try:
-        response = await process_with_smart_context(session['messages'][-10:])  # Pastikan ada await di sini
+        response = await process_with_smart_context(session['messages'][-10:])
         
         if response:
-            # Filter hasil respons sebelum dikirim ke pengguna
             filtered_response = await filter_text(response)
-
-            # Tambahkan respons asisten ke sesi
             session['messages'].append({"role": "assistant", "content": filtered_response})
             await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-            # Pecah respons jika terlalu panjang
             response_parts = split_message(filtered_response)
             for part in response_parts:
                 await update.message.reply_text(part)
