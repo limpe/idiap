@@ -837,18 +837,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"Analisa:\n{part}")
 
                 # Simpan hasil analisis ke sesi
-                session['messages'].append({
-                    "role": "user",
-                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
-                })
-                session['messages'].append({
-                    "role": "assistant",
-                    "content": filtered_result
-                })
-                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
-                await update_session(chat_id, {"role": "assistant", "content": filtered_result})
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+session['messages'].append({
+    "role": "user",
+    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
+})
+session['messages'].append({
+    "role": "assistant",
+    "content": filtered_result
+})
+session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
+await update_session(chat_id, {"role": "assistant", "content": filtered_result})
+else:
+await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
         # Hapus pesan "Sedang menganalisa..."
         await processing_msg.delete()
