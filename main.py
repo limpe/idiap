@@ -361,25 +361,27 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
         complexity = await determine_conversation_complexity(messages)
         
-        # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if complexity == "simple":
-            system_message = {
-                "role": "user",  # Gunakan role 'user' karena 'system' tidak didukung
-                "parts": [{"text": "Berikan respons singkat dan jelas dalam Bahasa Indonesia."}]
-            }
-        elif complexity == "medium":
-            system_message = {
-                "role": "user",
-                "parts": [{"text": "Berikan respons yang lebih detail dalam Bahasa Indonesia, namun tetap mudah dipahami."}]
-            }
-        elif complexity == "complex":
-            system_message = {
-                "role": "user",
-                "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
-            }
-        
-        # Sisipkan instruksi sistem di awal pesan
-        messages.insert(0, system_message)
+        # Cek apakah pesan sistem sudah ada di awal percakapan
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
+            # Tambahkan instruksi sistem berdasarkan kompleksitas
+            if complexity == "simple":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons singkat dan jelas dalam Bahasa Indonesia."}]
+                }
+            elif complexity == "medium":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons yang lebih detail dalam Bahasa Indonesia, namun tetap mudah dipahami."}]
+                }
+            elif complexity == "complex":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
+                }
+            
+            # Sisipkan instruksi sistem di awal pesan
+            messages.insert(0, system_message)
 
         # Konversi format pesan ke format yang diterima Gemini
         gemini_messages = []
@@ -406,12 +408,18 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             except generation_types.StopCandidateException as e:
                 logger.error(f"Error RECITATION: {e}")
                 return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
+            except Exception as e:
+                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
+                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
         elif 'parts' in last_message:
             try:
                 response = chat.send_message(last_message['parts'][0]['text'])
             except generation_types.StopCandidateException as e:
                 logger.error(f"Error RECITATION: {e}")
                 return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
+            except Exception as e:
+                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
+                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
         else:
             logger.error("Format pesan terakhir tidak valid")
             return "Maaf, format pesan tidak valid."
@@ -977,7 +985,6 @@ async def initialize_session(chat_id: int) -> None:
         raise Exception("Gagal menginisialisasi sesi.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Perbarui sesi di Redis"""
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if session_json:
@@ -1162,6 +1169,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
+
 
 def main():
     if not check_required_settings():
