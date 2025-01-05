@@ -14,7 +14,6 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-import telegram
 
 
 
