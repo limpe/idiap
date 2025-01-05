@@ -295,11 +295,11 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
         if update.message.chat.type in ["group", "supergroup"]:
             # Cek mention di text atau caption
             message_text = update.message.text or update.message.caption or ""
-            bot_username = context.bot.username.lower()
-            
-            # Cek apakah mention ada di pesan
+            bot_username = context.bot.username.lower()  # Username bot dalam lowercase
+
+            # Cek apakah mention ada di pesan (case-insensitive)
             if not f"@{bot_username}" in message_text.lower():
-                logger.info("Perintah /gambar di grup diabaikan karena tidak ada mention.")
+                logger.info(f"Pesan di grup tanpa mention yang valid diabaikan. Pesan: {message_text}")
                 return  # Keluar dari fungsi jika tidak ada mention
 
         # Ambil prompt dari pesan pengguna
