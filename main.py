@@ -998,7 +998,12 @@ def is_same_topic(last_message: str, current_message: str, context_messages: Lis
     relevant_keywords = extract_relevant_keywords(context_messages)
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
-    return bool(set(last_keywords) & set(current_keywords))
+
+    # Perubahan: Memeriksa setidaknya 2 kata kunci yang sama
+    if len(set(last_keywords) & set(current_keywords)) >= 2:
+        return True
+    else:
+      return False
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
@@ -1016,29 +1021,26 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # Reset jika percakapan sudah terlalu lama (misalnya, 8 jam)
         if time_diff > CONVERSATION_TIMEOUT:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
 
-        # Reset jika pesan mengandung kata kunci awal percakapan
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip']
         starts_with_keyword = any(message.lower().startswith(keyword) for keyword in keywords)
         if starts_with_keyword:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
-        # Reset jika percakapan sudah terlalu panjang
         complexity = determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
         if len(session['messages']) > max_messages:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Reset jika terjadi perubahan topik
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']):
+            # Perubahan di sini: menambahkan threshold
+            if not is_same_topic(last_message, message, session['messages'], threshold=2):
                 logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
                 return True
 
