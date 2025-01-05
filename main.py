@@ -283,7 +283,6 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-
         # Generate respons dengan grounding
         response = model.generate_content(
             contents=[{"parts": [{"text": last_message}]}],
@@ -900,6 +899,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Sanitasi input teks
             sanitized_text = sanitize_input(message_text)
 
+            # Cek apakah pesan mengandung perintah /gambar atau /image
+            if sanitized_text.lower().startswith(('/gambar', '/image')):
+                await handle_text(update, context, sanitized_text)
+                return
+
+            # Lanjutkan pemrosesan pesan biasa
             # Periksa apakah sesi sudah ada di Redis
             if not redis_client.exists(f"session:{chat_id}"):
                 await initialize_session(chat_id)
@@ -931,7 +936,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for part in response_parts:
                     await update.message.reply_text(part)
         else:
-            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
+            logger.info("Pesan di grup tanpa mention yang valid diabaikan.")f
 
 
 async def initialize_session(chat_id: int) -> None:
