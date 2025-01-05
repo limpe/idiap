@@ -1069,11 +1069,15 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         return None
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
-    context_text = " ".join([msg['content'] for msg in messages])
+    # Gabungkan semua pesan menjadi satu teks
+    context_text = " ".join([msg.get('content', '') for msg in messages])
+    
+    # Ekstrak kata-kata dari teks
     words = re.findall(r'\b\w+\b', context_text.lower())
     word_counts = Counter(words)
     common_words = word_counts.most_common(top_n)
 
+    # Daftar stop words (kata-kata umum yang tidak relevan)
     stop_words = {
         "saya", "anda", "di", "yang", "dan", "apa", "berapa", "bagaimana", "adalah", "nama",
         "ini", "itu", "untuk", "dengan", "pada", "dalam", "atau", "dari", "ke", "sebuah",
@@ -1085,6 +1089,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
         "tersebut", "maupun", "namun", "selain", "setelah", "sebelum", "saat", "karena"
     }
 
+    # Filter kata-kata yang relevan (bukan stop words)
     relevant_keywords = [word for word, count in common_words if word not in stop_words]
     return relevant_keywords
 
