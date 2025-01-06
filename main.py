@@ -36,6 +36,7 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+from langdetect import detect, DetectorFactory
 
 
 # Konfigurasi logger
@@ -102,6 +103,7 @@ MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
+DetectorFactory.seed = 0
 
 
 # Statistik penggunaan
@@ -336,6 +338,18 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
+def is_indonesian(text: str) -> bool:
+    """
+    Mendeteksi apakah teks dalam bahasa Indonesia menggunakan langdetect.
+    """
+    try:
+        # Deteksi bahasa teks
+        language = detect(text)
+        return language == 'id'  # 'id' adalah kode bahasa untuk Bahasa Indonesia
+    except:
+        # Jika terjadi error (misalnya teks terlalu pendek), kembalikan False
+        return False
+
 async def search_google(query: str) -> List[str]:
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
@@ -408,6 +422,19 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             response = chat.send_message(user_message)
+
+        # Pastikan respons memiliki atribut 'text'
+        if not hasattr(response, 'text'):
+            logger.error("Respons dari Gemini tidak memiliki atribut 'text'.")
+            return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
+
+        # Periksa apakah respons sudah dalam bahasa Indonesia
+        if not is_indonesian(response.text):  # Jika respons tidak dalam bahasa Indonesia
+            logger.info("Respons tidak dalam bahasa Indonesia, memaksa ke bahasa Indonesia...")
+            response = chat.send_message("Ubah respons ke dalam Bahasa Indonesia.")  # Paksa respons dalam bahasa Indonesia
+            if not hasattr(response, 'text'):  # Pastikan respons kedua juga memiliki atribut 'text'
+                logger.error("Respons kedua dari Gemini tidak memiliki atribut 'text'.")
+                return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
 
         return response.text
 
