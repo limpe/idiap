@@ -414,7 +414,7 @@ async def search_google(query: str) -> str:
         logger.exception(f"Error saat mencari di Google: {e}")
         return "Terjadi kesalahan saat melakukan pencarian."
         
-async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
+async def process_with_gemini(messages: List[Dict[str, str]], update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
     try:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
         complexity = await determine_conversation_complexity(messages)
