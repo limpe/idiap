@@ -15,6 +15,7 @@ import re
 import bleach
 import requests
 import numpy as np
+import stanza
 
 
 from deep_translator import GoogleTranslator
@@ -36,7 +37,6 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from difflib import SequenceMatcher
-from indonlu import IndoNLU
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Konfigurasi logger
@@ -104,7 +104,7 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
-nlu = IndoNLU()
+stanza.download('id')
 
 # Statistik penggunaan
 bot_statistics = {
@@ -135,10 +135,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_sentence_vector(sentence: str) -> np.ndarray:
     """
-    Mengubah kalimat menjadi vektor menggunakan IndoNLU.
+    Mengubah kalimat menjadi vektor menggunakan Stanza.
     """
-    tokens = nlu.tokenize(sentence)
-    vectors = [nlu.get_word_vector(word) for word in tokens if nlu.get_word_vector(word) is not None]
+    doc = nlp(sentence)
+    vectors = [word.embedding for word in doc.sentences[0].words if word.embedding is not None]
     return np.mean(vectors, axis=0) if vectors else np.zeros(300)  # 300 adalah dimensi embedding
 
 def calculate_semantic_similarity(text1: str, text2: str) -> float:
