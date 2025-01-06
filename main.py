@@ -4,7 +4,7 @@ import tempfile
 import asyncio
 import base64
 import uuid
-import redis
+import redisfde
 import json
 import speech_recognition as sr
 import urllib.parse
@@ -370,14 +370,14 @@ async def search_google(query: str) -> List[str]:
             logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
             return []
 
-        service = build("customsearch", "v1", developerKey=api_key)
+        # Gunakan static_discovery=False untuk menghindari cache
+        service = build("customsearch", "v1", developerKey=api_key, static_discovery=False)
         res = service.cse().list(q=query, cx=cse_id).execute()
         results = res.get("items", [])
         return [result["link"] for result in results]
     except Exception as e:
         logger.exception(f"Error saat mencari di Google: {e}")
         return []
-
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
