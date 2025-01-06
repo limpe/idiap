@@ -1072,7 +1072,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 3) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 0.1) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1110,11 +1110,11 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # 1. Perpanjang timeout percakapan (8 jam)
-        if time_diff > 28800:  # 8 jam
+        # 1. Perpanjang timeout percakapan (24 jam)
+        if time_diff > 86400:  # 24 jam
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
-
+            
         # 2. Kurangi kata kunci yang memicu reset
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']   # Hanya kata sapaan dasar
         if any(message.lower().startswith(keyword) for keyword in keywords):
