@@ -370,7 +370,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             if complexity == "simple":
                 system_message = {
                     "role": "user",
-                    "parts": [{"text": "Berikan respons singkat,jelas dan point pentingnya saja dalam Bahasa Indonesia."}]
+                    "parts": [{"text": "Berikan respons singkat, jelas, dan point pentingnya saja dalam Bahasa Indonesia."}]
                 }
             elif complexity == "medium":
                 system_message = {
@@ -403,29 +403,32 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         
-        # Kirim pesan terakhir ke Gemini
+        # Ambil pesan terakhir dari pengguna
         last_message = messages[-1]
-        if 'content' in last_message:
-            try:
-                response = chat.send_message({"text": last_message['content']})
-            except generation_types.StopCandidateException as e:
-                logger.error(f"Error RECITATION: {e}")
-                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
-            except Exception as e:
-                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
-                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
-        elif 'parts' in last_message:
-            try:
-                response = chat.send_message(last_message['parts'][0]['text'])
-            except generation_types.StopCandidateException as e:
-                logger.error(f"Error RECITATION: {e}")
-                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
-            except Exception as e:
-                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
-                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
+        user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
+
+        # Cek apakah pesan mengandung kata kunci "sumber youtube" atau "sumber terkait"
+        if "sumber youtube" in user_message.lower() or "sumber terkait" in user_message.lower():
+            # Gunakan google_search_retrieval untuk mencari sumber terkait
+            response = gemini_model.generate_content(
+                contents=user_message,
+                tools={"google_search_retrieval": {
+                    "dynamic_retrieval_config": {
+                        "mode": "unspecified",
+                        "dynamic_threshold": 0.06
+                    }
+                }}
+            )
         else:
-            logger.error("Format pesan terakhir tidak valid")
-            return "Maaf, format pesan tidak valid."
+            # Proses pesan seperti biasa
+            try:
+                response = chat.send_message(user_message)
+            except generation_types.StopCandidateException as e:
+                logger.error(f"Error RECITATION: {e}")
+                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
+            except Exception as e:
+                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
+                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
 
         # Kembalikan teks respons
         return response.text
