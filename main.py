@@ -4,7 +4,7 @@ import tempfile
 import asyncio
 import base64
 import uuid
-import redisfde
+import redis
 import json
 import speech_recognition as sr
 import urllib.parse
