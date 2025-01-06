@@ -993,6 +993,7 @@ async def initialize_session(chat_id: int) -> None:
     }
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     session_json = redis_client.get(f"session:{chat_id}")
@@ -1155,12 +1156,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
+
+    # Periksa apakah perlu reset sesi
+    if await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        logger.info(f"Sesi direset untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {sanitized_text}")
     else:
-        session = json.loads(session_json)
+        session_json = redis_client.get(f"session:{chat_id}")
+        if not session_json:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        else:
+            session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1171,15 +1179,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)  # Panggil filter_text di sini
-        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+        filtered_response = await filter_text(response)
+        logger.info(f"Response setelah difilter: {filtered_response}")
 
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)  # Gunakan filtered_response
+        response_parts = split_message(filtered_response)
         for part in response_parts:
             await update.message.reply_text(part)
     else:
