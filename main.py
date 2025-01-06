@@ -1184,6 +1184,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
+    # Ambil chat_id
+    chat_id = update.message.chat_id
+
+    # Reset konteks jika diperlukan
+    if await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
     session_json = redis_client.get(f"session:{chat_id}")
