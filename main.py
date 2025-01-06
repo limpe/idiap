@@ -392,12 +392,12 @@ async def search_google(query: str) -> str:
                 source_query = query
 
             # Lakukan pencarian
-            results = service.cse().list(q=source_query, cx=cse_id).execute().get("items", [])
+            results = service.cse().list(q=source_query, cx=cse_id, num=source["max_results"]).execute().get("items", [])
 
             if results:
                 # Format hasil pencarian
                 source_results = []
-                for result in results[:source["max_results"]]:  # Batasi jumlah hasil
+                for result in results:
                     title = result.get("title", "Judul tidak tersedia")
                     link = result.get("link", "#")
                     snippet = result.get("snippet", "Deskripsi tidak tersedia")
@@ -413,7 +413,7 @@ async def search_google(query: str) -> str:
     except Exception as e:
         logger.exception(f"Error saat mencari di Google: {e}")
         return "Terjadi kesalahan saat melakukan pencarian."
-
+        
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
@@ -463,24 +463,16 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
             search_results = await search_google(user_message)
             if search_results:
-                search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
-                user_message_with_context = user_message + search_context
-                try:
-                    response = chat.send_message(user_message_with_context)
-                except Exception as e:
-                    logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
-                    return "Maaf, terjadi kesalahan saat memproses pesan Anda."
+                # Kirim hasil pencarian dengan format Markdown
+                await update.message.reply_text(search_results, parse_mode=ParseMode.MARKDOWN_V2)
             else:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             try:
-                response = chat.send_message(user_message) #Ini penting! Gunakan chat.send_message di sini juga
+                response = chat.send_message(user_message)
             except Exception as e:
                 logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
                 return "Maaf, terjadi kesalahan saat memproses pesan Anda."
-
-        return response.text
-
     except Exception as e:
         logger.exception("Error in processing with Gemini")
         return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
