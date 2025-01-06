@@ -35,8 +35,7 @@ from typing import Union, Tuple
 from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sentence_transformers import SentenceTransformer, util
+
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -103,7 +102,6 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 # Statistik penggunaan
 bot_statistics = {
@@ -1059,23 +1057,22 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         return None
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
-    """Mengekstrak kata kunci relevan menggunakan TF-IDF."""
+    # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
-    vectorizer = TfidfVectorizer(stop_words=stop_words)
-    tfidf_matrix = vectorizer.fit_transform([context_text])
-    feature_names = vectorizer.get_feature_names_out()
-    tfidf_scores = tfidf_matrix.toarray()[0]
-    top_keywords = [feature_names[i] for i in tfidf_scores.argsort()[-top_n:][::-1]]
-    return top_keywords
+    
+    # Ekstrak kata-kata dari teks
+    words = re.findall(r'\b\w+\b', context_text.lower())
+    word_counts = Counter(words)
 
-def is_semantically_similar(text1: str, text2: str, threshold: float = 0.7) -> bool:
-    """Menghitung kesamaan semantik antara dua teks menggunakan Sentence-BERT."""
-    embeddings = model.encode([text1, text2])
-    similarity = util.cos_sim(embeddings[0], embeddings[1]).item()
-    return similarity >= threshold
+    # Filter kata-kata yang relevan (bukan stop words)
+    relevant_keywords = [word for word, count in word_counts.most_common(top_n) if word not in stop_words]
+    
+    # Log untuk debugging
+    logger.info(f"Extracted relevant keywords: {relevant_keywords}")
+    
+    return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], keyword_threshold: int = 1, semantic_threshold: float = 0.7) -> bool:
-    """Menentukan apakah pesan baru masih terkait dengan topik sebelumnya."""
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 0) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1086,11 +1083,17 @@ def is_same_topic(last_message: str, current_message: str, context_messages: Lis
     # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
     common_keywords = set(last_keywords) & set(current_keywords)
     
-    # Cek kesamaan semantik
-    is_semantically_related = is_semantically_similar(last_message, current_message, semantic_threshold)
+    # Log untuk debugging
+    logger.info(f"Last keywords: {last_keywords}")
+    logger.info(f"Current keywords: {current_keywords}")
+    logger.info(f"Common keywords: {common_keywords}")
+    
+    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
+    return len(common_keywords) >= threshold
 
-    # Kembalikan True jika salah satu kondisi terpenuhi
-    return len(common_keywords) >= keyword_threshold or is_semantically_related
+def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
+    relevant_keywords = extract_relevant_keywords(context_messages)
+    return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
@@ -1130,10 +1133,6 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
-
-def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
-    relevant_keywords = extract_relevant_keywords(context_messages)
-    return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
