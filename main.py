@@ -69,13 +69,9 @@ def check_required_settings():
     return True
 
 def sanitize_input(text: str) -> str:
-    # Daftar tag dan atribut yang diizinkan
-    allowed_tags = ['b', 'i']  # Mengizinkan tag <b> dan <i>
-    allowed_attributes = {}  # Tidak mengizinkan atribut apa pun
-
-    # Membersihkan teks menggunakan Bleach
+    allowed_tags = ['b', 'i']
+    allowed_attributes = {}
     cleaned_text = bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes)
-
     return cleaned_text
 
 
@@ -88,6 +84,8 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+genai.configure(api_key=GOOGLE_API_KEY)
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -97,7 +95,6 @@ RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 28800  # Durasi percakapan dalam detik
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
@@ -137,53 +134,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
-    """Memecah teks panjang menjadi beberapa bagian sesuai batas Telegram."""
     parts = []
     while len(text) > max_length:
-        # Cari posisi pemotongan terdekat (misalnya, setelah baris baru atau spasi)
         split_index = text.rfind("\n", 0, max_length)
         if split_index == -1:
             split_index = text.rfind(" ", 0, max_length)
-        if split_index == -1:  # Jika tidak ada baris baru atau spasi, potong langsung
+        if split_index == -1:
             split_index = max_length
-
-        # Tambahkan bagian ke daftar
         parts.append(text[:split_index].strip())
         text = text[split_index:].strip()
-
-    # Tambahkan sisa teks
     parts.append(text)
     return parts
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
-    """
-    Menentukan kompleksitas percakapan berdasarkan input pengguna.
-    """
-    # Ambil hanya pesan dari pengguna (role 'user')
     user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
-    
-    # Gabungkan semua pesan pengguna menjadi satu teks
     user_text = " ".join(user_messages).lower()
-    
-    # Cek kata kunci kompleks dalam input pengguna
+
     if any(keyword in user_text for keyword in complex_keywords):
-        logger.info(f"Kata kunci kompleks ditemukan dalam input pengguna: {user_text}")
-        logger.info("Kompleksitas ditingkatkan ke: complex (karena kata kunci kompleks).")
         return "complex"
-    
-    # Hitung jumlah pesan pengguna
-    num_user_messages = len(user_messages)
-    logger.info(f"Jumlah pesan pengguna dalam percakapan: {num_user_messages}")
-    
-    # Tentukan kompleksitas berdasarkan jumlah pesan pengguna
-    if num_user_messages > 15:
-        logger.info("Kompleksitas ditingkatkan ke: complex (jumlah pesan pengguna > 15).")
-        return "complex"
-    elif num_user_messages > 5:
-        logger.info("Kompleksitas ditingkatkan ke: medium (jumlah pesan pengguna > 5).")
+    elif len(user_messages) > 5:
         return "medium"
     else:
-        logger.info("Kompleksitas tetap: simple (jumlah pesan pengguna <= 5).")
         return "simple"
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -366,7 +337,6 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
 async def search_google(query: str) -> List[str]:
-    """Melakukan pencarian Google dan mengembalikan daftar link."""
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
         cse_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
@@ -375,7 +345,6 @@ async def search_google(query: str) -> List[str]:
             logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
             return []
 
-        # Gunakan static_discovery=False untuk menghindari cache
         service = build("customsearch", "v1", developerKey=api_key, static_discovery=False)
         res = service.cse().list(q=query, cx=cse_id).execute()
         results = res.get("items", [])
@@ -386,12 +355,11 @@ async def search_google(query: str) -> List[str]:
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tentukan kompleksitas percakapan berdasarkan input pengguna
+        # Tentukan kompleksitas percakapan
         complexity = await determine_conversation_complexity(messages)
         
-        # Cek apakah pesan sistem sudah ada di awal percakapan
+        # Tambahkan instruksi sistem berdasarkan kompleksitas
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
-            # Tambahkan instruksi sistem berdasarkan kompleksitas
             if complexity == "simple":
                 system_message = {
                     "role": "user",
@@ -408,7 +376,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                     "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
                 }
             
-            # Sisipkan instruksi sistem di awal pesan
             messages.insert(0, system_message)
 
         # Konversi format pesan ke format yang diterima Gemini
@@ -430,30 +397,23 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         last_message = messages[-1]
         user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
 
+        # Cek jika pesan mengandung permintaan khusus (misalnya, pencarian Google)
         if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
             search_results = await search_google(user_message)
             if search_results:
                 search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
                 user_message_with_context = user_message + search_context
-                try:
-                    response = chat.send_message(user_message_with_context)
-                except Exception as e:
-                    logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
-                    return "Maaf, terjadi kesalahan saat memproses pesan Anda."
+                response = chat.send_message(user_message_with_context)
             else:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
-            try:
-                response = chat.send_message(user_message) #Ini penting! Gunakan chat.send_message di sini juga
-            except Exception as e:
-                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
-                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
+            response = chat.send_message(user_message)
 
         return response.text
 
     except Exception as e:
         logger.exception("Error in processing with Gemini")
-        return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
+        return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -997,39 +957,25 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
-    """Inisialisasi sesi baru di Redis"""
-    try:
-        session = {
-            'messages': [],
-            'last_update': datetime.now().timestamp(),
-            'conversation_id': str(uuid.uuid4())
-        }
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-        logger.info(f"Sesi berhasil dibuat untuk chat_id {chat_id}")
-    except redis.RedisError as e:
-        logger.error(f"Gagal membuat sesi untuk chat_id {chat_id}: {str(e)}")
-        raise Exception("Gagal menginisialisasi sesi.")
+    session = {
+        'messages': [],
+        'last_update': datetime.now().timestamp(),
+        'conversation_id': str(uuid.uuid4())
+    }
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    try:
-        session_json = redis_client.get(f"session:{chat_id}")
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    session_json = redis_client.get(f"session:{chat_id}")
+    if session_json:
+        session = json.loads(session_json)
+    else:
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
-        # Tambahkan pesan baru ke sesi
-        session['messages'].append(message)
-        session['last_update'] = datetime.now().timestamp()
-
-        # Simpan sesi ke Redis dan atur TTL
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    except redis.RedisError as e:
-        logger.error(f"Gagal memperbarui sesi untuk chat_id {chat_id}: {str(e)}")
-        raise Exception("Gagal memperbarui sesi.")
+    session['messages'].append(message)
+    session['last_update'] = datetime.now().timestamp()
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)f
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1169,56 +1115,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Sanitasi input teks
     sanitized_text = sanitize_input(message_text)
 
+    # Periksa rate limit
     user_id = update.message.from_user.id
     if not await check_rate_limit(user_id):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
+    # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
     session_json = redis_client.get(f"session:{chat_id}")
-
-    # Jika session_json kosong atau tidak valid, inisialisasi sesi baru
     if not session_json:
         await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
     else:
-        try:
-            session = json.loads(session_json)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON data in Redis for chat_id {chat_id}. Resetting session.")
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        session = json.loads(session_json)
 
-    if await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-
+    # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    if 'last_image_analysis' in session:
-        session['messages'].append({
-            "role": "assistant",
-            "content": session['last_image_analysis']
-        })
+    # Proses pesan dengan Gemini
+    response = await process_with_gemini(session['messages'])
+    
+    if response:
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": response})
+        await update_session(chat_id, {"role": "assistant", "content": response})
 
-    try:
-        response = await process_with_gemini(session['messages'])
-        
-        if response:
-            filtered_response = await filter_text(response)
-            session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-
-            response_parts = split_message(filtered_response)
-            for part in response_parts:
-                await update.message.reply_text(part)
-                
-    except Exception as e:
-        logger.exception("Error dalam pemrosesan pesan")
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
+        # Kirim respons ke pengguna
+        response_parts = split_message(response)
+        for part in response_parts:
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
 
 
 def main():
