@@ -158,22 +158,32 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], prev
     # Logika penurunan kompleksitas
     if previous_complexity == "complex":
         if not has_complex_keywords:
+            logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
             return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
         else:
+            logger.info(f"Kompleksitas tetap complex karena pesan terbaru mengandung kata kunci kompleks.")
             return "complex"  # Tetap complex jika ada kata kunci kompleks
 
     elif previous_complexity == "medium":
         if not has_complex_keywords and len(user_messages) <= 5:
+            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks dan jumlah pesan <= 5.")
             return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks dan pesan <= 5
         else:
+            if has_complex_keywords:
+                logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
+            else:
+                logger.info(f"Kompleksitas tetap medium karena jumlah pesan > 5.")
             return "medium"  # Tetap medium jika ada kata kunci kompleks atau pesan > 5
 
     else:  # previous_complexity == "simple"
         if has_complex_keywords:
+            logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
             return "complex"  # Naik ke complex jika ada kata kunci kompleks
         elif len(user_messages) > 5:
+            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 5.")
             return "medium"  # Naik ke medium jika pesan > 5
         else:
+            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 5.")
             return "simple"  # Tetap simple jika tidak ada perubahan
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
