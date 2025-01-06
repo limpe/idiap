@@ -359,7 +359,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam bahasa indonesia") for msg in messages):
             if complexity == "simple":
                 system_message = {
                     "role": "user",
@@ -408,19 +408,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             response = chat.send_message(user_message)
-
-        # Pastikan respons memiliki atribut 'text'
-        if not hasattr(response, 'text'):
-            logger.error("Respons dari Gemini tidak memiliki atribut 'text'.")
-            return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
-
-        # Periksa apakah respons sudah dalam bahasa Indonesia
-        if not is_indonesian(response.text):  # Jika respons tidak dalam bahasa Indonesia
-            logger.info("Respons tidak dalam bahasa Indonesia, memaksa ke bahasa Indonesia...")
-            response = chat.send_message("Ubah respons ke dalam Bahasa Indonesia.")  # Paksa respons dalam bahasa Indonesia
-            if not hasattr(response, 'text'):  # Pastikan respons kedua juga memiliki atribut 'text'
-                logger.error("Respons kedua dari Gemini tidak memiliki atribut 'text'.")
-                return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
 
         return response.text
 
