@@ -361,24 +361,58 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
-async def search_google(query: str) -> List[str]:
-    """Melakukan pencarian Google dan mengembalikan daftar link."""
+async def search_google(query: str) -> str:
+    """Melakukan pencarian Google dan mengembalikan hasil dalam format Markdown."""
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
         cse_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
 
         if not api_key or not cse_id:
             logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
-            return []
+            return ""
 
-        # Gunakan static_discovery=False untuk menghindari cache
         service = build("customsearch", "v1", developerKey=api_key, static_discovery=False)
-        res = service.cse().list(q=query, cx=cse_id).execute()
-        results = res.get("items", [])
-        return [result["link"] for result in results]
+
+        # Daftar sumber dengan prioritas
+        sources = [
+            {"name": "YouTube", "site": "youtube.com", "emoji": "🎥", "max_results": 3},
+            {"name": "Wikipedia", "site": "wikipedia.org", "emoji": "📚", "max_results": 2},
+            {"name": "CNN", "site": "cnn.com", "emoji": "📰", "max_results": 2},
+            {"name": "Lainnya", "site": None, "emoji": "🔗", "max_results": 3}
+        ]
+
+        formatted_results = []
+
+        for source in sources:
+            if source["site"]:
+                # Buat query khusus untuk sumber tertentu
+                source_query = f"{query} site:{source['site']}"
+            else:
+                # Pencarian biasa untuk sumber "Lainnya"
+                source_query = query
+
+            # Lakukan pencarian
+            results = service.cse().list(q=source_query, cx=cse_id).execute().get("items", [])
+
+            if results:
+                # Format hasil pencarian
+                source_results = []
+                for result in results[:source["max_results"]]:  # Batasi jumlah hasil
+                    title = result.get("title", "Judul tidak tersedia")
+                    link = result.get("link", "#")
+                    snippet = result.get("snippet", "Deskripsi tidak tersedia")
+                    source_results.append(f"{source['emoji']} [{title}]({link})\n{snippet}\n")
+
+                # Tambahkan ke hasil akhir
+                formatted_results.append(f"**{source['name']}:**\n" + "\n".join(source_results))
+
+        if not formatted_results:
+            return "Tidak ada hasil yang ditemukan."
+
+        return "\n\n".join(formatted_results)
     except Exception as e:
         logger.exception(f"Error saat mencari di Google: {e}")
-        return []
+        return "Terjadi kesalahan saat melakukan pencarian."
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
