@@ -14,7 +14,7 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-
+import numpy as np
 
 
 from deep_translator import GoogleTranslator
@@ -36,6 +36,8 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from difflib import SequenceMatcher
+from indonlu import IndoNLU
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -102,6 +104,7 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
+nlu = IndoNLU()
 
 # Statistik penggunaan
 bot_statistics = {
@@ -129,6 +132,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
+
+def get_sentence_vector(sentence: str) -> np.ndarray:
+    """
+    Mengubah kalimat menjadi vektor menggunakan IndoNLU.
+    """
+    tokens = nlu.tokenize(sentence)
+    vectors = [nlu.get_word_vector(word) for word in tokens if nlu.get_word_vector(word) is not None]
+    return np.mean(vectors, axis=0) if vectors else np.zeros(300)  # 300 adalah dimensi embedding
+
+def calculate_semantic_similarity(text1: str, text2: str) -> float:
+    """
+    Menghitung kemiripan semantik antara dua kalimat.
+    """
+    vec1 = get_sentence_vector(text1)
+    vec2 = get_sentence_vector(text2)
+    return cosine_similarity([vec1], [vec2])[0][0]
 
 
 
@@ -1075,43 +1094,22 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
 def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: float = 0.3) -> bool:
     """
     Menentukan apakah pesan saat ini masih terkait dengan pesan terakhir.
-    
-    Args:
-        last_message (str): Pesan terakhir dalam percakapan.
-        current_message (str): Pesan saat ini.
-        context_messages (List[Dict[str, str]]): Daftar pesan dalam konteks percakapan.
-        threshold (float): Threshold kemiripan (0-1). Default: 0.3 (30% kemiripan).
-    
-    Returns:
-        bool: True jika pesan masih terkait, False jika tidak.
     """
-    # 1. Hitung similarity score antara pesan terakhir dan pesan saat ini
-    similarity = SequenceMatcher(None, last_message.lower(), current_message.lower()).ratio()
-    logger.info(f"Similarity score: {similarity}")
-
-    # 2. Jika similarity score di atas threshold, kembalikan True
+    # Hitung kemiripan semantik
+    similarity = calculate_semantic_similarity(last_message, current_message)
     if similarity >= threshold:
-        logger.info(f"Pesan masih terkait (similarity score: {similarity}).")
         return True
 
-    # 3. Jika similarity score di bawah threshold, cek kata kunci
+    # Cek kata kunci
     relevant_keywords = extract_relevant_keywords(context_messages)
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
     common_keywords = set(last_keywords) & set(current_keywords)
 
-    # 4. Log untuk debugging
-    logger.info(f"Last keywords: {last_keywords}")
-    logger.info(f"Current keywords: {current_keywords}")
-    logger.info(f"Common keywords: {common_keywords}")
-
-    # 5. Jika ada kata kunci yang sama, kembalikan True
+    # Jika ada kata kunci yang sama, kembalikan True
     if common_keywords:
-        logger.info(f"Pesan masih terkait (kata kunci yang sama: {common_keywords}).")
         return True
 
-    # 6. Jika tidak ada kemiripan atau kata kunci yang sama, kembalikan False
-    logger.info(f"Pesan tidak terkait (similarity score: {similarity}, kata kunci yang sama: {common_keywords}).")
     return False
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
@@ -1133,41 +1131,27 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # 1. Perpanjang timeout percakapan (24 jam)
-        if time_diff > 86400:  # 24 jam
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
+        # Reset jika percakapan terlalu lama (24 jam)
+        if time_diff > 86400:
             return True
 
-        # 2. Kurangi kata kunci yang memicu reset
-        keywords = ['halo', 'hai', 'hi', 'hello']  # Hanya kata sapaan dasar
+        # Reset jika pesan mengandung kata kunci awal
+        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']
         if any(message.lower().startswith(keyword) for keyword in keywords):
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
-        # 3. Perpanjang batas maksimal pesan sebelum reset
+        # Reset jika percakapan terlalu panjang
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
-        
-        # Naikkan batas pesan (misalnya, gandakan batas pesan)
         if len(session['messages']) > max_messages * 2:
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # 4. Kurangi sensitivitas perubahan topik menggunakan similarity score
+        # Reset jika similarity score di bawah threshold (20%)
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            
-            # Hitung similarity score antara pesan terakhir dan pesan saat ini
-            similarity = SequenceMatcher(None, last_message.lower(), message.lower()).ratio()
-            logger.info(f"Similarity score: {similarity}")
-            
-            # Jika similarity score di bawah threshold, reset konteks
-            if similarity < 0.3:  # Threshold bisa disesuaikan (0.3 = 30% kemiripan)
-                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
+            if not is_same_topic(last_message, message, session['messages'], threshold=0.2):
                 return True
 
-        # 5. Jika tidak ada kondisi yang terpenuhi, jangan reset konteks
-        logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
 
     except redis.RedisError as e:
