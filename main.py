@@ -1072,24 +1072,47 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 0.1) -> bool:
-    # Ekstrak kata kunci relevan dari konteks percakapan
-    relevant_keywords = extract_relevant_keywords(context_messages)
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: float = 0.3) -> bool:
+    """
+    Menentukan apakah pesan saat ini masih terkait dengan pesan terakhir.
     
-    # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
+    Args:
+        last_message (str): Pesan terakhir dalam percakapan.
+        current_message (str): Pesan saat ini.
+        context_messages (List[Dict[str, str]]): Daftar pesan dalam konteks percakapan.
+        threshold (float): Threshold kemiripan (0-1). Default: 0.3 (30% kemiripan).
+    
+    Returns:
+        bool: True jika pesan masih terkait, False jika tidak.
+    """
+    # 1. Hitung similarity score antara pesan terakhir dan pesan saat ini
+    similarity = SequenceMatcher(None, last_message.lower(), current_message.lower()).ratio()
+    logger.info(f"Similarity score: {similarity}")
+
+    # 2. Jika similarity score di atas threshold, kembalikan True
+    if similarity >= threshold:
+        logger.info(f"Pesan masih terkait (similarity score: {similarity}).")
+        return True
+
+    # 3. Jika similarity score di bawah threshold, cek kata kunci
+    relevant_keywords = extract_relevant_keywords(context_messages)
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
-
-    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
     common_keywords = set(last_keywords) & set(current_keywords)
-    
-    # Log untuk debugging
+
+    # 4. Log untuk debugging
     logger.info(f"Last keywords: {last_keywords}")
     logger.info(f"Current keywords: {current_keywords}")
     logger.info(f"Common keywords: {common_keywords}")
-    
-    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
-    return len(common_keywords) >= threshold
+
+    # 5. Jika ada kata kunci yang sama, kembalikan True
+    if common_keywords:
+        logger.info(f"Pesan masih terkait (kata kunci yang sama: {common_keywords}).")
+        return True
+
+    # 6. Jika tidak ada kemiripan atau kata kunci yang sama, kembalikan False
+    logger.info(f"Pesan tidak terkait (similarity score: {similarity}, kata kunci yang sama: {common_keywords}).")
+    return False
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
@@ -1114,9 +1137,9 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         if time_diff > 86400:  # 24 jam
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
-            
+
         # 2. Kurangi kata kunci yang memicu reset
-        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']   # Hanya kata sapaan dasar
+        keywords = ['halo', 'hai', 'hi', 'hello']  # Hanya kata sapaan dasar
         if any(message.lower().startswith(keyword) for keyword in keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
