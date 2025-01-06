@@ -363,7 +363,7 @@ async def search_google(query: str) -> List[str]:
     """Melakukan pencarian Google dan mengembalikan daftar link."""
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
-        cse_id = os.environ.get("GOOGLE_CSE_ID")
+        cse_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
 
         if not api_key or not cse_id:
             logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
