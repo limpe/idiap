@@ -36,7 +36,6 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
-from langdetect import detect, DetectorFactory
 
 
 # Konfigurasi logger
@@ -103,7 +102,6 @@ MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
-DetectorFactory.seed = 0
 
 
 # Statistik penggunaan
@@ -338,18 +336,6 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
-def is_indonesian(text: str) -> bool:
-    """
-    Mendeteksi apakah teks dalam bahasa Indonesia menggunakan langdetect.
-    """
-    try:
-        # Deteksi bahasa teks
-        language = detect(text)
-        return language == 'id'  # 'id' adalah kode bahasa untuk Bahasa Indonesia
-    except:
-        # Jika terjadi error (misalnya teks terlalu pendek), kembalikan False
-        return False
-
 async def search_google(query: str) -> List[str]:
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
@@ -373,7 +359,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam bahasa indonesia") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
                 system_message = {
                     "role": "user",
@@ -422,19 +408,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             response = chat.send_message(user_message)
-
-        # Pastikan respons memiliki atribut 'text'
-        if not hasattr(response, 'text'):
-            logger.error("Respons dari Gemini tidak memiliki atribut 'text'.")
-            return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
-
-        # Periksa apakah respons sudah dalam bahasa Indonesia
-        if not is_indonesian(response.text):  # Jika respons tidak dalam bahasa Indonesia
-            logger.info("Respons tidak dalam bahasa Indonesia, memaksa ke bahasa Indonesia...")
-            response = chat.send_message("Ubah respons ke dalam Bahasa Indonesia.")  # Paksa respons dalam bahasa Indonesia
-            if not hasattr(response, 'text'):  # Pastikan respons kedua juga memiliki atribut 'text'
-                logger.error("Respons kedua dari Gemini tidak memiliki atribut 'text'.")
-                return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
 
         return response.text
 
@@ -993,7 +966,6 @@ async def initialize_session(chat_id: int) -> None:
     }
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi baru diinisialisasi untuk chat_id {chat_id}")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     session_json = redis_client.get(f"session:{chat_id}")
@@ -1156,19 +1128,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
-
-    # Periksa apakah perlu reset sesi
-    if await should_reset_context(chat_id, sanitized_text):
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
         await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
-        logger.info(f"Sesi direset untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {sanitized_text}")
     else:
-        session_json = redis_client.get(f"session:{chat_id}")
-        if not session_json:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-        else:
-            session = json.loads(session_json)
+        session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1179,15 +1144,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
-        logger.info(f"Response setelah difilter: {filtered_response}")
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
         for part in response_parts:
             await update.message.reply_text(part)
     else:
