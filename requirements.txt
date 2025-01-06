@@ -17,4 +17,3 @@ deep-translator
 telegram
 google-api-python-client
 stanza
-indonlu
