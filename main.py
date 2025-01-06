@@ -426,7 +426,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         last_message = messages[-1]
         user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
 
-        if "sumber youtube" in user_message.lower() or "sumber terkait" in user_message.lower():
+        if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
             search_results = await search_google(user_message)
             if search_results:
                 search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
