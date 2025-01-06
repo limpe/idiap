@@ -873,7 +873,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
             if not prompt:
-                prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+                prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesiadan termasuk penjelasan yang komprehensif."
                 logger.info(f"Prompt yang digunakan: {prompt}")
             else:
                 # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
