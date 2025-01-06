@@ -16,3 +16,4 @@ together
 deep-translator
 telegram
 google-api-python-client
+nltk
