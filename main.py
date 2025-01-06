@@ -1109,7 +1109,6 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
-        redis_client.delete(f"session:{chat_id}")
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
@@ -1123,6 +1122,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         # Reset jika percakapan sudah timeout
         if time_diff > CONVERSATION_TIMEOUT:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
+            redis_client.delete(f"session:{chat_id}")
             return True
 
         # Daftar kata kunci yang memicu reset
@@ -1135,8 +1135,6 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         if any(keyword in normalized_message for keyword in reset_keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
-            
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             return True
 
         # Ambil kompleksitas percakapan
