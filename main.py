@@ -14,7 +14,6 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-import nltk
 
 
 
@@ -36,8 +35,8 @@ from typing import Union, Tuple
 from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
-from nltk.tokenize import word_tokenize
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -104,8 +103,6 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
-factory = StemmerFactory()
-nltk.download('punkt')
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
 
@@ -1067,8 +1064,8 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
     
-    # Tokenisasi teks menjadi kata-kata
-    words = word_tokenize(context_text.lower())
+    # Tokenisasi teks menjadi kata-kata menggunakan regex
+    words = re.findall(r'\b\w+\b', context_text.lower())
     
     # Hapus tanda baca dan karakter khusus
     words = [re.sub(r'[^\w\s]', '', word) for word in words]
@@ -1079,7 +1076,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     # Hapus stop words
     words = [word for word in words if word not in stop_words]
     
-    # Lakukan stemming untuk mengurangi variasi kata
+    # Lakukan stemming untuk mengurangi variasi kata menggunakan Sastrawi
     stemmed_words = [stemmer.stem(word) for word in words]
     
     # Hitung frekuensi kata
