@@ -1109,6 +1109,7 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
+        redis_client.delete(f"session:{chat_id}")
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
@@ -1132,6 +1133,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
 
         # Cek apakah pesan mengandung kata kunci reset
         if any(keyword in normalized_message for keyword in reset_keywords):
+            
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             return True
 
