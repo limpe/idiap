@@ -402,35 +402,28 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
-        
-        # Ambil pesan terakhir dari pengguna
         last_message = messages[-1]
         user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
 
-        # Cek apakah pesan mengandung kata kunci "sumber youtube" atau "sumber terkait"
         if "sumber youtube" in user_message.lower() or "sumber terkait" in user_message.lower():
-            # Gunakan google_search untuk mencari sumber terkait
-            response = gemini_model.generate_content(
-                contents=user_message,
-                tools={"google_search": {
-                    "dynamic_retrieval_config": {
-                        "mode": "unspecified",
-                        "dynamic_threshold": 0.06
-                    }
-                }}
-            )
+            search_results = await search_google(user_message)
+            if search_results:
+                search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
+                user_message_with_context = user_message + search_context
+                try:
+                    response = chat.send_message(user_message_with_context)
+                except Exception as e:
+                    logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
+                    return "Maaf, terjadi kesalahan saat memproses pesan Anda."
+            else:
+                return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
-            # Proses pesan seperti biasa
             try:
-                response = chat.send_message(user_message)
-            except generation_types.StopCandidateException as e:
-                logger.error(f"Error RECITATION: {e}")
-                return "Maaf, saya tidak dapat memberikan respons untuk pesan ini karena batasan keamanan."
+                response = chat.send_message(user_message) #Ini penting! Gunakan chat.send_message di sini juga
             except Exception as e:
                 logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
                 return "Maaf, terjadi kesalahan saat memproses pesan Anda."
 
-        # Kembalikan teks respons
         return response.text
 
     except Exception as e:
