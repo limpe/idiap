@@ -1190,42 +1190,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Reset konteks jika diperlukan
     if await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}  # Sesi baru
+
+    # Ambil atau inisialisasi sesi
+    chat_id = update.message.chat_id
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
     else:
-        # Ambil sesi yang sudah ada
-        session_json = redis_client.get(f"session:{chat_id}")
-        if not session_json:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-        else:
-            session = json.loads(session_json)
+        session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan Gemini
-    try:
-        response = await process_with_gemini(session['messages'])
-        
-        if response:
-            # Filter respons sebelum dikirim ke pengguna
-            filtered_response = await filter_text(response)
-            logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+    response = await process_with_gemini(session['messages'])
+    
+    if response:
+        # Filter respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
-            # Tambahkan respons asisten ke sesi
-            session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-            # Kirim respons ke pengguna
-            response_parts = split_message(filtered_response)
-            for part in response_parts:
-                await update.message.reply_text(part)
-        else:
-            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-    except Exception as e:
-        logger.error(f"Error dalam memproses pesan dengan Gemini: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan internal. Silakan coba lagi nanti.")
+        # Kirim respons ke pengguna
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
+        for part in response_parts:
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
         
 def main():
     if not check_required_settings():
