@@ -409,8 +409,9 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         else:
             response = chat.send_message(user_message)
 
-        # Pastikan respons dalam bahasa Indonesia
-        if "Bahasa Indonesia" not in response.text:  # Jika respons tidak dalam bahasa Indonesia
+        # Periksa apakah respons sudah dalam bahasa Indonesia
+        if not is_indonesian(response.text):  # Jika respons tidak dalam bahasa Indonesia
+            logger.info("Respons tidak dalam bahasa Indonesia, memaksa ke bahasa Indonesia...")
             response = chat.send_message("Ubah respons ke dalam Bahasa Indonesia.")  # Paksa respons dalam bahasa Indonesia
 
         return response.text
