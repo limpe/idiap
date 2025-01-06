@@ -394,7 +394,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             elif complexity == "medium":
                 system_message = {
                     "role": "user",
-                    "parts": [{"text": "Berikan respons yang lebih detail dalam Bahasa Indonesia, namun tetap mudah dipahami."}]
+                    "parts": [{"text": "Berikan respons dalam Bahasa Indonesia."}]
                 }
             elif complexity == "complex":
                 system_message = {
