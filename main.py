@@ -14,7 +14,7 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-
+import googleapiclient.discovery_cache
 
 
 from deep_translator import GoogleTranslator
@@ -22,6 +22,7 @@ from keywords import complex_keywords
 from collections import Counter
 from typing import Optional, List, Dict
 from telegram import Update, InputFile
+from telegram.ext import ContextTypes
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pydub import AudioSegment
 from langdetect import detect
@@ -77,6 +78,11 @@ def sanitize_input(text: str) -> str:
 
     return cleaned_text
 
+def escape_markdown(text: str) -> str:
+    """Escape karakter khusus Markdown."""
+    escape_chars = r"\_*[]()~`>#+-=|{}.!"
+    return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", text)
+
 
 
 # Environment variables
@@ -102,6 +108,7 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
+googleapiclient.discovery_cache.DISCOVERY_DOC_CACHE = {}
 
 # Statistik penggunaan
 bot_statistics = {
@@ -361,58 +368,34 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
-async def search_google(query: str) -> str:
-    """Melakukan pencarian Google dan mengembalikan hasil dalam format Markdown."""
+async def search_google(query: str) -> List[Dict[str, str]]:
+    """Melakukan pencarian Google dan mengembalikan daftar hasil pencarian."""
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
         cse_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
 
         if not api_key or not cse_id:
             logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
-            return ""
+            return []
 
+        # Gunakan static_discovery=False untuk menghindari cache
         service = build("customsearch", "v1", developerKey=api_key, static_discovery=False)
+        res = service.cse().list(q=query, cx=cse_id, num=5).execute()  # Ambil 5 hasil pertama
+        results = res.get("items", [])
 
-        # Daftar sumber dengan prioritas
-        sources = [
-            {"name": "YouTube", "site": "youtube.com", "emoji": "🎥", "max_results": 3},
-            {"name": "Wikipedia", "site": "wikipedia.org", "emoji": "📚", "max_results": 2},
-            {"name": "CNN", "site": "cnn.com", "emoji": "📰", "max_results": 2},
-            {"name": "Lainnya", "site": None, "emoji": "🔗", "max_results": 3}
-        ]
-
+        # Format hasil pencarian
         formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "title": result.get("title", "No Title"),
+                "description": result.get("snippet", "No Description"),
+                "link": result.get("link", "#")
+            })
 
-        for source in sources:
-            if source["site"]:
-                # Buat query khusus untuk sumber tertentu
-                source_query = f"{query} site:{source['site']}"
-            else:
-                # Pencarian biasa untuk sumber "Lainnya"
-                source_query = query
-
-            # Lakukan pencarian
-            results = service.cse().list(q=source_query, cx=cse_id, num=source["max_results"]).execute().get("items", [])
-
-            if results:
-                # Format hasil pencarian
-                source_results = []
-                for result in results:
-                    title = result.get("title", "Judul tidak tersedia")
-                    link = result.get("link", "#")
-                    snippet = result.get("snippet", "Deskripsi tidak tersedia")
-                    source_results.append(f"{source['emoji']} [{title}]({link})\n{snippet}\n")
-
-                # Tambahkan ke hasil akhir
-                formatted_results.append(f"**{source['name']}:**\n" + "\n".join(source_results))
-
-        if not formatted_results:
-            return "Tidak ada hasil yang ditemukan."
-
-        return "\n\n".join(formatted_results)
+        return formatted_results
     except Exception as e:
         logger.exception(f"Error saat mencari di Google: {e}")
-        return "Terjadi kesalahan saat melakukan pencarian."
+        return []
         
 async def process_with_gemini(messages: List[Dict[str, str]], update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
     try:
@@ -1187,59 +1170,78 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
 
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+async def process_with_gemini(messages: List[Dict[str, str]], update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
     try:
-        if not message_text:
-            message_text = update.message.text or ""
+        # Tentukan kompleksitas percakapan berdasarkan input pengguna
+        complexity = await determine_conversation_complexity(messages)
+        
+        # Cek apakah pesan sistem sudah ada di awal percakapan
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
+            # Tambahkan instruksi sistem berdasarkan kompleksitas
+            if complexity == "simple":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons singkat, jelas, dan point pentingnya saja dalam Bahasa Indonesia."}]
+                }
+            elif complexity == "medium":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons yang lebih detail dalam Bahasa Indonesia, namun tetap mudah dipahami."}]
+                }
+            elif complexity == "complex":
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
+                }
+            
+            # Sisipkan instruksi sistem di awal pesan
+            messages.insert(0, system_message)
 
-        sanitized_text = sanitize_input(message_text)
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if 'parts' in msg and isinstance(msg['parts'], list):
+                gemini_messages.append(msg)
+            elif 'content' in msg:
+                gemini_messages.append({
+                    "role": msg['role'],
+                    "parts": [{"text": msg['content']}]
+                })
+            else:
+                logger.error(f"Pesan tidak valid: {msg}")
+                continue
 
-        user_id = update.message.from_user.id
-        if not await check_rate_limit(user_id):
-            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-            return
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
+        last_message = messages[-1]
+        user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
 
-        chat_id = update.message.chat_id
-        session_json = redis_client.get(f"session:{chat_id}")
-
-        # Jika session_json kosong atau tidak valid, inisialisasi sesi baru
-        if not session_json:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
+            search_results = await search_google(user_message)
+            if search_results:
+                search_context = "\n🔍 **Hasil Pencarian Google:**\n\n"
+                for i, result in enumerate(search_results, start=1):
+                    search_context += (
+                        f"{i}. **{result['title']}**\n"
+                        f"   Deskripsi: {result['description']}\n"
+                        f"   [Link]({result['link']})\n\n"
+                    )
+                
+                # Kirim hasil pencarian dengan format Markdown
+                await update.message.reply_text(search_context, parse_mode=ParseMode.MARKDOWN_V2)
+            else:
+                return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             try:
-                session = json.loads(session_json)
-            except json.JSONDecodeError:
-                logger.error(f"Invalid JSON data in Redis for chat_id {chat_id}. Resetting session.")
-                await initialize_session(chat_id)
-                session = {'messages': [], 'last_update': datetime.now().timestamp()}
+                response = chat.send_message(user_message)
+            except Exception as e:
+                logger.exception(f"Error saat mengirim pesan ke Gemini: {e}")
+                return "Maaf, terjadi kesalahan saat memproses pesan Anda."
 
-        if await should_reset_context(chat_id, sanitized_text):
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
-
-        session['messages'].append({"role": "user", "content": sanitized_text})
-        await update_session(chat_id, {"role": "user", "content": sanitized_text})
-
-        if 'last_image_analysis' in session:
-            session['messages'].append({
-                "role": "assistant",
-                "content": session['last_image_analysis']
-            })
-
-        # Panggil process_with_gemini dengan update dan context
-        response = await process_with_gemini(session['messages'], update, context)
-        
-        if response:
-            filtered_response = await filter_text(response)
-            escaped_response = escape_markdown(filtered_response)
-            response_parts = split_message(escaped_response)
-            for part in response_parts:
-                await update.message.reply_text(part, parse_mode=ParseMode.MARKDOWN_V2)
-                
+        return response.text
     except Exception as e:
-        logger.exception("Error dalam pemrosesan pesan")
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan pesan.")
+        logger.exception("Error in processing with Gemini")
+        return "Maaf, terjadi kesalahan internal. Mohon coba lagi nanti."
 
 
 def main():
