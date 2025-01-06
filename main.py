@@ -165,15 +165,12 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], prev
             return "complex"  # Tetap complex jika ada kata kunci kompleks
 
     elif previous_complexity == "medium":
-        if not has_complex_keywords and len(user_messages) <= 5:
-            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks dan jumlah pesan <= 5.")
-            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks dan pesan <= 5
+        if not has_complex_keywords:
+            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks.")
+            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks
         else:
-            if has_complex_keywords:
-                logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
-            else:
-                logger.info(f"Kompleksitas tetap medium karena jumlah pesan > 5.")
-            return "medium"  # Tetap medium jika ada kata kunci kompleks atau pesan > 5
+            logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
+            return "medium"  # Tetap medium jika ada kata kunci kompleks
 
     else:  # previous_complexity == "simple"
         if has_complex_keywords:
