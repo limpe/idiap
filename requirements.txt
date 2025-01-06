@@ -16,6 +16,3 @@ together
 deep-translator
 telegram
 google-api-python-client
-stanza
-numpy
-scikit-learn
