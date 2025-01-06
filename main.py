@@ -34,6 +34,7 @@ from typing import List, Dict
 from typing import Union, Tuple
 from stopwords import stop_words
 from google.generativeai.types import generation_types
+from googleapiclient.discovery import build
 
 
 # Konfigurasi logger
