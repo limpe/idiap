@@ -270,6 +270,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
                 height=960,
                 steps=4,
                 n=1,
+                guidance_scale=9.5,
                 response_format="b64_json"
             )
             
