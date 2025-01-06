@@ -775,7 +775,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
-
+        
 async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
     """Upload image to Telegraph and return the URL"""
     try:
@@ -1188,55 +1188,54 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    if not message_text:
-        message_text = update.message.text or ""
+    try:
+        if not message_text:
+            message_text = update.message.text or ""
 
-    sanitized_text = sanitize_input(message_text)
+        sanitized_text = sanitize_input(message_text)
 
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
+        user_id = update.message.from_user.id
+        if not await check_rate_limit(user_id):
+            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+            return
 
-    chat_id = update.message.chat_id
-    session_json = redis_client.get(f"session:{chat_id}")
+        chat_id = update.message.chat_id
+        session_json = redis_client.get(f"session:{chat_id}")
 
-    # Jika session_json kosong atau tidak valid, inisialisasi sesi baru
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-    else:
-        try:
-            session = json.loads(session_json)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON data in Redis for chat_id {chat_id}. Resetting session.")
+        # Jika session_json kosong atau tidak valid, inisialisasi sesi baru
+        if not session_json:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        else:
+            try:
+                session = json.loads(session_json)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON data in Redis for chat_id {chat_id}. Resetting session.")
+                await initialize_session(chat_id)
+                session = {'messages': [], 'last_update': datetime.now().timestamp()}
+
+        if await should_reset_context(chat_id, sanitized_text):
             await initialize_session(chat_id)
             session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
-    if await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        session['messages'].append({"role": "user", "content": sanitized_text})
+        await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+        if 'last_image_analysis' in session:
+            session['messages'].append({
+                "role": "assistant",
+                "content": session['last_image_analysis']
+            })
 
-    if 'last_image_analysis' in session:
-        session['messages'].append({
-            "role": "assistant",
-            "content": session['last_image_analysis']
-        })
-
-    try:
-        response = await process_with_gemini(session['messages'])
+        # Panggil process_with_gemini dengan update dan context
+        response = await process_with_gemini(session['messages'], update, context)
         
         if response:
             filtered_response = await filter_text(response)
-            session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-
-            response_parts = split_message(filtered_response)
+            escaped_response = escape_markdown(filtered_response)
+            response_parts = split_message(escaped_response)
             for part in response_parts:
-                await update.message.reply_text(part)
+                await update.message.reply_text(part, parse_mode=ParseMode.MARKDOWN_V2)
                 
     except Exception as e:
         logger.exception("Error dalam pemrosesan pesan")
