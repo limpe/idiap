@@ -17,4 +17,4 @@ deep-translator
 telegram
 google-api-python-client
 Sastrawi
-nltk
+langdetect
