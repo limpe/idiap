@@ -975,7 +975,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     session['messages'].append(message)
     session['last_update'] = datetime.now().timestamp()
     redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)f
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
