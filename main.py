@@ -409,10 +409,10 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
         # Cek apakah pesan mengandung kata kunci "sumber youtube" atau "sumber terkait"
         if "sumber youtube" in user_message.lower() or "sumber terkait" in user_message.lower():
-            # Gunakan google_search_retrieval untuk mencari sumber terkait
+            # Gunakan google_search untuk mencari sumber terkait
             response = gemini_model.generate_content(
                 contents=user_message,
-                tools={"google_search_retrieval": {
+                tools={"google_search": {
                     "dynamic_retrieval_config": {
                         "mode": "unspecified",
                         "dynamic_threshold": 0.06
