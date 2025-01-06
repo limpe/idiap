@@ -394,7 +394,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             elif complexity == "medium":
                 system_message = {
                     "role": "user",
-                    "parts": [{"text": "Berikan respons dalam Bahasa Indonesia."}]
+                    "parts": [{"text": "Berikan respons sederhana dalam Bahasa Indonesia."}]
                 }
             elif complexity == "complex":
                 system_message = {
@@ -1118,21 +1118,29 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
+        # Reset jika percakapan sudah timeout
         if time_diff > CONVERSATION_TIMEOUT:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
 
-        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']
-        if any(message.lower().startswith(keyword) for keyword in keywords):
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
+        # Daftar kata kunci yang memicu reset
+        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
+
+        # Cek apakah pesan mengandung kata kunci reset
+        if any(keyword in message.lower() for keyword in reset_keywords):
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             return True
 
+        # Ambil kompleksitas percakapan
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
+
+        # Reset jika jumlah pesan melebihi batas
         if len(session['messages']) > max_messages:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
+        # Cek apakah topik percakapan berubah
         if session['messages']:
             last_message = session['messages'][-1]['content']
             if not is_same_topic(last_message, message, session['messages']):
