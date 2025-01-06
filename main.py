@@ -35,7 +35,7 @@ from typing import Union, Tuple
 from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
-
+from difflib import SequenceMatcher
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -1095,8 +1095,11 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
+from difflib import SequenceMatcher  # Tambahkan ini di bagian atas file
+
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
+        # Ambil sesi dari Redis
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
@@ -1107,33 +1110,46 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        if time_diff > CONVERSATION_TIMEOUT:
+        # 1. Perpanjang timeout percakapan (8 jam)
+        if time_diff > 28800:  # 8 jam
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
 
-        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']
+        # 2. Kurangi kata kunci yang memicu reset
+        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']   # Hanya kata sapaan dasar
         if any(message.lower().startswith(keyword) for keyword in keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
+        # 3. Perpanjang batas maksimal pesan sebelum reset
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
-        if len(session['messages']) > max_messages:
+        
+        # Naikkan batas pesan (misalnya, gandakan batas pesan)
+        if len(session['messages']) > max_messages * 2:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
+        # 4. Kurangi sensitivitas perubahan topik menggunakan similarity score
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']):
+            
+            # Hitung similarity score antara pesan terakhir dan pesan saat ini
+            similarity = SequenceMatcher(None, last_message.lower(), message.lower()).ratio()
+            logger.info(f"Similarity score: {similarity}")
+            
+            # Jika similarity score di bawah threshold, reset konteks
+            if similarity < 0.3:  # Threshold bisa disesuaikan (0.3 = 30% kemiripan)
                 logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
                 return True
 
+        # 5. Jika tidak ada kondisi yang terpenuhi, jangan reset konteks
         logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
+
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
-
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
