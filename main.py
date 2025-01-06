@@ -146,21 +146,35 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
     
-async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> str:
+async def determine_conversation_complexity(messages: List[Dict[str, str]], previous_complexity: str = "simple") -> str:
+    # Ambil semua pesan pengguna
     user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
-    user_text = " ".join(user_messages).lower()
+    user_text = " ".join(user_messages).lower()  # Gabungkan semua pesan pengguna menjadi satu teks
 
-    if any(keyword in user_text for keyword in complex_keywords):
-        complexity = "complex"
-    elif len(user_messages) > 5:
-        complexity = "medium"
-    else:
-        complexity = "simple"
+    # Cek apakah ada kata kunci kompleks di pesan terbaru
+    latest_message = user_messages[-1] if user_messages else ""
+    has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
 
-    # Catat kompleksitas percakapan yang baru
-    logger.info(f"Kompleksitas percakapan ditentukan sebagai: {complexity}")
-    
-    return complexity
+    # Logika penurunan kompleksitas
+    if previous_complexity == "complex":
+        if not has_complex_keywords:
+            return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
+        else:
+            return "complex"  # Tetap complex jika ada kata kunci kompleks
+
+    elif previous_complexity == "medium":
+        if not has_complex_keywords and len(user_messages) <= 5:
+            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks dan pesan <= 5
+        else:
+            return "medium"  # Tetap medium jika ada kata kunci kompleks atau pesan > 5
+
+    else:  # previous_complexity == "simple"
+        if has_complex_keywords:
+            return "complex"  # Naik ke complex jika ada kata kunci kompleks
+        elif len(user_messages) > 5:
+            return "medium"  # Naik ke medium jika pesan > 5
+        else:
+            return "simple"  # Tetap simple jika tidak ada perubahan
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -977,13 +991,13 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if session_json:
         session = json.loads(session_json)
     else:
-        session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}  # Default complexity
+        session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}
 
-    # Simpan kompleksitas sebelumnya untuk membandingkan perubahan
+    # Simpan kompleksitas sebelumnya
     previous_complexity = session.get('complexity', 'simple')
 
-    # Tentukan kompleksitas percakapan yang baru
-    new_complexity = await determine_conversation_complexity(session['messages'])
+    # Tentukan kompleksitas baru
+    new_complexity = await determine_conversation_complexity(session['messages'], previous_complexity)
     session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
     # Catat perubahan kompleksitas jika ada
