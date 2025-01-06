@@ -14,8 +14,7 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-import numpy as np
-import stanza
+
 
 
 from deep_translator import GoogleTranslator
@@ -36,8 +35,7 @@ from typing import Union, Tuple
 from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
-from difflib import SequenceMatcher
-from sklearn.metrics.pairwise import cosine_similarity
+
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -104,7 +102,6 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
-stanza.download('id')
 
 # Statistik penggunaan
 bot_statistics = {
@@ -132,22 +129,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
-
-def get_sentence_vector(sentence: str) -> np.ndarray:
-    """
-    Mengubah kalimat menjadi vektor menggunakan Stanza.
-    """
-    doc = nlp(sentence)
-    vectors = [word.embedding for word in doc.sentences[0].words if word.embedding is not None]
-    return np.mean(vectors, axis=0) if vectors else np.zeros(300)  # 300 adalah dimensi embedding
-
-def calculate_semantic_similarity(text1: str, text2: str) -> float:
-    """
-    Menghitung kemiripan semantik antara dua kalimat.
-    """
-    vec1 = get_sentence_vector(text1)
-    vec2 = get_sentence_vector(text2)
-    return cosine_similarity([vec1], [vec2])[0][0]
 
 
 
@@ -1091,36 +1072,31 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: float = 0.3) -> bool:
-    """
-    Menentukan apakah pesan saat ini masih terkait dengan pesan terakhir.
-    """
-    # Hitung kemiripan semantik
-    similarity = calculate_semantic_similarity(last_message, current_message)
-    if similarity >= threshold:
-        return True
-
-    # Cek kata kunci
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 0) -> bool:
+    # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
+    
+    # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
+
+    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
     common_keywords = set(last_keywords) & set(current_keywords)
-
-    # Jika ada kata kunci yang sama, kembalikan True
-    if common_keywords:
-        return True
-
-    return False
+    
+    # Log untuk debugging
+    logger.info(f"Last keywords: {last_keywords}")
+    logger.info(f"Current keywords: {current_keywords}")
+    logger.info(f"Common keywords: {common_keywords}")
+    
+    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
+    return len(common_keywords) >= threshold
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-from difflib import SequenceMatcher  # Tambahkan ini di bagian atas file
-
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
-        # Ambil sesi dari Redis
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
@@ -1131,32 +1107,33 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # Reset jika percakapan terlalu lama (24 jam)
-        if time_diff > 86400:
+        if time_diff > CONVERSATION_TIMEOUT:
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
 
-        # Reset jika pesan mengandung kata kunci awal
         keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']
         if any(message.lower().startswith(keyword) for keyword in keywords):
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
 
-        # Reset jika percakapan terlalu panjang
         complexity = await determine_conversation_complexity(session['messages'])
         max_messages = get_max_conversation_messages(complexity)
-        if len(session['messages']) > max_messages * 2:
+        if len(session['messages']) > max_messages:
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Reset jika similarity score di bawah threshold (20%)
         if session['messages']:
             last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages'], threshold=0.2):
+            if not is_same_topic(last_message, message, session['messages']):
+                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
                 return True
 
+        logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
-
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
+
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
