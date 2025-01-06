@@ -37,7 +37,7 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from nltk.tokenize import word_tokenize
-from nltk.stem import SnowballStemmer
+from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -104,8 +104,11 @@ MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
+factory = StemmerFactory()
 nltk.download('punkt')
-stemmer = SnowballStemmer("indonesian")
+factory = StemmerFactory()
+stemmer = factory.create_stemmer()
+
 
 # Statistik penggunaan
 bot_statistics = {
