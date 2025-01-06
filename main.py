@@ -1160,11 +1160,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     chat_id = update.message.chat_id
     session_json = redis_client.get(f"session:{chat_id}")
+
+    # Jika session_json kosong atau tidak valid, inisialisasi sesi baru
     if not session_json:
         await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
     else:
-        session = json.loads(session_json)
+        try:
+            session = json.loads(session_json)
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON data in Redis for chat_id {chat_id}. Resetting session.")
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
     if await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
