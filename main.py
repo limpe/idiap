@@ -1126,8 +1126,11 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         # Daftar kata kunci yang memicu reset
         reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
 
+        # Normalisasi pesan untuk pengecekan kata kunci
+        normalized_message = message.lower().strip()
+
         # Cek apakah pesan mengandung kata kunci reset
-        if any(keyword in message.lower() for keyword in reset_keywords):
+        if any(keyword in normalized_message for keyword in reset_keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             return True
 
@@ -1152,7 +1155,6 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
-
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
