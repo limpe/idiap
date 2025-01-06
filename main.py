@@ -359,7 +359,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam bahasa indonesia") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
                 system_message = {
                     "role": "user",
@@ -408,6 +408,10 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 return "Maaf, saya tidak dapat menemukan sumber terkait."
         else:
             response = chat.send_message(user_message)
+
+        # Pastikan respons dalam bahasa Indonesia
+        if "Bahasa Indonesia" not in response.text:  # Jika respons tidak dalam bahasa Indonesia
+            response = chat.send_message("Ubah respons ke dalam Bahasa Indonesia.")  # Paksa respons dalam bahasa Indonesia
 
         return response.text
 
@@ -1145,7 +1149,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if response:
         # Filter respons sebelum dikirim ke pengguna
         filtered_response = await filter_text(response)  # Panggil filter_text di sini
-        logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
