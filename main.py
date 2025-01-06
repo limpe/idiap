@@ -151,11 +151,16 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]]) -> s
     user_text = " ".join(user_messages).lower()
 
     if any(keyword in user_text for keyword in complex_keywords):
-        return "complex"
+        complexity = "complex"
     elif len(user_messages) > 5:
-        return "medium"
+        complexity = "medium"
     else:
-        return "simple"
+        complexity = "simple"
+
+    # Catat kompleksitas percakapan yang baru
+    logger.info(f"Kompleksitas percakapan ditentukan sebagai: {complexity}")
+    
+    return complexity
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -972,10 +977,29 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if session_json:
         session = json.loads(session_json)
     else:
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}  # Default complexity
 
+    # Simpan kompleksitas sebelumnya untuk membandingkan perubahan
+    previous_complexity = session.get('complexity', 'simple')
+
+    # Tentukan kompleksitas percakapan yang baru
+    new_complexity = await determine_conversation_complexity(session['messages'])
+    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+
+    # Catat perubahan kompleksitas jika ada
+    if previous_complexity != new_complexity:
+        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
+
+    # Catat waktu pembaruan sesi
+    last_update_time = session.get('last_update', 0)
+    current_time = datetime.now().timestamp()
+    logger.info(f"Memperbarui sesi untuk chat_id {chat_id}. Waktu terakhir diperbarui: {last_update_time}, Waktu sekarang: {current_time}")
+
+    # Tambahkan pesan ke sesi
     session['messages'].append(message)
-    session['last_update'] = datetime.now().timestamp()
+    session['last_update'] = current_time
+
+    # Simpan sesi ke Redis
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
