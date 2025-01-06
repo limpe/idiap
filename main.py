@@ -1185,17 +1185,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
     session_json = redis_client.get(f"session:{chat_id}")
-
-    # Periksa apakah sesi perlu direset
-    if await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)  # Reset sesi
+    if not session_json:
+        await initialize_session(chat_id)
         session = {'messages': [], 'last_update': datetime.now().timestamp()}
     else:
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        session = json.loads(session_json)
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1206,18 +1200,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
         for part in response_parts:
             await update.message.reply_text(part)
     else:
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-
+        
 def main():
     if not check_required_settings():
         print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
