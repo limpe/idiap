@@ -578,7 +578,9 @@ def get_max_conversation_messages(complexity: str) -> int:
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
+    logger.info(f"Original text before filtering: {text}")  # Log teks sebelum difilter
     filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
+    logger.info(f"Filtered text after filtering: {filtered_text}")  # Log teks setelah difilter
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1141,12 +1143,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     response = await process_with_gemini(session['messages'])
     
     if response:
+        # Filter respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+
         # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": response})
-        await update_session(chat_id, {"role": "assistant", "content": response})
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(response)
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
         for part in response_parts:
             await update.message.reply_text(part)
     else:
