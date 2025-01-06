@@ -1110,7 +1110,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             return True
 
-        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip']
+        keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw']
         if any(message.lower().startswith(keyword) for keyword in keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci awal: {message}")
             return True
