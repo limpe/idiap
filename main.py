@@ -359,6 +359,25 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         logger.exception("Error in processing image with Gemini")
         return "Terjadi kesalahan saat memproses gambar dengan Gemini."
 
+async def search_google(query: str) -> List[str]:
+    """Melakukan pencarian Google dan mengembalikan daftar link."""
+    try:
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        cse_id = os.environ.get("GOOGLE_CSE_ID")
+
+        if not api_key or not cse_id:
+            logger.error("API Key atau CSE ID Google belum diatur di environment variables.")
+            return []
+
+        service = build("customsearch", "v1", developerKey=api_key)
+        res = service.cse().list(q=query, cx=cse_id).execute()
+        results = res.get("items", [])
+        return [result["link"] for result in results]
+    except Exception as e:
+        logger.exception(f"Error saat mencari di Google: {e}")
+        return []
+
+
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Tentukan kompleksitas percakapan berdasarkan input pengguna
