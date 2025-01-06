@@ -347,7 +347,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         image = Image.open(image_bytes)
 
         # Gunakan prompt default jika tidak ada prompt yang diberikan
-        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia."
+        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia dan termasuk penjelasan yang komprehensif."
 
         # Proses gambar dengan Gemini
         response = model.generate_content([user_prompt, image])
@@ -370,7 +370,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             if complexity == "simple":
                 system_message = {
                     "role": "user",
-                    "parts": [{"text": "Berikan respons singkat padat dan jelas dalam Bahasa Indonesia."}]
+                    "parts": [{"text": "Berikan respons padat dan jelas dalam Bahasa Indonesia ."}]
                 }
             elif complexity == "medium":
                 system_message = {
