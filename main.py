@@ -359,7 +359,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam bahasa indonesia") for msg in messages):
             if complexity == "simple":
                 system_message = {
                     "role": "user",
