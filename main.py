@@ -116,20 +116,6 @@ class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
 
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk command /start"""
-    welcome_text = """Halo! Saya PAIDI asisten Anda. Saya dapat:
-    - Memproses pesan suara (termasuk yang panjang)
-    - Menanggapi dengan suara
-    - Membantu dengan berbagai tugas
-    - Memproses gambar
-    - Generate gambar (gunakan /gambar atau /image diikuti dengan prompt)
-    - pengingat (gunakan /ingatkan 5 belanja *mengingatkan anda 5 menit kedepan untuk belanja)
-
-    Kirim saya pesan atau catatan suara untuk memulai!"""
-    await update.message.reply_text(welcome_text)
-
 # Konfigurasi Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
 try:
@@ -145,6 +131,20 @@ except Exception as e:
     logger.error(f"Error tak terduga saat inisiasi Redis: {e}")
     redis_client = None
     redis_available = False
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /start"""
+    welcome_text = """Halo! Saya PAIDI asisten Anda. Saya dapat:
+    - Memproses pesan suara (termasuk yang panjang)
+    - Menanggapi dengan suara
+    - Membantu dengan berbagai tugas
+    - Memproses gambar
+    - Generate gambar (gunakan /gambar atau /image diikuti dengan prompt)
+    - pengingat (gunakan /ingatkan 5 belanja *mengingatkan anda 5 menit kedepan untuk belanja)
+
+    Kirim saya pesan atau catatan suara untuk memulai!"""
+    await update.message.reply_text(welcome_text)
 
 
 
@@ -403,7 +403,6 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         logger.info(f"Conversation complexity: {complexity}")
 
-        # Tambahkan instruksi sistem berdasarkan kompleksitas percakapan
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat, jelas, dan fokus pada inti pesan dalam Bahasa Indonesia."}]}
@@ -415,21 +414,19 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
 
-        # Format pesan untuk Gemini
-        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages]
+        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages]  # list comprehension untuk mempersingkat
 
-        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
         user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
 
         logger.info(f"Processing user message: {user_message}")
 
-        # Cek apakah pesan mengandung kata kunci pencarian
         if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
             search_results = await search_google(user_message)
             if search_results:
                 if isinstance(search_results[0], dict):
+                    # Format hasil pencarian sebagai teks biasa atau Markdown
                     search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
                         f"- [{result['title']}]({result['link']})" for result in search_results
                     )
@@ -450,15 +447,14 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
             if search_context:
                 user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)
+                response = chat.send_message(user_message_with_context)  # Kirim pesan yang sudah diformat
                 if response is None:
                     logger.error("Gemini returned None after Google search context.")
                     return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
-        # Kirim pesan ke Gemini
-        response = chat.send_message(user_message)
+        response = chat.send_message(user_message)  # Kirim pesan biasa
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
@@ -1012,105 +1008,46 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
             
 
-async def initialize_session(chat_id: int) -> dict:
-    """Membuat dan menyimpan sesi baru ke Redis (jika tersedia)."""
+async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],  # Daftar pesan
-        'last_update': datetime.now().timestamp(),  # Waktu terakhir diperbarui
-        'complexity': 'simple',  # Kompleksitas percakapan
-        'topics': {  # Struktur topik percakapan
-            'general': []  # Topik default
-        },
-        'active_topic': 'general'  # Topik aktif saat ini
+        'messages': [],  # Reset pesan ke list kosong
+        'last_update': datetime.now().timestamp(),
+        'conversation_id': str(uuid.uuid4())
     }
-
-    if redis_available and redis_client:
-        try:
-            redis_client.set(f"session:{chat_id}", json.dumps(session))
-            logger.info(f"Sesi baru diinisialisasi dan disimpan di Redis untuk chat_id: {chat_id}")
-        except redis.exceptions.ConnectionError as e:
-            logger.error(f"Gagal menyimpan sesi awal ke Redis: {e}")
-            return None
-
-    return session  # Mengembalikan sesi yang baru dibuat
-
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """Memperbarui sesi di Redis, termasuk kompleksitas percakapan."""
-    if redis_available and redis_client:
-        try:
-            session_json = redis_client.get(f"session:{chat_id}")
-            if session_json:
-                session = json.loads(session_json)
-            else:
-                # Jika sesi tidak ada, buat sesi baru
-                session = await initialize_session(chat_id)
-                if not session:
-                    logger.error("Gagal membuat sesi baru.")
-                    return
+    session_json = redis_client.get(f"session:{chat_id}")
+    if session_json:
+        session = json.loads(session_json)
+    else:
+        session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}
 
-            # Pastikan kunci 'topics' ada dalam sesi
-            if 'topics' not in session:
-                session['topics'] = {'general': []}  # Inisialisasi topik default
-                logger.warning(f"Kunci 'topics' tidak ditemukan dalam sesi untuk chat_id {chat_id}. Menginisialisasi ulang.")
+    # Simpan kompleksitas sebelumnya
+    previous_complexity = session.get('complexity', 'simple')
 
-            # Ambil topik aktif
-            active_topic = session.get('active_topic', 'general')
+    # Tentukan kompleksitas baru
+    new_complexity = await determine_conversation_complexity(session['messages'], previous_complexity)
+    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
-            # Pastikan topik aktif ada dalam 'topics'
-            if active_topic not in session['topics']:
-                session['topics'][active_topic] = []  # Buat daftar pesan baru untuk topik ini
-                logger.warning(f"Topik aktif '{active_topic}' tidak ditemukan dalam sesi untuk chat_id {chat_id}. Menginisialisasi ulang.")
+    # Catat perubahan kompleksitas jika ada
+    if previous_complexity != new_complexity:
+        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-            # Tambahkan pesan ke topik aktif
-            session['topics'][active_topic].append(message)
+    # Catat waktu pembaruan sesi
+    last_update_time = session.get('last_update', 0)
+    current_time = datetime.now().timestamp()
+    logger.info(f"Memperbarui sesi untuk chat_id {chat_id}. Waktu terakhir diperbarui: {last_update_time}, Waktu sekarang: {current_time}")
 
-            # Update waktu terakhir diperbarui
-            session['last_update'] = datetime.now().timestamp()
+    # Tambahkan pesan ke sesi
+    session['messages'].append(message)
+    session['last_update'] = current_time
 
-            # Simpan sesi ke Redis
-            redis_client.set(f"session:{chat_id}", json.dumps(session))
-            redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-
-        except redis.exceptions.ConnectionError as e:
-            logger.error(f"Gagal menyimpan sesi ke Redis: {e}")
-        except Exception as e:
-            logger.error(f"Error tak terduga saat memperbarui sesi: {e}")
-
-
-async def update_session(chat_id: int, message: Dict[str, str]):
-    """Memperbarui sesi di Redis, termasuk kompleksitas percakapan."""
-    if redis_available and redis_client:
-        try:
-            session_json = redis_client.get(f"session:{chat_id}")
-            if session_json:
-                session = json.loads(session_json)
-            else:
-                session = {'messages': [], 'last_update': datetime.now().timestamp(), "active_topic": "general", "topics": {"general": []}, 'complexity': 'simple'}
-            
-            previous_complexity = session.get('complexity', 'simple')
-            
-            # Mendapatkan pesan dari topik yang aktif
-            active_topic = session.get("active_topic", "general")
-            active_topic_messages = session["topics"][active_topic]
-
-            new_complexity = await determine_conversation_complexity(active_topic_messages, previous_complexity)
-            session['complexity'] = new_complexity
-
-            if previous_complexity != new_complexity:
-                logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
-
-            last_update_time = session.get('last_update', 0)
-            current_time = datetime.now().timestamp()
-            logger.info(f"Memperbarui sesi untuk chat_id {chat_id}. Waktu terakhir diperbarui: {last_update_time}, Waktu sekarang: {current_time}")
-
-            # Menambahkan pesan ke topik yang aktif
-            session["topics"][active_topic].append(message)
-            session['last_update'] = current_time
-            
-            redis_client.set(f"session:{chat_id}", json.dumps(session))
-        except redis.exceptions.ConnectionError as e:
-            logger.error(f"Gagal menyimpan sesi ke Redis: {e}")
+    # Simpan sesi ke Redis
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1287,82 +1224,51 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error tak terduga saat mereset sesi untuk chat_id {chat_id} (user_id: {user_id}): {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan tak terduga saat mereset sesi.")
 
-def detect_and_manage_topics(session: dict, message: str) -> bool:
-    """
-    Mendeteksi perubahan topik dan mengelola topik percakapan.
-    
-    Args:
-        session (dict): Sesi percakapan pengguna.
-        message (str): Pesan terbaru dari pengguna.
-    
-    Returns:
-        bool: True jika topik berubah, False jika tidak.
-    """
-    # Ambil topik aktif saat ini
-    active_topic = session.get("active_topic", "general")
-    
-    # Contoh logika deteksi perubahan topik
-    if "topik baru" in message.lower():  # Ganti dengan logika deteksi topik yang sesuai
-        session["active_topic"] = "topik_baru"
-        session["topics"]["topik_baru"] = []  # Buat daftar pesan baru untuk topik ini
-        logger.info(f"Topik berubah dari {active_topic} ke topik_baru")
-        return True
-    
-    # Jika tidak ada perubahan topik
-    return False
 
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user = update.message.from_user
-        chat_id = update.message.chat_id
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    if not message_text:
         message_text = update.message.text or ""
-        sanitized_text = sanitize_input(message_text)
-        
-        user_id = update.message.from_user.id
-        if not await check_rate_limit(user_id):
-            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-            return
 
-        # Ambil sesi dari Redis atau inisialisasi baru
-        session = await initialize_session(chat_id)
-        if session is None and redis_available and redis_client:
-            session_json = redis_client.get(f"session:{chat_id}")
-            if session_json:
-                session = json.loads(session_json)
-            else:
-                session = await initialize_session(chat_id)  # Buat sesi baru jika tidak ada
+    # Sanitasi input teks
+    sanitized_text = sanitize_input(message_text)
 
-        # Pastikan kunci 'topics' ada dalam sesi
-        if 'topics' not in session:
-            session['topics'] = {'general': []}  # Inisialisasi topik default
-            logger.warning(f"Kunci 'topics' tidak ditemukan dalam sesi untuk chat_id {chat_id}. Menginisialisasi ulang.")
+    # Periksa rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
 
-        # Tambahkan pesan pengguna ke sesi
-        session['messages'].append({"role": "user", "content": sanitized_text})
-        await update_session(chat_id, {"role": "user", "content": sanitized_text})
+    # Ambil atau inisialisasi sesi
+    chat_id = update.message.chat_id
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    else:
+        session = json.loads(session_json)
 
-        # Proses pesan dengan Gemini
-        response = await process_with_gemini(session['messages'])
+    # Tambahkan pesan pengguna ke sesi
+    session['messages'].append({"role": "user", "content": sanitized_text})
+    await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-        if response:
-            # Filter respons sebelum dikirim ke pengguna
-            filtered_response = await filter_text(response)
+    # Proses pesan dengan Gemini
+    response = await process_with_gemini(session['messages'])
+    
+    if response:
+        # Filter respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
-            # Tambahkan respons asisten ke sesi
-            session['messages'].append({"role": "assistant", "content": filtered_response})
-            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-            # Kirim respons ke pengguna
-            response_parts = split_message(filtered_response)
-            for part in response_parts:
-                await update.message.reply_text(part)
-        else:
-            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-
-    except Exception as e:
-        logger.exception(f"Error di handle_text: {e}")
-        await update.message.reply_text("Terjadi kesalahan. Mohon coba lagi nanti.")
+        # Kirim respons ke pengguna
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
+        for part in response_parts:
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
         
 def main():
     if not check_required_settings():
