@@ -381,65 +381,58 @@ async def search_google(query: str) -> List[str]:
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        # Tentukan kompleksitas percakapan
+        if not messages:
+            logger.error("Empty message list received.")
+            return "Tidak ada pesan yang dapat diproses."
+
         complexity = await determine_conversation_complexity(messages)
-        
-        # Tambahkan instruksi sistem berdasarkan kompleksitas
+        logger.info(f"Conversation complexity: {complexity}")
+
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
-                system_message = {
-                    "role": "user",
-                    "parts": [{"text": "Berikan respons singkat, jelas, dan point pentingnya saja dalam Bahasa Indonesia."}]
-                }
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat, jelas, dan fokus pada inti pesan dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {
-                    "role": "user",
-                    "parts": [{"text": "Berikan respons dalam Bahasa Indonesia.kata-kata jangan terlalu panjang"}]
-                }
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons detail, jelas, tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
-                system_message = {
-                    "role": "user",
-                    "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
-                }
-            
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
+            else:
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
 
-        # Konversi format pesan ke format yang diterima Gemini
-        gemini_messages = []
-        for msg in messages:
-            if 'parts' in msg and isinstance(msg['parts'], list):
-                gemini_messages.append(msg)
-            elif 'content' in msg:
-                gemini_messages.append({
-                    "role": msg['role'],
-                    "parts": [{"text": msg['content']}]
-                })
-            else:
-                logger.error(f"Pesan tidak valid: {msg}")
-                continue
+        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages] #list comprehension untuk mempersingkat
 
-        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
-        user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
+        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
 
-        # Cek jika pesan mengandung permintaan khusus (misalnya, pencarian Google)
-        if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
+        logger.info(f"Processing user message: {user_message}")
+
+        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
             search_results = await search_google(user_message)
             if search_results:
-                search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
+                search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join([f"- [{result['title']}]({result['link']})" for result in search_results] if isinstance(search_results[0], dict) else search_results) if search_results else ""
                 user_message_with_context = user_message + search_context
                 response = chat.send_message(user_message_with_context)
+                if response is None:
+                    logger.error("Gemini returned None after Google search context.")
+                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
+                logger.info(f"Gemini response with Google context: {response.text}")
+                return response.text
             else:
-                return "Maaf, saya tidak dapat menemukan sumber terkait."
-        else:
-            response = chat.send_message(user_message)
+                logger.warning(f"No relevant sources found for: {user_message}")
+                return "Tidak ada sumber yang relevan ditemukan di Google."
 
+        response = chat.send_message(user_message)
+        if response is None:
+            logger.error("Gemini returned None.")
+            return "Terjadi kesalahan saat memproses permintaan."
+
+        logger.info(f"Gemini response: {response.text}")
         return response.text
 
     except Exception as e:
-        logger.exception("Error in processing with Gemini")
-        return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
+        logger.exception(f"Error processing Gemini request: {e}") #menambahkan detail exception
+        return "Terjadi kesalahan dalam memproses permintaan Anda."
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
