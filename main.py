@@ -16,7 +16,8 @@ import bleach
 import requests
 
 
-from telegram import Update, InputFile, ParseMode
+from telegram import Update, InputFile
+from telegram.constants import ParseMode
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
