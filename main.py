@@ -291,7 +291,7 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-# Langkah 3: Update fungsi handle_generate_image
+
 async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Pisahkan command dan pesan
@@ -1125,60 +1125,90 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             return True
 
         session = json.loads(session_json)
-        last_update = session.get('last_update', 0)
-        current_time = datetime.now().timestamp()
-        time_diff = current_time - last_update
+        if check_session_expired(chat_id, session):
+            return True
 
-        # Reset jika percakapan sudah timeout
-        if time_diff > CONVERSATION_TIMEOUT:
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
+        if check_reset_keywords(message):
             redis_client.delete(f"session:{chat_id}")
             return True
 
-        # Daftar kata kunci yang memicu reset
-        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
-
-        # Normalisasi pesan untuk pengecekan kata kunci
-        normalized_message = message.lower().strip()
-
-        # Cek apakah pesan mengandung kata kunci reset
-        if any(keyword in normalized_message for keyword in reset_keywords):
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
-            redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
+        messages = session.get('messages', [])
+        complexity = await determine_conversation_complexity(messages)
+        if check_message_limit(chat_id, messages, complexity):
             return True
 
-        # Ambil kompleksitas percakapan
-        complexity = await determine_conversation_complexity(session['messages'])
-        max_messages = get_max_conversation_messages(complexity)
-
-        # Reset jika jumlah pesan melebihi batas
-        if len(session['messages']) > max_messages:
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
+        if check_topic_change(messages, message):
             return True
-
-        # Cek apakah topik percakapan berubah
-        if session['messages']:
-            last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']):
-                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
-                return True
 
         logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON untuk chat_id {chat_id}: {e}")
+        return True
     except redis.RedisError as e:
-        logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
+        logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {e}")
+        return True
+    except Exception as e:
+        logger.exception(f"Error tak terduga saat memeriksa konteks untuk chat_id {chat_id}: {e}")
         return True
 
+
+def check_session_expired(chat_id: int, session: dict) -> bool:
+    last_update = session.get('last_update', 0)
+    current_time = datetime.now().timestamp()
+    time_diff = current_time - last_update
+
+    if time_diff > CONVERSATION_TIMEOUT:
+        logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout ({time_diff:.2f} detik).")
+        redis_client.delete(f"session:{chat_id}")
+        return True
+    return False
+
+
+def check_reset_keywords(message: str) -> bool:
+    reset_keywords_set = set(['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear'])
+    normalized_message = message.lower().strip()
+    return any(keyword in normalized_message for keyword in reset_keywords_set)
+
+
+def check_message_limit(chat_id: int, messages: list, complexity: str) -> bool:
+    max_messages = get_max_conversation_messages(complexity)
+    if len(messages) > max_messages:
+        logger.info(f"Reset konteks chat_id {chat_id} karena jumlah pesan ({len(messages)} > {max_messages}).")
+        return True
+    return False
+
+
+def check_topic_change(messages: list, message: str) -> bool:
+    if messages:
+        last_message = messages[-1]['content']
+        if not is_same_topic(last_message, message, messages):
+            logger.info(f"Reset konteks untuk chat_id karena perubahan topik.")
+            return True
+    return False
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
     chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
     try:
         # Hapus sesi dari Redis
-        redis_client.delete(f"session:{chat_id}")
-        await update.message.reply_text("Sesi percakapan Anda telah direset. Mulai percakapan baru sekarang!")
-    except Exception as e:
-        logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
+        deleted = redis_client.delete(f"session:{chat_id}")
+        
+        if deleted:
+            logger.info(f"Sesi direset untuk chat_id {chat_id} (user_id: {user_id}) pada {datetime.now()}.")
+            await update.message.reply_text("Sesi percakapan Anda telah direset. Mulai percakapan baru sekarang!")
+        else:
+            logger.warning(f"Tidak ada sesi yang ditemukan untuk chat_id {chat_id} (user_id: {user_id}).")
+            await update.message.reply_text("Tidak ada sesi yang aktif untuk direset.")
+    
+    except redis.RedisError as e:
+        logger.error(f"Gagal mereset sesi untuk chat_id {chat_id} (user_id: {user_id}): {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
+    
+    except Exception as e:
+        logger.error(f"Error tak terduga saat mereset sesi untuk chat_id {chat_id} (user_id: {user_id}): {str(e)}")
+        await update.message.reply_text("Maaf, terjadi kesalahan tak terduga saat mereset sesi.")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
