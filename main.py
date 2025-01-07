@@ -82,7 +82,6 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -148,11 +147,14 @@ except Exception as e:
     redis_available = False
 
 # Testing koneksi Redis
-if redis_available:
+if redis_available and redis_client is not None:
     logger.info("Redis tersedia. Menyimpan data tes...")
-    redis_client.set("test_key", "test_value")
-    value = redis_client.get("test_key")
-    logger.info(f"Data tes dari Redis: {value}")
+    try:
+        redis_client.set("test_key", "test_value")
+        value = redis_client.get("test_key")
+        logger.info(f"Data tes dari Redis: {value}")
+    except Exception as e:
+        logger.error(f"Error saat testing Redis: {e}")
 else:
     logger.warning("Redis tidak tersedia. Fungsi yang bergantung pada Redis akan dinonaktifkan.")
 
