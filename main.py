@@ -438,7 +438,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
-        response = chat.send_message(user_message)
+        response = chat.send_message(user_message) # This line should be at the same indentation level as the outer if
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
@@ -446,7 +446,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         return response.text
 
     except Exception as e:
-        logger.exception(f"Error processing Gemini request: {e}") #menambahkan detail exception
+        logger.exception(f"Error processing Gemini request: {e}")
         return "Terjadi kesalahan dalam memproses permintaan Anda."
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
