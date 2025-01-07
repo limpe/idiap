@@ -412,12 +412,13 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             search_results = await search_google(user_message)
             if search_results:
                 if isinstance(search_results[0], dict):
-                    search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
-                        f"- *[{result['title']}]({result['link']})*" for result in search_results
+                    # Format hasil pencarian sebagai teks biasa atau Markdown
+                    search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
+                        f"- [{result['title']}]({result['link']})" for result in search_results
                     )
                 elif isinstance(search_results[0], str):
-                    search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
-                        f"- *{result}*" for result in search_results
+                    search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
+                        f"- {result}" for result in search_results
                     )
                 else:
                     search_context = ""
@@ -432,14 +433,14 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
             if search_context:
                 user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)  # Hapus parse_mode
+                response = chat.send_message(user_message_with_context)  # Kirim pesan yang sudah diformat
                 if response is None:
                     logger.error("Gemini returned None after Google search context.")
                     return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
-        response = chat.send_message(user_message)  # Hapus parse_mode
+        response = chat.send_message(user_message)  # Kirim pesan biasa
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
