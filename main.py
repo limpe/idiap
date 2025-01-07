@@ -408,23 +408,28 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         logger.info(f"Processing user message: {user_message}")
 
             if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
-        search_results = await search_google(user_message)
-        if search_results:
-            # Format hasil pencarian langsung dengan Markdown
-            if isinstance(search_results[0], dict):  # Cek apakah hasil berupa list of dictionaries
-                search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
-                    f"- *[{result['title']}]({result['link']})*" for result in search_results
-                )
-            elif isinstance(search_results[0], str): #mengecek jika berupa list of string
-                search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
-                    f"- *{result}*" for result in search_results
-                )
+            search_results = await search_google(user_message)
+            if search_results:
+                if isinstance(search_results[0], dict):
+                    search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
+                        f"- *[{result['title']}]({result['link']})*" for result in search_results
+                    )
+                elif isinstance(search_results[0], str):
+                    search_context = "\n\n*_Berikut adalah beberapa sumber terkait dari pencarian Google:_* \n" + "\n".join(
+                        f"- *{result}*" for result in search_results
+                    )
+                else:
+                    search_context = ""
+                    logger.warning(f"Unexpected search result format: {type(search_results)}")
+                    return "Maaf, format hasil pencarian tidak didukung."
+            elif search_results is None:
+                logger.error("search_google returned None.")
+                return "Terjadi kesalahan saat melakukan pencarian."
             else:
-                search_context = ""
-                logger.warning(f"Unexpected search result format: {type(search_results)}")
-                return "Maaf, format hasil pencarian tidak didukung."
-            
-            if search_context: #mengecek jika search_context tidak kosong
+                logger.warning(f"No relevant sources found for: {user_message}")
+                return "Tidak ada sumber yang relevan ditemukan di Google."
+
+            if search_context:
                 user_message_with_context = user_message + search_context
                 response = chat.send_message(user_message_with_context, parse_mode=telegram.ParseMode.MARKDOWN)
                 if response is None:
@@ -432,17 +437,12 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                     return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
-            else:
-                logger.warning(f"No relevant sources found for: {user_message}")
-                return "Tidak ada sumber yang relevan ditemukan di Google."
-            else:
 
         response = chat.send_message(user_message)
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
 
-        #logger.info(f"Gemini response: {response.text}")
         return response.text
 
     except Exception as e:
