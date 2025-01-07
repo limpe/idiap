@@ -1292,6 +1292,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif session is None and not redis_available: # fallback jika redis mati
             session = {'messages': [], 'last_update': datetime.now().timestamp(), "active_topic": "general", "topics": {"general": []}, 'complexity': 'simple'}
 
+        # Tambahkan pesan pengguna ke sesi SEBELUM memproses dengan Gemini
+        user_message = {"role": "user", "content": sanitized_text}
+        session["topics"][session["active_topic"]].append(user_message)
+        await update_session(chat_id, user_message)
+
+        # Periksa perubahan topik
         topic_changed = detect_and_manage_topics(session, sanitized_text)
         logger.info(f"Perubahan topik: {topic_changed}") # Log perubahan topik
         logger.info(f"Sesi setelah deteksi topik: {session}") # Log sesi setelah deteksi topik
@@ -1299,6 +1305,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if topic_changed:
             await update.message.reply_text("Topik pembicaraan sepertinya berubah. Mari kita mulai percakapan baru.")
 
+        # Proses pesan dengan Gemini
         active_topic_messages = session["topics"][session["active_topic"]]
         response = await process_with_gemini(active_topic_messages)
 
@@ -1306,14 +1313,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             filtered_response = await filter_text(response)
             logger.info(f"Response after filtering: {filtered_response}")
 
-            # Gunakan update_session yang baru untuk menyimpan pesan dan kompleksitas
-            user_message = {"role": "user", "content": sanitized_text}
+            # Tambahkan respons asisten ke sesi
             assistant_message = {"role": "assistant", "content": filtered_response}
-            
-            await update_session(chat_id, user_message) #simpan pesan user
-            await update_session(chat_id, assistant_message) #simpan pesan bot
+            session["topics"][session["active_topic"]].append(assistant_message)
+            await update_session(chat_id, assistant_message)
 
-            # Kirim respons ke pengguna (BAGIAN YANG HILANG SEBELUMNYA)
+            # Kirim respons ke pengguna
             response_parts = split_message(filtered_response)
             for part in response_parts:
                 await update.message.reply_text(part)
