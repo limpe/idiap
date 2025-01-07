@@ -146,18 +146,6 @@ except Exception as e:
     redis_client = None
     redis_available = False
 
-# Testing koneksi Redis
-if redis_available and redis_client is not None:
-    logger.info("Redis tersedia. Menyimpan data tes...")
-    try:
-        redis_client.set("test_key", "test_value")
-        value = redis_client.get("test_key")
-        logger.info(f"Data tes dari Redis: {value}")
-    except Exception as e:
-        logger.error(f"Error saat testing Redis: {e}")
-else:
-    logger.warning("Redis tidak tersedia. Fungsi yang bergantung pada Redis akan dinonaktifkan.")
-
 
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
@@ -415,6 +403,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
         complexity = await determine_conversation_complexity(messages)
         logger.info(f"Conversation complexity: {complexity}")
 
+        # Tambahkan instruksi sistem berdasarkan kompleksitas percakapan
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat, jelas, dan fokus pada inti pesan dalam Bahasa Indonesia."}]}
@@ -426,14 +415,17 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
 
+        # Format pesan untuk Gemini
         gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages]
 
+        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
         user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
 
         logger.info(f"Processing user message: {user_message}")
 
+        # Cek apakah pesan mengandung kata kunci pencarian
         if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
             search_results = await search_google(user_message)
             if search_results:
@@ -465,6 +457,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
+        # Kirim pesan ke Gemini
         response = chat.send_message(user_message)
         if response is None:
             logger.error("Gemini returned None.")
@@ -1041,6 +1034,7 @@ async def initialize_session(chat_id: int) -> dict:
 
     return session  # Mengembalikan sesi yang baru dibuat
 
+
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     """Memperbarui sesi di Redis, termasuk kompleksitas percakapan."""
     if redis_available and redis_client:
@@ -1345,16 +1339,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Kunci 'topics' tidak ditemukan dalam sesi untuk chat_id {chat_id}. Menginisialisasi ulang.")
 
         # Tambahkan pesan pengguna ke sesi
+        session['messages'].append({"role": "user", "content": sanitized_text})
         await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
         # Proses pesan dengan Gemini
-        response = await process_with_gemini(session['topics'][session.get('active_topic', 'general')])
+        response = await process_with_gemini(session['messages'])
 
         if response:
             # Filter respons sebelum dikirim ke pengguna
             filtered_response = await filter_text(response)
 
             # Tambahkan respons asisten ke sesi
+            session['messages'].append({"role": "assistant", "content": filtered_response})
             await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
             # Kirim respons ke pengguna
