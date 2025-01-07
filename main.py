@@ -132,9 +132,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text)
 
 # Konfigurasi Redis
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
 try:
-    redis_client = redis.from_url(REDIS_URL)
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()
     redis_available = True
     logger.info(f"Koneksi Redis berhasil ke: {REDIS_URL}")
