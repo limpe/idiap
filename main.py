@@ -400,7 +400,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
 
-        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages] #list comprehension untuk mempersingkat
+        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages]  # list comprehension untuk mempersingkat
 
         chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
@@ -432,14 +432,14 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
             if search_context:
                 user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context, parse_mode=ParseMode.MARKDOWN)
+                response = chat.send_message(user_message_with_context)  # Hapus parse_mode
                 if response is None:
                     logger.error("Gemini returned None after Google search context.")
                     return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
-        response = chat.send_message(user_message)  # Ini harus sejajar dengan if di atas
+        response = chat.send_message(user_message)  # Hapus parse_mode
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
