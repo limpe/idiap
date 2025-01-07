@@ -1311,6 +1311,7 @@ Berikut adalah daftar perintah yang tersedia:
 - Menerima pesan teks, suara, dan gambar.
 - Menganalisis sentimen pesan Anda.
 - Menanggapi dengan suara.
+- cari penelusuran google dengan kata kunci "cari sumber" contoh "cari sumber travelling murah di bali"
 
 Kirim saya pesan atau catatan suara untuk memulai!
     """
