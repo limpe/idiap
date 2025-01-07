@@ -147,6 +147,15 @@ except Exception as e:
     redis_client = None
     redis_available = False
 
+# Testing koneksi Redis
+if redis_available:
+    logger.info("Redis tersedia. Menyimpan data tes...")
+    redis_client.set("test_key", "test_value")
+    value = redis_client.get("test_key")
+    logger.info(f"Data tes dari Redis: {value}")
+else:
+    logger.warning("Redis tidak tersedia. Fungsi yang bergantung pada Redis akan dinonaktifkan.")
+
 
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
