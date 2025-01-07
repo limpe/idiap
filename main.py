@@ -407,7 +407,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
         logger.info(f"Processing user message: {user_message}")
 
-            if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
+        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
             search_results = await search_google(user_message)
             if search_results:
                 if isinstance(search_results[0], dict):
@@ -438,7 +438,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
                 logger.info(f"Gemini response with Google context: {response.text}")
                 return response.text
 
-        response = chat.send_message(user_message) # This line should be at the same indentation level as the outer if
+        response = chat.send_message(user_message)  # Ini harus sejajar dengan if di atas
         if response is None:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
