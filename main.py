@@ -16,7 +16,7 @@ import bleach
 import requests
 
 
-
+from telegram import Update, InputFile, ParseMode
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
@@ -431,7 +431,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
 
             if search_context:
                 user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context, parse_mode=telegram.ParseMode.MARKDOWN)
+                response = chat.send_message(user_message_with_context, parse_mode=ParseMode.MARKDOWN)
                 if response is None:
                     logger.error("Gemini returned None after Google search context.")
                     return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
