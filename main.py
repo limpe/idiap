@@ -1242,6 +1242,30 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error tak terduga saat mereset sesi untuk chat_id {chat_id} (user_id: {user_id}): {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan tak terduga saat mereset sesi.")
 
+def detect_and_manage_topics(session: dict, message: str) -> bool:
+    """
+    Mendeteksi perubahan topik dan mengelola topik percakapan.
+    
+    Args:
+        session (dict): Sesi percakapan pengguna.
+        message (str): Pesan terbaru dari pengguna.
+    
+    Returns:
+        bool: True jika topik berubah, False jika tidak.
+    """
+    # Ambil topik aktif saat ini
+    active_topic = session.get("active_topic", "general")
+    
+    # Contoh logika deteksi perubahan topik
+    if "topik baru" in message.lower():  # Ganti dengan logika deteksi topik yang sesuai
+        session["active_topic"] = "topik_baru"
+        session["topics"]["topik_baru"] = []  # Buat daftar pesan baru untuk topik ini
+        logger.info(f"Topik berubah dari {active_topic} ke topik_baru")
+        return True
+    
+    # Jika tidak ada perubahan topik
+    return False
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Menangani pesan teks yang masuk dari pengguna."""
