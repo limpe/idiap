@@ -37,6 +37,8 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # Konfigurasi logger
@@ -1055,27 +1057,22 @@ def extract_main_topic(messages: List[Dict[str, str]]) -> str:
         return "general"
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """
-    Update the session with the new message, summary, and main topic.
-    """
     session_json = redis_client.get(f"session:{chat_id}")
     if session_json:
         session = json.loads(session_json)
     else:
         session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}
 
-    # Add the new message to the session
+    # Tambahkan pesan baru ke sesi
     session['messages'].append(message)
+    session['last_update'] = datetime.now().timestamp()  # Perbarui waktu terakhir
 
-    # Summarize the conversation if it's too long
-    if len(session['messages']) > 10:  # Summarize if more than 10 messages
+    # Ringkas percakapan jika terlalu panjang
+    if len(session['messages']) > 10:  # Ringkas jika lebih dari 10 pesan
         summary = await summarize_conversation(session['messages'])
-        session['messages'] = [{"role": "system", "content": summary}]  # Replace with summary
+        session['messages'] = [{"role": "system", "content": summary}]  # Ganti dengan ringkasan
 
-    # Extract and save the main topic
-    session['main_topic'] = extract_main_topic(session['messages'])
-
-    # Save the updated session to Redis
+    # Simpan sesi ke Redis dengan timeout yang diperbarui
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
@@ -1088,22 +1085,20 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             if response:
                 logger.info("Menggunakan respons dari Gemini.")
                 return response
-        except generation_types.StopCandidateException as e:
-            logger.error(f"Gemini RECITATION error: {e}")
-        except asyncio.TimeoutError:
-            logger.warning("Gemini timeout, beralih ke Mistral.")
-        
+        except Exception as e:
+            logger.error(f"Gemini error: {e}")
+
         # Jika Gemini gagal, coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
             if response:
                 logger.info("Menggunakan respons dari Mistral.")
                 return response
-        except asyncio.TimeoutError:
-            logger.error("Mistral timeout.")
-        
-        logger.error("Semua model gagal memproses pesan.")
-        return None
+        except Exception as e:
+            logger.error(f"Mistral error: {e}")
+
+        # Jika semua model gagal, berikan respons default
+        return "Maaf, saya tidak dapat memproses pesan Anda saat ini. Silakan coba lagi nanti."
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
@@ -1138,24 +1133,14 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
-    # Ekstrak kata kunci relevan dari konteks percakapan
-    relevant_keywords = extract_relevant_keywords(context_messages)
-    
-    # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
-    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
-    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
+def calculate_cosine_similarity(text1, text2):
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform([text1, text2])
+    return cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
 
-    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
-    common_keywords = set(last_keywords) & set(current_keywords)
-    
-    # Log untuk debugging
-    logger.info(f"Last keywords: {last_keywords}")
-    logger.info(f"Current keywords: {current_keywords}")
-    logger.info(f"Common keywords: {common_keywords}")
-    
-    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
-    return len(common_keywords) >= threshold
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: float = 0.7) -> bool:
+    similarity = calculate_cosine_similarity(last_message, current_message)
+    return similarity >= threshold
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
@@ -1200,7 +1185,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Cek apakah topik percakapan berubah
+        # Cek apakah topik percakapan berubah menggunakan cosine similarity
         if session['messages']:
             last_message = session['messages'][-1]['content']
             if not is_same_topic(last_message, message, session['messages']):
