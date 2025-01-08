@@ -18,3 +18,4 @@ telegram
 google-api-python-client
 Sastrawi
 langdetect
+scikit-learn
