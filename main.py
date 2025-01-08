@@ -82,8 +82,6 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -103,6 +101,22 @@ MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
+
+# Konfigurasi Redis
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
+try:
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    redis_client.ping()
+    redis_available = True
+    logger.info(f"Koneksi Redis berhasil ke: {REDIS_URL}")
+except redis.exceptions.ConnectionError as e:
+    logger.error(f"Gagal terhubung ke Redis di {REDIS_URL}: {e}")
+    redis_client = None
+    redis_available = False
+except Exception as e:
+    logger.error(f"Error tak terduga saat inisiasi Redis: {e}")
+    redis_client = None
+    redis_available = False
 
 
 # Statistik penggunaan
