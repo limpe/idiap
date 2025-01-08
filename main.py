@@ -443,7 +443,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             logger.error("Gemini returned None.")
             return "Terjadi kesalahan saat memproses permintaan."
 
-        logger.info(f"Gemini response: {response.text}")
+    # logger.info(f"Gemini response: {response.text}")
         return response.text
 
     except Exception as e:
