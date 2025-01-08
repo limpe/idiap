@@ -16,8 +16,7 @@ import bleach
 import requests
 
 
-from telegram import Update, InputFile
-from telegram.constants import ParseMode
+
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
@@ -82,6 +81,8 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -91,32 +92,16 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-CONVERSATION_TIMEOUT = 86400  # 86400 detik = 24 jam
+CONVERSATION_TIMEOUT = 3600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
-MAX_REQUESTS_PER_MINUTE = 15
+MAX_REQUESTS_PER_MINUTE = 10
 client = Together()
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
-
-# Konfigurasi Redis
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
-try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()
-    redis_available = True
-    logger.info(f"Koneksi Redis berhasil ke: {REDIS_URL}")
-except redis.exceptions.ConnectionError as e:
-    logger.error(f"Gagal terhubung ke Redis di {REDIS_URL}: {e}")
-    redis_client = None
-    redis_available = False
-except Exception as e:
-    logger.error(f"Error tak terduga saat inisiasi Redis: {e}")
-    redis_client = None
-    redis_available = False
 
 
 # Statistik penggunaan
@@ -396,74 +381,65 @@ async def search_google(query: str) -> List[str]:
 
 async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
-        if not messages:
-            logger.error("Empty message list received.")
-            return "Tidak ada pesan yang dapat diproses."
-
+        # Tentukan kompleksitas percakapan
         complexity = await determine_conversation_complexity(messages)
-        logger.info(f"Conversation complexity: {complexity}")
-
+        
+        # Tambahkan instruksi sistem berdasarkan kompleksitas
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat, jelas, dan fokus pada inti pesan dalam Bahasa Indonesia."}]}
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons singkat, jelas, dan point pentingnya saja dalam Bahasa Indonesia."}]
+                }
             elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons dalam Bahasa Indonesia.kata-kata jangan terlalu panjang"}]
+                }
             elif complexity == "complex":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
-            else:
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
+                system_message = {
+                    "role": "user",
+                    "parts": [{"text": "Berikan respons yang sangat detail dan mendalam dalam Bahasa Indonesia, termasuk penjelasan yang komprehensif."}]
+                }
+            
             messages.insert(0, system_message)
 
-        gemini_messages = [{"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]} for msg in messages]  # list comprehension untuk mempersingkat
+        # Konversi format pesan ke format yang diterima Gemini
+        gemini_messages = []
+        for msg in messages:
+            if 'parts' in msg and isinstance(msg['parts'], list):
+                gemini_messages.append(msg)
+            elif 'content' in msg:
+                gemini_messages.append({
+                    "role": msg['role'],
+                    "parts": [{"text": msg['content']}]
+                })
+            else:
+                logger.error(f"Pesan tidak valid: {msg}")
+                continue
 
+        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
-        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
+        user_message = last_message.get('content', '') if 'content' in last_message else last_message.get('parts', [{}])[0].get('text', '')
 
-        logger.info(f"Processing user message: {user_message}")
-
-        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
+        # Cek jika pesan mengandung permintaan khusus (misalnya, pencarian Google)
+        if "sumber youtube" in user_message.lower() or "link" in user_message.lower():
             search_results = await search_google(user_message)
             if search_results:
-                if isinstance(search_results[0], dict):
-                    # Format hasil pencarian sebagai teks biasa atau Markdown
-                    search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
-                        f"- [{result['title']}]({result['link']})" for result in search_results
-                    )
-                elif isinstance(search_results[0], str):
-                    search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
-                        f"- {result}" for result in search_results
-                    )
-                else:
-                    search_context = ""
-                    logger.warning(f"Unexpected search result format: {type(search_results)}")
-                    return "Maaf, format hasil pencarian tidak didukung."
-            elif search_results is None:
-                logger.error("search_google returned None.")
-                return "Terjadi kesalahan saat melakukan pencarian."
-            else:
-                logger.warning(f"No relevant sources found for: {user_message}")
-                return "Tidak ada sumber yang relevan ditemukan di Google."
-
-            if search_context:
+                search_context = "\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(search_results)
                 user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)  # Kirim pesan yang sudah diformat
-                if response is None:
-                    logger.error("Gemini returned None after Google search context.")
-                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
-                logger.info(f"Gemini response with Google context: {response.text}")
-                return response.text
-
-        response = chat.send_message(user_message)  # Kirim pesan biasa
-        if response is None:
-            logger.error("Gemini returned None.")
-            return "Terjadi kesalahan saat memproses permintaan."
+                response = chat.send_message(user_message_with_context)
+            else:
+                return "Maaf, saya tidak dapat menemukan sumber terkait."
+        else:
+            response = chat.send_message(user_message)
 
         return response.text
 
     except Exception as e:
-        logger.exception(f"Error processing Gemini request: {e}")
-        return "Terjadi kesalahan dalam memproses permintaan Anda."
+        logger.exception("Error in processing with Gemini")
+        return "Maaf, terjadi kesalahan dalam memproses pesan Anda."
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -1208,6 +1184,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
+    # Ambil chat_id
+    chat_id = update.message.chat_id
+
+    # Reset konteks jika diperlukan
+    if await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
     session_json = redis_client.get(f"session:{chat_id}")
@@ -1325,7 +1308,6 @@ Berikut adalah daftar perintah yang tersedia:
 - Menerima pesan teks, suara, dan gambar.
 - Menganalisis sentimen pesan Anda.
 - Menanggapi dengan suara.
-- cari penelusuran google dengan kata kunci "cari sumber" contoh "cari sumber travelling murah di bali"
 
 Kirim saya pesan atau catatan suara untuk memulai!
     """
