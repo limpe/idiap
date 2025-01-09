@@ -1192,7 +1192,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         # Cek apakah pesan ini adalah reply ke pesan lain
         replied_message = None
         if update.message.reply_to_message:
+            # Ambil teks pesan yang di-reply
             replied_message = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+            logger.info(f"Pesan ini adalah reply ke: {replied_message}")
 
         # Sanitasi input teks untuk menghindari karakter yang tidak diinginkan
         sanitized_text = sanitize_input(message_text)
@@ -1219,6 +1221,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
         # Jika pesan ini adalah reply, tambahkan konteks pesan yang di-reply ke sesi
         if replied_message:
+            # Tambahkan pesan yang di-reply ke konteks percakapan
             session['messages'].append({"role": "user", "content": replied_message})
             await update_session(chat_id, {"role": "user", "content": replied_message})
 
