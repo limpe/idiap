@@ -1181,49 +1181,73 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    if not message_text:
-        message_text = update.message.text or ""
+    """
+    Handler untuk memproses pesan teks dari pengguna, termasuk pesan yang di-reply.
+    """
+    try:
+        # Jika message_text tidak diberikan, ambil dari update
+        if not message_text:
+            message_text = update.message.text or ""
 
-    # Sanitasi input teks
-    sanitized_text = sanitize_input(message_text)
+        # Cek apakah pesan ini adalah reply ke pesan lain
+        replied_message = None
+        if update.message.reply_to_message:
+            replied_message = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
 
-    # Periksa rate limit
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
+        # Sanitasi input teks untuk menghindari karakter yang tidak diinginkan
+        sanitized_text = sanitize_input(message_text)
 
-    # Ambil atau inisialisasi sesi
-    chat_id = update.message.chat_id
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-    else:
-        session = json.loads(session_json)
+        # Periksa rate limit pengguna
+        user_id = update.message.from_user.id
+        if not await check_rate_limit(user_id):
+            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+            return
 
-    # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+        # Ambil atau inisialisasi sesi percakapan
+        chat_id = update.message.chat_id
+        session_json = redis_client.get(f"session:{chat_id}")
+        if not session_json:
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
+        else:
+            session = json.loads(session_json)
 
-    # Proses pesan dengan Gemini
-    response = await process_with_gemini(session['messages'])
-    
-    if response:
-        # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)  # Panggil filter_text di sini
-        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+        # Reset konteks jika diperlukan (misalnya, jika percakapan sudah timeout atau ada kata kunci reset)
+        if await should_reset_context(chat_id, sanitized_text):
+            await initialize_session(chat_id)
+            session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
-        # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+        # Jika pesan ini adalah reply, tambahkan konteks pesan yang di-reply ke sesi
+        if replied_message:
+            session['messages'].append({"role": "user", "content": replied_message})
+            await update_session(chat_id, {"role": "user", "content": replied_message})
 
-        # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)  # Gunakan filtered_response
-        for part in response_parts:
-            await update.message.reply_text(part)
-    else:
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+        # Tambahkan pesan pengguna ke sesi
+        session['messages'].append({"role": "user", "content": sanitized_text})
+        await update_session(chat_id, {"role": "user", "content": sanitized_text})
+
+        # Proses pesan dengan AI Gemini
+        response = await process_with_gemini(session['messages'])
+
+        if response:
+            # Filter respons untuk menghapus karakter atau kata yang tidak diinginkan
+            filtered_response = await filter_text(response)
+
+            # Tambahkan respons asisten ke sesi
+            session['messages'].append({"role": "assistant", "content": filtered_response})
+            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+
+            # Kirim respons ke pengguna
+            response_parts = split_message(filtered_response)
+            for part in response_parts:
+                await update.message.reply_text(part)
+        else:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+
+    except Exception as e:
+        # Tangani error dan log ke logger
+        logger.exception(f"Error dalam handle_text: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat memproses pesan Anda. Silakan coba lagi.")
         
 def main():
     if not check_required_settings():
