@@ -970,6 +970,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
+            # Jika pesan ini adalah reply, tambahkan konteks pesan yang di-reply ke sesi
+            if update.message.reply_to_message:
+                replied_message = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+                session['messages'].append({"role": "user", "content": replied_message})
+                await update_session(chat_id, {"role": "user", "content": replied_message})
+
             # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
@@ -1287,7 +1293,7 @@ def main():
         ))
         application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE,
-            handle_message
+            handle_text  # Ganti handle_message dengan handle_text
         ))
 
         # Run bot
