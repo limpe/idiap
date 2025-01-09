@@ -1122,7 +1122,10 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-async def should_reset_context(chat_id: int, message: str) -> bool:
+async def should_reset_context(chat_id: int, message: str, update: Update) -> bool:
+    """
+    Menentukan apakah konteks percakapan perlu direset.
+    """
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
@@ -1151,6 +1154,11 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
             redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
             return True
+
+        # Jika pesan adalah reply, jangan reset konteks
+        if update.message.reply_to_message:
+            logger.info(f"Pesan adalah reply, tidak perlu reset konteks untuk chat_id {chat_id}.")
+            return False
 
         # Ambil kompleksitas percakapan
         complexity = await determine_conversation_complexity(session['messages'])
@@ -1221,7 +1229,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             session = json.loads(session_json)
 
         # Reset konteks jika diperlukan (misalnya, jika percakapan sudah timeout atau ada kata kunci reset)
-        if await should_reset_context(chat_id, sanitized_text):
+        if await should_reset_context(chat_id, sanitized_text, update):
             await initialize_session(chat_id)
             session = {'messages': [], 'last_update': datetime.now().timestamp()}
 
