@@ -1011,9 +1011,11 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],  # Reset pesan ke list kosong
+        'messages': [],  # Riwayat pesan
+        'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
-        'conversation_id': str(uuid.uuid4())
+        'conversation_id': str(uuid.uuid4()),
+        'complexity': 'simple'  # Kompleksitas percakapan
     }
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
@@ -1024,12 +1026,17 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if session_json:
         session = json.loads(session_json)
     else:
+        # Jika sesi tidak ada, inisialisasi sesi baru
         session = {
             'messages': [],  # Riwayat pesan
             'message_counter': 0,  # Counter pesan
             'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'
+            'complexity': 'simple'  # Kompleksitas percakapan
         }
+
+    # Pastikan kunci 'message_counter' ada
+    if 'message_counter' not in session:
+        session['message_counter'] = 0
 
     # Simpan kompleksitas sebelumnya
     previous_complexity = session.get('complexity', 'simple')
@@ -1170,8 +1177,12 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
             return True
 
+        # Pastikan kunci 'message_counter' ada
+        if 'message_counter' not in session:
+            session['message_counter'] = 0
+
         # Ambil kompleksitas percakapan
-        complexity = await determine_conversation_complexity(session['messages'], session)  # Perbaikan di sini
+        complexity = await determine_conversation_complexity(session['messages'], session)
         max_messages = get_max_conversation_messages(complexity)
 
         # Reset jika jumlah pesan melebihi batas
