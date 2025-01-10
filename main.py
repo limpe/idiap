@@ -171,6 +171,10 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], sess
     latest_message = user_messages[-1] if user_messages else ""
     has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
 
+    # Logging untuk debugging
+    logger.info(f"Pesan terbaru: {latest_message}")
+    logger.info(f"Apakah mengandung kata kunci kompleks? {has_complex_keywords}")
+
     # Logika penurunan dan kenaikan kompleksitas
     if previous_complexity == "complex":
         if not has_complex_keywords:
