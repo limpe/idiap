@@ -171,7 +171,7 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], sess
     latest_message = user_messages[-1] if user_messages else ""
     has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
 
-    # Logika penurunan kompleksitas
+    # Logika penurunan dan kenaikan kompleksitas
     if previous_complexity == "complex":
         if not has_complex_keywords:
             logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
@@ -192,7 +192,7 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], sess
         if has_complex_keywords:
             logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
             return "complex"  # Naik ke complex jika ada kata kunci kompleks
-        elif session.get('message_counter', 0) > 3:  # Gunakan message_counter untuk menentukan kenaikan
+        elif session.get('message_counter', 0) > 3:  # Naik ke medium jika jumlah pesan > 3
             logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
             return "medium"  # Naik ke medium jika pesan > 3
         else:
