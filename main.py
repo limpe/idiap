@@ -1171,7 +1171,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             return True
 
         # Ambil kompleksitas percakapan
-        complexity = await determine_conversation_complexity(session['messages'])
+        complexity = await determine_conversation_complexity(session['messages'], session)  # Perbaikan di sini
         max_messages = get_max_conversation_messages(complexity)
 
         # Reset jika jumlah pesan melebihi batas
