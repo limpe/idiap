@@ -1045,9 +1045,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
     session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
-    # Jika kompleksitas turun ke simple, reset counter pesan
-    if new_complexity == "simple" and previous_complexity != "simple":
-        logger.info(f"Kompleksitas turun ke simple, reset counter pesan untuk chat_id {chat_id}.")
+    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
+    if new_complexity == "simple" and previous_complexity == "medium":
+        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
         session['message_counter'] = 0  # Reset counter pesan
 
     # Update counter pesan
