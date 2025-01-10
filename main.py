@@ -192,11 +192,11 @@ async def determine_conversation_complexity(messages: List[Dict[str, str]], prev
         if has_complex_keywords:
             logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
             return "complex"  # Naik ke complex jika ada kata kunci kompleks
-        elif len(user_messages) > 3:
-            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 5.")
-            return "medium"  # Naik ke medium jika pesan > 5
+        elif session.get('message_counter', 0) > 3:  # Gunakan message_counter untuk menentukan kenaikan
+            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
+            return "medium"  # Naik ke medium jika pesan > 3
         else:
-            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 5.")
+            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 3.")
             return "simple"  # Tetap simple jika tidak ada perubahan
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -408,7 +408,7 @@ async def process_with_gemini(messages: List[Dict[str, str]]) -> Optional[str]:
             if complexity == "simple":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons detail, jelas, tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
@@ -1008,7 +1008,12 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if session_json:
         session = json.loads(session_json)
     else:
-        session = {'messages': [], 'last_update': datetime.now().timestamp(), 'complexity': 'simple'}
+        session = {
+            'messages': [],  # Riwayat pesan
+            'message_counter': 0,  # Counter pesan
+            'last_update': datetime.now().timestamp(),
+            'complexity': 'simple'
+        }
 
     # Simpan kompleksitas sebelumnya
     previous_complexity = session.get('complexity', 'simple')
@@ -1017,18 +1022,21 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     new_complexity = await determine_conversation_complexity(session['messages'], previous_complexity)
     session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
+    # Jika kompleksitas turun ke simple, reset counter pesan
+    if new_complexity == "simple" and previous_complexity != "simple":
+        logger.info(f"Kompleksitas turun ke simple, reset counter pesan untuk chat_id {chat_id}.")
+        session['message_counter'] = 0  # Reset counter pesan
+
+    # Update counter pesan
+    session['message_counter'] += 1
+
     # Catat perubahan kompleksitas jika ada
     if previous_complexity != new_complexity:
         logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-    # Catat waktu pembaruan sesi
-    last_update_time = session.get('last_update', 0)
-    current_time = datetime.now().timestamp()
-    logger.info(f"Memperbarui sesi untuk chat_id {chat_id}. Waktu terakhir diperbarui: {last_update_time}, Waktu sekarang: {current_time}")
-
     # Tambahkan pesan ke sesi
     session['messages'].append(message)
-    session['last_update'] = current_time
+    session['last_update'] = datetime.now().timestamp()
 
     # Simpan sesi ke Redis
     redis_client.set(f"session:{chat_id}", json.dumps(session))
