@@ -51,7 +51,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Konstanta untuk batasan ukuran file
-MAX_AUDIO_SIZE = 20 * 1024 * 1024  # 20MB
+MAX_AUDIO_SIZE = 200 * 1024 * 1024  # 200MB
 
 # Konfigurasi Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
