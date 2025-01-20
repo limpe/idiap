@@ -306,9 +306,9 @@ async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
     try:
         # Ambil data dari setiap endpoint
-        bbands = get_bbands(symbol)
-        macd = get_macd(symbol)
-        vwap = get_vwap(symbol)
+        bbands = await get_bbands(symbol)
+        macd = await get_macd(symbol)
+        vwap = await get_vwap(symbol)
 
         # Gabungkan data
         stock_data = {
