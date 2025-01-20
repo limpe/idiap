@@ -191,6 +191,38 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1,
         logger.error(f"Error fetching stock data: {str(e)}")
         return None
 
+async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
+    """
+    Mengambil data saham beserta indikator teknis dari TwelveData API.
+    """
+    try:
+        # Inisialisasi klien TwelveData
+        td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
+        
+        # Ambil data saham beserta indikator teknis
+        ts = (
+            td.time_series(
+                symbol=symbol,
+                interval="1min",  # Interval 1 menit
+                outputsize=10,    # Ambil 10 data terbaru
+                timezone="America/New_York",
+            )
+            .with_bbands()  # Bollinger Bands
+            .with_ema()     # Exponential Moving Average
+            .with_rsi()     # Relative Strength Index
+            .with_macd()    # Moving Average Convergence Divergence
+        )
+        
+        # Ambil data dalam format JSON
+        data = ts.as_json()
+        if data:
+            logger.info(f"Data saham dengan indikator teknis: {data}")
+            return data[0]  # Kembalikan data terbaru
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching stock data with indicators: {str(e)}")
+        return None
+
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Ambil simbol saham dari pesan pengguna
@@ -204,14 +236,14 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
         
-        # Ambil data saham
-        stock_data = await get_stock_data(symbol)
+        # Ambil data saham beserta indikator teknis
+        stock_data = await get_stock_data_with_indicators(symbol)
         
         if not stock_data:
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
         
-        # Format data saham untuk diproses oleh Gemini
+        # Format data saham dan indikator teknis
         stock_info = (
             f"Data untuk {symbol}:\n"
             f"Tanggal: {stock_data.get('datetime', 'Tidak tersedia')}\n"
@@ -219,36 +251,35 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Harga Tertinggi: {stock_data.get('high', 'Tidak tersedia')}\n"
             f"Harga Terendah: {stock_data.get('low', 'Tidak tersedia')}\n"
             f"Harga Penutupan: {stock_data.get('close', 'Tidak tersedia')}\n"
-            f"Volume: {stock_data.get('volume', 'Tidak tersedia')}"
+            f"Volume: {stock_data.get('volume', 'Tidak tersedia')}\n\n"
+            f"**Indikator Teknis:**\n"
+            f"1. **Bollinger Bands (EMA):**\n"
+            f"   - Upper Band: {stock_data.get('bb_upper', 'Tidak tersedia')}\n"
+            f"   - Middle Band: {stock_data.get('bb_middle', 'Tidak tersedia')}\n"
+            f"   - Lower Band: {stock_data.get('bb_lower', 'Tidak tersedia')}\n\n"
+            f"2. **Exponential Moving Average (EMA):** {stock_data.get('ema', 'Tidak tersedia')}\n\n"
+            f"3. **Relative Strength Index (RSI):** {stock_data.get('rsi', 'Tidak tersedia')}\n\n"
+            f"4. **Moving Average Convergence Divergence (MACD):**\n"
+            f"   - MACD: {stock_data.get('macd', 'Tidak tersedia')}\n"
+            f"   - Signal: {stock_data.get('signal', 'Tidak tersedia')}\n"
+            f"   - Histogram: {stock_data.get('histogram', 'Tidak tersedia')}\n"
         )
         
         # Buat prompt untuk Gemini
         prompt = (
-            f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
-            "Lakukan analisis komprehensif mengenai performa pasangan mata uang ini dengan mempertimbangkan faktor teknikal dan fundamental. "
-            "Fokuskan analisis pada aspek berikut:\n\n"
-            "1. **Dinamika Pergerakan Harga:**\n"
-            "   - Evaluasi pergerakan harga dari pembukaan hingga penutupan.\n"
-            "   - Identifikasi pola signifikan dalam pergerakan harga harian.\n\n"
-            "2. **Volatilitas Pasar:**\n"
-            "   - Ukur volatilitas harian berdasarkan perbedaan harga tertinggi dan terendah.\n"
-            "   - Berikan insight mengenai potensi breakout atau konsolidasi harga.\n\n"
-            "3. **Volume Perdagangan:**\n"
-            "   - Jika data tersedia, analisis apakah volume mendukung pergerakan harga saat ini.\n"
-            "   - Interpretasi dampak volume terhadap sentimen pasar.\n\n"
-            "4. **Indikator Teknis:**\n"
-            "   - Gunakan indikator seperti RSI, moving average, dan MACD untuk mengidentifikasi tren potensial.\n"
-            "   - Berikan interpretasi atas sinyal yang muncul.\n\n"
-            "5. **Prospek Perdagangan:**\n"
-            "   - Berikan skenario potensial berdasarkan analisis harga dan volume.\n"
-            "   - Berikan saran yang realistis terkait strategi masuk dan keluar.\n\n"
-            "6. **Analisis Risiko:**\n"
-            "   - Identifikasi risiko utama yang perlu diperhatikan oleh trader.\n"
-            "   - Berikan rekomendasi pengelolaan risiko yang efektif.\n\n"
-            "Sajikan analisis dengan perspektif yang strategis dan actionable, guna mendukung pengambilan keputusan yang lebih baik."
+            f"Berikut adalah data untuk {symbol}:\n{stock_info}\n\n"
+            "Beri saya analisis mendalam tentang performa ini. "
+            "Analisis harus mencakup:\n"
+            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
+            "2. Perbandingan harga: Bagaimana perbandingan harga penutupan dengan harga terbuka? Apakah ada volatilitas yang signifikan?\n"
+            "3. Volume perdagangan: Apakah volume perdagangan menunjukkan minat yang kuat?\n"
+            "4. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, EMA, RSI, dan MACD.\n"
+            "5. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
+            "Sertakan alasan yang mendukung saran Anda.\n"
+            "6. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
+            "Gunakan bahasa yang profesional namun mudah dipahami."
         )
 
-        
         # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
         
