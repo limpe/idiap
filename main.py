@@ -239,7 +239,7 @@ def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
 
 
 
-async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1, start_date: str = None, end_date: str = None) -> Optional[Dict]:
+async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     try:
         # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
         if start_date is None:
@@ -258,11 +258,11 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1,
             timezone="Asia/Bangkok"
         )
         
-        # Ambil data terbaru
+        # Ambil data historis
         data = ts.as_json()
         if data:
             logger.info(f"Data saham: {data}")  # Log respons API
-            return data[0]  # Kembalikan data terbaru
+            return data  # Kembalikan semua data historis
         return None
     except Exception as e:
         logger.error(f"Error fetching stock data: {str(e)}")
@@ -292,10 +292,22 @@ async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
 
 def format_technical_indicators(stock_data: Dict) -> str:
     """
-    Format semua indikator teknis dalam bentuk yang mudah dibaca oleh Gemini.
+    Format semua indikator teknis dan data historis dalam bentuk yang mudah dibaca oleh Gemini.
     """
     if not stock_data:
         return "Tidak ada data indikator teknis yang tersedia."
+
+    # Format data historis
+    historical_data = ""
+    for entry in stock_data:
+        historical_data += (
+            f"Tanggal: {entry['datetime']}\n"
+            f"  - Open: {entry['open']}\n"
+            f"  - Close: {entry['close']}\n"
+            f"  - High: {entry['high']}\n"
+            f"  - Low: {entry['low']}\n"
+            f"  - Volume: {entry['volume']}\n\n"
+        )
 
     # Format indikator teknis
     indicators = (
@@ -310,7 +322,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"3. **Volume Weighted Average Price (VWAP):** {stock_data['vwap'].get('vwap', 'Tidak tersedia')}\n"
     )
     
-    return indicators
+    return historical_data + indicators
 
 
 
