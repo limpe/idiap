@@ -220,25 +220,27 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Buat prompt untuk Gemini
         prompt = (
-            f"Berikut adalah data saham untuk {symbol}:\n{stock_info}\n\n"
-            "Beri saya analisis mendalam tentang performa saham ini. "
-            "Analisis harus mencakup:\n"
-            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
-            "2. Perbandingan harga: Bagaimana perbandingan harga penutupan dengan harga terbuka? Apakah ada volatilitas yang signifikan?\n"
-            "3. Volume perdagangan: Apakah volume perdagangan menunjukkan minat yang kuat terhadap saham ini?\n"
-            "4. Indikator teknis: Berikan analisis singkat tentang indikator teknis seperti RSI, moving average, atau lainnya jika relevan.\n"
-            "5. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual, atau menahan saham ini. "
-            "Sertakan alasan yang mendukung saran Anda.\n"
-            "6. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
-            "Gunakan bahasa yang profesional namun mudah dipahami."
-        )
+            f"Berikut adalah data terkini {symbol}:\n{stock_info}\n\n"
+            "Lakukan analisis mendalam terhadap performa ini dengan pendekatan yang komprehensif dan profesional. "
+            "Pastikan analisis mencakup aspek-aspek berikut:\n\n"
+            "1. **Tren Harga:** Identifikasi tren harga dalam jangka pendek dan jangka panjang. Apakah terdapat pola bullish atau bearish yang signifikan?\n"
+            "2. **Pergerakan Harga:** Bandingkan harga pembukaan dan penutupan, serta evaluasi volatilitas yang terjadi. Apakah terdapat pergerakan harga yang mencolok?\n"
+            "3. **Volume Perdagangan:** Tinjau volume perdagangan untuk menilai tingkat minat investor. Apakah ada peningkatan aktivitas yang mencurigakan atau menarik?\n"
+            "4. **Indikator Teknis:** Berikan wawasan berdasarkan indikator teknikal utama seperti RSI, moving average, dan indikator relevan lainnya. Apa yang mereka tunjukkan?\n"
+            "5. **Rekomendasi Investasi:** Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk membeli, menjual, atau menahan ini? Berikan alasan kuat yang mendukung rekomendasi Anda.\n"
+            "6. **Analisis Risiko:** Identifikasi risiko potensial yang dapat mempengaruhi kinerja  di masa depan, baik dari faktor internal maupun eksternal.\n\n"
+            "Berikan analisis yang berbobot, mudah dipahami, serta berbasis data yang mendalam."
+            )
         
         # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
         
         if response:
+            # Filter teks respons
+            filtered_response = await filter_text(response)
+            
             # Bagi respons menjadi beberapa bagian jika terlalu panjang
-            response_parts = split_message(response)
+            response_parts = split_message(filtered_response)
             
             # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
