@@ -207,9 +207,6 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
         
-        # Pastikan key 'volume' ada dalam respons
-        volume = stock_data.get('volume', 'Tidak tersedia')
-        
         # Format data saham untuk diproses oleh Gemini
         stock_info = (
             f"Data untuk {symbol}:\n"
@@ -218,23 +215,34 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Harga Tertinggi: {stock_data.get('high', 'Tidak tersedia')}\n"
             f"Harga Terendah: {stock_data.get('low', 'Tidak tersedia')}\n"
             f"Harga Penutupan: {stock_data.get('close', 'Tidak tersedia')}\n"
-            f"Volume: {volume}"
+            f"Volume: {stock_data.get('volume', 'Tidak tersedia')}"
         )
         
         # Buat prompt untuk Gemini
         prompt = (
             f"Berikut adalah data saham untuk {symbol}:\n{stock_info}\n\n"
-            "Beri saya analisis singkat tentang performa saham ini. "
-            "Apakah ada tren kenaikan atau penurunan? Bagaimana perbandingan harga penutupan dengan harga terbuka? "
-            "Beri juga saran apakah ini saat yang baik untuk membeli atau menjual saham ini."
+            "Beri saya analisis mendalam tentang performa saham ini. "
+            "Analisis harus mencakup:\n"
+            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
+            "2. Perbandingan harga: Bagaimana perbandingan harga penutupan dengan harga terbuka? Apakah ada volatilitas yang signifikan?\n"
+            "3. Volume perdagangan: Apakah volume perdagangan menunjukkan minat yang kuat terhadap saham ini?\n"
+            "4. Indikator teknis: Berikan analisis singkat tentang indikator teknis seperti RSI, moving average, atau lainnya jika relevan.\n"
+            "5. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual, atau menahan saham ini. "
+            "Sertakan alasan yang mendukung saran Anda.\n"
+            "6. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
+            "Gunakan bahasa yang profesional namun mudah dipahami."
         )
         
         # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
         
         if response:
-            # Kirim respons ke pengguna
-            await update.message.reply_text(response)
+            # Bagi respons menjadi beberapa bagian jika terlalu panjang
+            response_parts = split_message(response)
+            
+            # Kirim setiap bagian respons ke pengguna
+            for part in response_parts:
+                await update.message.reply_text(part)
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
     
