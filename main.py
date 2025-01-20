@@ -342,7 +342,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         # Ambil data saham beserta indikator teknis
         stock_data = await get_stock_data_with_indicators(symbol)
         
-        if not stock_data:
+        if not stock_data or not isinstance(stock_data, dict):
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
         
