@@ -174,7 +174,7 @@ async def get_stock_data(symbol: str, interval: str = "1day", outputsize: int = 
             outputsize=outputsize,
             start_date=start_date,
             end_date=end_date,
-            timezone="ASIA/Bangkok"
+            timezone="Asia/Bangkok"
         )
         
         # Ambil data terbaru
