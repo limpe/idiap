@@ -167,6 +167,10 @@ async def get_stock_data(symbol: str) -> Optional[Dict]:
         # Inisialisasi klien TwelveData
         td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
         
+        # Tambahkan kode bursa default jika tidak ada
+        if "." not in symbol:
+            symbol += ".US"  # Default ke bursa AS
+        
         # Ambil data harga saham
         ts = td.time_series(
             symbol=symbol,
@@ -188,10 +192,10 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
-        symbol = message_text.replace("/stock", "").strip()
+        symbol = message_text.replace("/harga", "").strip()
         
         if not symbol:
-            await update.message.reply_text("Mohon berikan simbol saham. Contoh: /stock AAPL")
+            await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
             return
         
         # Kirim pesan "Sedang memproses..."
@@ -201,12 +205,12 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         stock_data = await get_stock_data(symbol)
         
         if not stock_data:
-            await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
+            await update.message.reply_text(f"Maaf, data saham untuk simbol {symbol} tidak ditemukan. Pastikan simbol saham benar.")
             return
         
         # Format data saham untuk diproses oleh Gemini
         stock_info = (
-            f"Data untuk {symbol}:\n"
+            f"Data saham untuk {symbol}:\n"
             f"Tanggal: {stock_data['datetime']}\n"
             f"Harga Terbuka: {stock_data['open']}\n"
             f"Harga Tertinggi: {stock_data['high']}\n"
@@ -1359,7 +1363,7 @@ def main():
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("gambar", handle_generate_image))
-        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /stock
+        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -1375,7 +1379,7 @@ def main():
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
-
+        
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
