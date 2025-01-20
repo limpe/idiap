@@ -162,6 +162,83 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
+def get_bbands(symbol: str, interval: str = "1min") -> Optional[Dict]:
+    """
+    Mengambil data Bollinger Bands (BBANDS) dari TwelveData API.
+    """
+    try:
+        api_key = os.getenv("TWELVEDATA_API_KEY")
+        if not api_key:
+            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
+            return None
+
+        url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&apikey={api_key}"
+        response = requests.get(url)
+        response.raise_for_status()  # Cek apakah respons sukses
+
+        data = response.json()
+        if data.get("status") == "ok":
+            return data.get("values", [{}])[0]  # Ambil data terbaru
+        else:
+            logger.error(f"Gagal mengambil data BBANDS: {data.get('message', 'Unknown error')}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error saat mengambil data BBANDS: {e}")
+        return None
+
+def get_macd(symbol: str, interval: str = "1min") -> Optional[Dict]:
+    """
+    Mengambil data MACD dari TwelveData API.
+    """
+    try:
+        api_key = os.getenv("TWELVEDATA_API_KEY")
+        if not api_key:
+            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
+            return None
+
+        url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&apikey={api_key}"
+        response = requests.get(url)
+        response.raise_for_status()  # Cek apakah respons sukses
+
+        data = response.json()
+        if data.get("status") == "ok":
+            return data.get("values", [{}])[0]  # Ambil data terbaru
+        else:
+            logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error saat mengambil data MACD: {e}")
+        return None
+
+def get_vwap(symbol: str, interval: str = "1min") -> Optional[Dict]:
+    """
+    Mengambil data VWAP dari TwelveData API.
+    """
+    try:
+        api_key = os.getenv("TWELVEDATA_API_KEY")
+        if not api_key:
+            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
+            return None
+
+        url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&apikey={api_key}"
+        response = requests.get(url)
+        response.raise_for_status()  # Cek apakah respons sukses
+
+        data = response.json()
+        if data.get("status") == "ok":
+            return data.get("values", [{}])[0]  # Ambil data terbaru
+        else:
+            logger.error(f"Gagal mengambil data VWAP: {data.get('message', 'Unknown error')}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error saat mengambil data VWAP: {e}")
+        return None
+
+
+
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     try:
         # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
@@ -193,35 +270,49 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1,
 
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
-    Mengambil data saham beserta indikator teknis dari TwelveData API.
+    Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP).
     """
     try:
-        # Inisialisasi klien TwelveData
-        td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
-        
-        # Ambil data saham beserta indikator teknis
-        ts = (
-            td.time_series(
-                symbol=symbol,
-                interval="1min",  # Interval 1 menit
-                outputsize=10,    # Ambil 10 data terbaru
-                timezone="America/New_York",
-            )
-            .with_bbands()  # Bollinger Bands
-            .with_ema()     # Exponential Moving Average
-            .with_rsi()     # Relative Strength Index
-            .with_macd()    # Moving Average Convergence Divergence
-        )
-        
-        # Ambil data dalam format JSON
-        data = ts.as_json()
-        if data:
-            logger.info(f"Data saham dengan indikator teknis: {data}")
-            return data[0]  # Kembalikan data terbaru
-        return None
+        # Ambil data dari setiap endpoint
+        bbands = get_bbands(symbol)
+        macd = get_macd(symbol)
+        vwap = get_vwap(symbol)
+
+        # Gabungkan data
+        stock_data = {
+            "bbands": bbands,
+            "macd": macd,
+            "vwap": vwap,
+        }
+
+        return stock_data
     except Exception as e:
         logger.error(f"Error fetching stock data with indicators: {str(e)}")
         return None
+
+def format_technical_indicators(stock_data: Dict) -> str:
+    """
+    Format semua indikator teknis dalam bentuk yang mudah dibaca oleh Gemini.
+    """
+    if not stock_data:
+        return "Tidak ada data indikator teknis yang tersedia."
+
+    # Format indikator teknis
+    indicators = (
+        f"1. **Bollinger Bands (BBANDS):**\n"
+        f"   - Upper Band: {stock_data['bbands'].get('upper_band', 'Tidak tersedia')}\n"
+        f"   - Middle Band: {stock_data['bbands'].get('middle_band', 'Tidak tersedia')}\n"
+        f"   - Lower Band: {stock_data['bbands'].get('lower_band', 'Tidak tersedia')}\n\n"
+        f"2. **Moving Average Convergence Divergence (MACD):**\n"
+        f"   - MACD: {stock_data['macd'].get('macd', 'Tidak tersedia')}\n"
+        f"   - Signal: {stock_data['macd'].get('signal', 'Tidak tersedia')}\n"
+        f"   - Histogram: {stock_data['macd'].get('histogram', 'Tidak tersedia')}\n\n"
+        f"3. **Volume Weighted Average Price (VWAP):** {stock_data['vwap'].get('vwap', 'Tidak tersedia')}\n"
+    )
+    
+    return indicators
+
+
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -246,23 +337,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         # Format data saham dan indikator teknis
         stock_info = (
             f"Data untuk {symbol}:\n"
-            f"Tanggal: {stock_data.get('datetime', 'Tidak tersedia')}\n"
-            f"Harga Terbuka: {stock_data.get('open', 'Tidak tersedia')}\n"
-            f"Harga Tertinggi: {stock_data.get('high', 'Tidak tersedia')}\n"
-            f"Harga Terendah: {stock_data.get('low', 'Tidak tersedia')}\n"
-            f"Harga Penutupan: {stock_data.get('close', 'Tidak tersedia')}\n"
-            f"Volume: {stock_data.get('volume', 'Tidak tersedia')}\n\n"
-            f"**Indikator Teknis:**\n"
-            f"1. **Bollinger Bands (EMA):**\n"
-            f"   - Upper Band: {stock_data.get('bb_upper', 'Tidak tersedia')}\n"
-            f"   - Middle Band: {stock_data.get('bb_middle', 'Tidak tersedia')}\n"
-            f"   - Lower Band: {stock_data.get('bb_lower', 'Tidak tersedia')}\n\n"
-            f"2. **Exponential Moving Average (EMA):** {stock_data.get('ema', 'Tidak tersedia')}\n\n"
-            f"3. **Relative Strength Index (RSI):** {stock_data.get('rsi', 'Tidak tersedia')}\n\n"
-            f"4. **Moving Average Convergence Divergence (MACD):**\n"
-            f"   - MACD: {stock_data.get('macd', 'Tidak tersedia')}\n"
-            f"   - Signal: {stock_data.get('signal', 'Tidak tersedia')}\n"
-            f"   - Histogram: {stock_data.get('histogram', 'Tidak tersedia')}\n"
+            f"{format_technical_indicators(stock_data)}"
         )
         
         # Buat prompt untuk Gemini
@@ -271,12 +346,10 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             "Beri saya analisis mendalam tentang performa ini. "
             "Analisis harus mencakup:\n"
             "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
-            "2. Perbandingan harga: Bagaimana perbandingan harga penutupan dengan harga terbuka? Apakah ada volatilitas yang signifikan?\n"
-            "3. Volume perdagangan: Apakah volume perdagangan menunjukkan minat yang kuat?\n"
-            "4. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, EMA, RSI, dan MACD.\n"
-            "5. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
+            "2. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, MACD, dan VWAP.\n"
+            "3. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
             "Sertakan alasan yang mendukung saran Anda.\n"
-            "6. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
+            "4. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
             "Gunakan bahasa yang profesional namun mudah dipahami."
         )
 
