@@ -110,8 +110,6 @@ MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
-TWELVEDATA_RATE_LIMIT = 8  # Batas API calls per menit
-CACHE_DURATION = 300  # Cache selama 5 menit
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
@@ -302,103 +300,27 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 return None
     return None
 
-async def get_cached_data(key: str) -> Optional[Dict]:
-    """Mengambil data dari cache Redis"""
-    if redis_available:
-        data = redis_client.get(key)
-        if data:
-            return json.loads(data)
-    return None
-
-async def set_cached_data(key: str, data: Dict, expire: int = CACHE_DURATION):
-    """Menyimpan data ke cache Redis"""
-    if redis_available:
-        redis_client.setex(key, expire, json.dumps(data))
-
-async def check_api_rate_limit() -> bool:
-    """Memeriksa rate limit API"""
-    if not redis_available:
-        return True
-
-    current_minute = int(datetime.now().timestamp() / 60)
-    rate_key = f"twelvedata_rate_limit:{current_minute}"
-    
-    count = redis_client.get(rate_key)
-    if count and int(count) >= TWELVEDATA_RATE_LIMIT:
-        return False
-    
-    redis_client.incr(rate_key)
-    redis_client.expire(rate_key, 60)
-    return True
-
-class TimeFrame:
-    M1 = "1min"     # 1 menit
-    M5 = "5min"     # 5 menit
-    M15 = "15min"   # 15 menit
-    M30 = "30min"   # 30 menit
-    M45 = "45min"   # 45 menit
-    H1 = "1h"       # 1 jam
-    H2 = "2h"       # 2 jam
-    H4 = "4h"       # 4 jam
-    D1 = "1day"     # 1 hari
-    W1 = "1week"    # 1 minggu
-    MN = "1month"   # 1 bulan
-
-async def get_stock_data_with_indicators(symbol: str, timeframes: List[str] = None) -> Dict[str, Dict]:
+async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
-    Mengambil data saham beserta indikator teknis untuk berbagai timeframe.
+    Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP).
     """
-    if timeframes is None:
-        # Default hanya menggunakan H1 untuk menghindari rate limit
-        timeframes = [TimeFrame.H1]
+    try:
+        # Ambil data dari setiap endpoint
+        bbands = await get_bbands(symbol)
+        macd = await get_macd(symbol)
+        vwap = await get_vwap(symbol)
 
-    results = {}
-    for tf in timeframes:
-        # Cek cache dulu
-        cache_key = f"stock_data:{symbol}:{tf}"
-        cached_data = await get_cached_data(cache_key)
-        
-        if cached_data:
-            results[tf] = cached_data
-            logger.info(f"Menggunakan data cache untuk {symbol} timeframe {tf}")
-            continue
+        # Gabungkan data
+        stock_data = {
+            "bbands": bbands,
+            "macd": macd,
+            "vwap": vwap,
+        }
 
-        # Cek rate limit
-        if not await check_api_rate_limit():
-            logger.warning(f"Rate limit tercapai untuk {tf}, menunggu...")
-            await asyncio.sleep(2)
-            if not await check_api_rate_limit():
-                logger.error("Rate limit masih tercapai setelah menunggu")
-                continue
-
-        try:
-            # Ambil data dengan jeda untuk menghindari rate limit
-            bbands = await get_bbands(symbol, tf)
-            await asyncio.sleep(0.5)
-
-            macd = await get_macd(symbol, tf)
-            await asyncio.sleep(0.5)
-
-            vwap = await get_vwap(symbol, tf)
-
-            # Gabungkan data
-            data = {
-                "bbands": bbands,
-                "macd": macd,
-                "vwap": vwap,
-                "timeframe": tf
-            }
-
-            # Simpan ke cache
-            await set_cached_data(cache_key, data)
-            results[tf] = data
-            logger.info(f"Data berhasil diambil untuk timeframe {tf}")
-
-        except Exception as e:
-            logger.error(f"Error mengambil data untuk timeframe {tf}: {str(e)}")
-            results[tf] = None
-
-    return results
+        return stock_data
+    except Exception as e:
+        logger.error(f"Error fetching stock data with indicators: {str(e)}")
+        return None
 
 def format_technical_indicators(stock_data: Dict) -> str:
     """
@@ -449,6 +371,7 @@ def format_historical_data(historical_data: List[Dict]) -> str:
             f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
             f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
             f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
+            f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
         )
     return formatted_data
 
@@ -456,222 +379,76 @@ def format_historical_data(historical_data: List[Dict]) -> str:
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
         symbol = message_text.replace("/harga", "").strip()
 
         if not symbol:
-            await update.message.reply_text(
-                "Mohon berikan simbol saham.\n"
-                "Contoh: /harga AAPL\n\n"
-                "ℹ️ Analisis akan mencakup timeframe H1, H4, dan D1"
-            )
+            await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
             return
 
-        # Kirim pesan informasi proses
-        status_msg = await update.message.reply_text(
-            "🔄 Memulai analisis saham...\n\n"
-            "⚠️ Proses ini akan memakan waktu 2-3 menit karena:\n"
-            "1. API dibatasi 8 request per menit\n"
-            "2. Mengumpulkan data dari 3 timeframe\n"
-            "3. Menganalisis multiple indikator\n\n"
-            "Mohon tunggu hingga selesai."
-        )
+        # Kirim pesan "Sedang memproses..."
+        processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
 
-        # Fokus pada timeframe yang lebih besar untuk mengurangi API calls
-        selected_timeframes = [TimeFrame.H1, TimeFrame.H4, TimeFrame.D1]
-        collected_data = {}
-        total_requests = len(selected_timeframes) * 3  # 3 indikator per timeframe
-        completed_requests = 0
+        # Ambil data saham beserta indikator teknis
+        stock_data = await get_stock_data_with_indicators(symbol)
 
-        for tf in selected_timeframes:
-            try:
-                # Update status with progress
-                completed_percentage = (completed_requests / total_requests) * 100
-                status_text = (
-                    f"🔄 Memulai analisis saham...\n\n"
-                    f"⚠️ Proses ini akan memakan waktu 2-3 menit karena:\n"
-                    f"1. API dibatasi 8 request per menit\n"
-                    f"2. Mengumpulkan data dari 3 timeframe\n"
-                    f"3. Menganalisis multiple indikator\n\n"
-                    f"📊 Progress: {completed_requests}/{total_requests} requests ({completed_percentage:.1f}%)\n"
-                    f"🕒 Timeframe saat ini: {tf}"
-                )
-                await status_msg.edit_text(status_text)
-
-                # Cek cache
-                cache_key = f"stock_data:{symbol}:{tf}"
-                data = await get_cached_data(cache_key)
-
-                if data:
-                    collected_data[tf] = data
-                    completed_requests += 3  # Count all 3 indicators as completed
-                    continue
-
-                async def get_indicator_with_retry(indicator_func, symbol: str, tf: str, indicator_name: str) -> Optional[Dict]:
-                    for retry in range(3):  # Max 3 retries
-                        if not await check_api_rate_limit():
-                            await status_msg.edit_text(
-                                f"{status_text}\n"
-                                f"⏳ Rate limit tercapai untuk {indicator_name}, menunggu 60 detik..."
-                            )
-                            await asyncio.sleep(60)
-                        
-                        try:
-                            result = await indicator_func(symbol, tf)
-                            completed_requests += 1
-                            await status_msg.edit_text(status_text)  # Update progress
-                            return result
-                        except Exception as e:
-                            if retry < 2:  # Don't wait on last retry
-                                await asyncio.sleep(8)
-                            continue
-                    return None
-
-                # Ambil data dengan retry dan progress tracking
-                bbands = await get_indicator_with_retry(get_bbands, symbol, tf, "BBANDS")
-                macd = await get_indicator_with_retry(get_macd, symbol, tf, "MACD")
-                vwap = await get_indicator_with_retry(get_vwap, symbol, tf, "VWAP")
-
-                # Only cache if we have all indicators
-                if all([bbands, macd, vwap]):
-                    data = {
-                        "bbands": bbands,
-                        "macd": macd,
-                        "vwap": vwap,
-                        "timeframe": tf,
-                        "timestamp": datetime.now().timestamp()
-                    }
-                    await set_cached_data(cache_key, data)
-                    collected_data[tf] = data
-                else:
-                    logger.warning(f"Beberapa indikator gagal untuk timeframe {tf}")
-
-            except Exception as e:
-                logger.error(f"Error mengumpulkan data untuk {tf}: {e}")
-                await status_msg.edit_text(
-                    f"{status_text}\n"
-                    f"⚠️ Gagal mengumpulkan data untuk {tf}"
-                )
-
-        if not collected_data:
-            await status_msg.edit_text(
-                "❌ Gagal mengumpulkan data.\n\n"
-                "Kemungkinan penyebab:\n"
-                "1. Rate limit API tercapai\n"
-                "2. Layanan tidak tersedia\n"
-                "3. Symbol saham tidak valid\n\n"
-                "Silakan coba lagi dalam beberapa menit."
-            )
+        if not stock_data or not isinstance(stock_data, dict):
+            await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
 
-        await status_msg.edit_text(
-            f"{status_text}\n\n"
-            "📈 Mengumpulkan data historis...\n"
-            "⏳ Mohon tunggu sebentar..."
-        )
+        # Ambil data historis saham
+        historical_data = await get_stock_data(symbol)
 
-        # Get historical data with cache
-        hist_cache_key = f"historical_data:{symbol}"
-        historical_data = await get_cached_data(hist_cache_key)
-        
         if not historical_data:
-            historical_data = await get_stock_data(symbol)
-            if historical_data:
-                await set_cached_data(hist_cache_key, historical_data)
+            await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Silakan coba lagi.")
+            return
 
-        # Format data untuk analisis
-        analysis_text = f"📊 Analisis Teknikal {symbol}\n\n"
-        for tf, data in collected_data.items():
-            if data and all(data.values()):
-                analysis_text += (
-                    f"=== Timeframe {tf} ===\n"
-                    f"🎯 Bollinger Bands:\n"
-                    f"   Upper: {data['bbands']['upper_band'] if data['bbands'] else 'N/A'}\n"
-                    f"   Middle: {data['bbands']['middle_band'] if data['bbands'] else 'N/A'}\n"
-                    f"   Lower: {data['bbands']['lower_band'] if data['bbands'] else 'N/A'}\n\n"
-                    f"📈 MACD:\n"
-                    f"   MACD Line: {data['macd']['macd'] if data['macd'] else 'N/A'}\n"
-                    f"   Signal: {data['macd']['signal'] if data['macd'] else 'N/A'}\n"
-                    f"   Histogram: {data['macd']['histogram'] if data['macd'] else 'N/A'}\n\n"
-                    f"💹 VWAP: {data['vwap']['vwap'] if data['vwap'] else 'N/A'}\n\n"
-                )
-
-        if historical_data:
-            analysis_text += "\n📅 Data Historis:\n" + format_historical_data(historical_data)
-
-        # Update status sebelum proses analisis
-        await status_msg.edit_text(
-            f"{status_text}\n\n"
-            "🧠 Memproses analisis komprehensif...\n"
-            "⏳ Mohon tunggu sebentar..."
+        # Format data saham dan indikator teknis
+        stock_info = (
+            f"Data untuk {symbol}:\n"
+            f"{format_technical_indicators(stock_data)}\n"
+            f"Data Historis:\n"
+            f"{format_historical_data(historical_data)}"
         )
 
-        # Buat prompt untuk Gemini dengan analisis mendalam
+        # Buat prompt untuk Gemini
         prompt = (
-            f"Berikut adalah data teknikal untuk {symbol}:\n\n"
-            f"{analysis_text}\n\n"
-            "Berikan analisis komprehensif dalam Bahasa Indonesia yang mencakup:\n"
-            "1. Analisis tren untuk setiap timeframe (H1, H4, D1)\n"
-            "2. Konfirmasi sinyal antar timeframe\n"
-            "3. Identifikasi level support dan resistance kunci\n"
-            "4. Rekomendasi trading berdasarkan timeframe:\n"
-            "   - Jangka pendek (H1)\n"
-            "   - Jangka menengah (H4)\n"
-            "   - Jangka panjang (D1)\n"
-            "5. Level stop loss dan take profit yang disarankan\n"
-            "6. Manajemen risiko yang disarankan\n\n"
-            "Buat analisis yang mudah dipahami dan berikan alasan untuk setiap rekomendasi."
+            f"Berikut adalah data untuk {symbol}:\n{stock_info}\n\n"
+            "Beri saya analisis mendalam tentang performa ini. "
+            "Analisis harus mencakup:\n"
+            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
+            "2. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, MACD, dan VWAP.\n"
+            "3. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
+            "Sertakan alasan yang mendukung saran Anda.\n"
+            "4. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
+            "Gunakan bahasa yang profesional namun mudah dipahami."
         )
 
-        # Proses dengan Gemini
+        # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
+
         if response:
-            # Delete status message
-            await status_msg.delete()
-            
-            # Send completion header
-            await update.message.reply_text(
-                f"📊 Analisis Teknikal {symbol} Selesai\n\n"
-                "Analisis ini mencakup:\n"
-                "• Multiple timeframe (H1, H4, D1)\n"
-                "• Indikator teknikal (BBANDS, MACD, VWAP)\n"
-                "• Data historis\n"
-            )
-            
-            # Send the analysis in parts
+            # Filter teks respons
             filtered_response = await filter_text(response)
+
+            # Bagi respons menjadi beberapa bagian jika terlalu panjang
             response_parts = split_message(filtered_response)
-            
+
+            # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
                 await update.message.reply_text(part)
-                await asyncio.sleep(0.5)  # Slight delay between messages
-                
-            # Send footer with cache info
-            if TimeFrame.H1 in collected_data and 'timestamp' in collected_data[TimeFrame.H1]:
-                cache_time = datetime.fromtimestamp(collected_data[TimeFrame.H1]['timestamp']).strftime('%H:%M:%S')
-                await update.message.reply_text(
-                    "ℹ️ Info tambahan:\n"
-                    f"• Data terakhir diupdate: {cache_time}\n"
-                    f"• Data di-cache selama {CACHE_DURATION//60} menit\n"
-                    "• Gunakan command yang sama untuk update terbaru\n\n"
-                    "⚠️ Perhatian: Analisis ini hanya untuk referensi.\n"
-                    "Selalu lakukan analisis pribadi sebelum trading."
-                )
-
         else:
-            await status_msg.edit_text(
-                "❌ Maaf, terjadi kesalahan saat memproses analisis.\n"
-                "Silakan coba lagi dalam beberapa saat."
-            )
+            await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
     except Exception as e:
         logger.error(f"Error in handle_stock_request: {e}")
-        if 'status_msg' in locals():
-            await status_msg.edit_text(
-                "❌ Terjadi kesalahan saat memproses permintaan.\n"
-                f"Error: {str(e)}\n"
-                "Silakan coba lagi dalam beberapa saat."
-            )
+        await update.message.reply_text("Terjadi kesalahan saat memproses permintaan saham.")
+
+    finally:
+        # Hapus pesan "Sedang memproses..."
+        if processing_msg:
+            await processing_msg.delete()
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
     # Ambil semua pesan pengguna
