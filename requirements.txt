@@ -20,3 +20,4 @@ Sastrawi
 langdetect
 scikit-learn
 twelvedata
+pandas
