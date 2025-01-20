@@ -162,7 +162,7 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-def get_bbands(symbol: str, interval: str = "1min") -> Optional[Dict]:
+def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data Bollinger Bands (BBANDS) dari TwelveData API.
     """
@@ -187,7 +187,7 @@ def get_bbands(symbol: str, interval: str = "1min") -> Optional[Dict]:
         logger.error(f"Error saat mengambil data BBANDS: {e}")
         return None
 
-def get_macd(symbol: str, interval: str = "1min") -> Optional[Dict]:
+def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data MACD dari TwelveData API.
     """
@@ -212,7 +212,7 @@ def get_macd(symbol: str, interval: str = "1min") -> Optional[Dict]:
         logger.error(f"Error saat mengambil data MACD: {e}")
         return None
 
-def get_vwap(symbol: str, interval: str = "1min") -> Optional[Dict]:
+def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data VWAP dari TwelveData API.
     """
