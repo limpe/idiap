@@ -16,7 +16,7 @@ import bleach
 import requests
 
 
-
+from twelvedata import TDClient
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
@@ -161,6 +161,77 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
         text = text[split_index:].strip()
     parts.append(text)
     return parts
+
+async def get_stock_data(symbol: str) -> Optional[Dict]:
+    try:
+        # Inisialisasi klien TwelveData
+        td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
+        
+        # Ambil data harga saham
+        ts = td.time_series(
+            symbol=symbol,
+            interval="1day",
+            outputsize=1,
+            timezone="UTC"
+        )
+        
+        # Ambil data terbaru
+        data = ts.as_json()
+        if data:
+            return data[0]  # Kembalikan data terbaru
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching stock data: {str(e)}")
+        return None
+
+async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Ambil simbol saham dari pesan pengguna
+        message_text = update.message.text or ""
+        symbol = message_text.replace("/stock", "").strip()
+        
+        if not symbol:
+            await update.message.reply_text("Mohon berikan simbol saham. Contoh: /stock AAPL")
+            return
+        
+        # Kirim pesan "Sedang memproses..."
+        processing_msg = await update.message.reply_text("🔄 Sedang mengambil data saham...")
+        
+        # Ambil data saham
+        stock_data = await get_stock_data(symbol)
+        
+        if not stock_data:
+            await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
+            return
+        
+        # Format data saham untuk diproses oleh Gemini
+        stock_info = (
+            f"Data untuk {symbol}:\n"
+            f"Tanggal: {stock_data['datetime']}\n"
+            f"Harga Terbuka: {stock_data['open']}\n"
+            f"Harga Tertinggi: {stock_data['high']}\n"
+            f"Harga Terendah: {stock_data['low']}\n"
+            f"Harga Penutupan: {stock_data['close']}\n"
+            f"Volume: {stock_data['volume']}"
+        )
+        
+        # Proses data saham dengan Gemini
+        response = await process_with_gemini([{"role": "user", "content": stock_info}])
+        
+        if response:
+            # Kirim respons ke pengguna
+            await update.message.reply_text(response)
+        else:
+            await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
+    
+    except Exception as e:
+        logger.error(f"Error in handle_stock_request: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat memproses permintaan saham.")
+    
+    finally:
+        # Hapus pesan "Sedang memproses..."
+        if processing_msg:
+            await processing_msg.delete()
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
     # Ambil semua pesan pengguna
@@ -1287,13 +1358,11 @@ def main():
         application.add_handler(CommandHandler("carigambar", search_image_command))
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("gambar", handle_generate_image))  # Tambahkan handler untuk /gambar
+        application.add_handler(CommandHandler("gambar", handle_generate_image))
+        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /stock
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
-        # Message handlers
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
-
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.CAPTION) & 
             (filters.Entity("mention") | filters.REPLY), 
