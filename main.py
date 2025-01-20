@@ -300,27 +300,52 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 return None
     return None
 
-async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
-    """
-    Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP).
-    """
-    try:
-        # Ambil data dari setiap endpoint
-        bbands = await get_bbands(symbol)
-        macd = await get_macd(symbol)
-        vwap = await get_vwap(symbol)
+class TimeFrame:
+    M1 = "1min"     # 1 menit
+    M5 = "5min"     # 5 menit
+    M15 = "15min"   # 15 menit
+    M30 = "30min"   # 30 menit
+    M45 = "45min"   # 45 menit
+    H1 = "1h"       # 1 jam
+    H2 = "2h"       # 2 jam
+    H4 = "4h"       # 4 jam
+    D1 = "1day"     # 1 hari
+    W1 = "1week"    # 1 minggu
+    MN = "1month"   # 1 bulan
 
-        # Gabungkan data
-        stock_data = {
-            "bbands": bbands,
-            "macd": macd,
-            "vwap": vwap,
-        }
+async def get_stock_data_with_indicators(symbol: str, timeframes: List[str] = None) -> Dict[str, Dict]:
+    """
+    Mengambil data saham beserta indikator teknis untuk berbagai timeframe.
+    """
+    if timeframes is None:
+        timeframes = [
+            TimeFrame.M1, TimeFrame.M5, TimeFrame.M15, TimeFrame.M30,
+            TimeFrame.H1, TimeFrame.H4, TimeFrame.D1, TimeFrame.W1
+        ]
 
-        return stock_data
-    except Exception as e:
-        logger.error(f"Error fetching stock data with indicators: {str(e)}")
-        return None
+    results = {}
+    for tf in timeframes:
+        try:
+            # Ambil data untuk setiap timeframe
+            bbands = await get_bbands(symbol, tf)
+            macd = await get_macd(symbol, tf)
+            vwap = await get_vwap(symbol, tf)
+
+            # Gabungkan data untuk timeframe ini
+            results[tf] = {
+                "bbands": bbands,
+                "macd": macd,
+                "vwap": vwap,
+                "timeframe": tf
+            }
+
+            logger.info(f"Data berhasil diambil untuk timeframe {tf}")
+
+        except Exception as e:
+            logger.error(f"Error mengambil data untuk timeframe {tf}: {str(e)}")
+            results[tf] = None
+
+    return results
 
 def format_technical_indicators(stock_data: Dict) -> str:
     """
@@ -371,7 +396,6 @@ def format_historical_data(historical_data: List[Dict]) -> str:
             f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
             f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
             f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
-            f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
         )
     return formatted_data
 
@@ -384,62 +408,76 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         symbol = message_text.replace("/harga", "").strip()
 
         if not symbol:
-            await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
+            await update.message.reply_text(
+                "Mohon berikan simbol saham.\n"
+                "Contoh: /harga AAPL\n\n"
+                "Timeframes yang tersedia:\n"
+                "- 1 menit (1min)\n"
+                "- 5 menit (5min)\n"
+                "- 15 menit (15min)\n"
+                "- 30 menit (30min)\n"
+                "- 45 menit (45min)\n"
+                "- 1 jam (1h)\n"
+                "- 2 jam (2h)\n"
+                "- 4 jam (4h)\n"
+                "- 1 hari (1day)\n"
+                "- 1 minggu (1week)\n"
+                "- 1 bulan (1month)"
+            )
             return
 
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
 
-        # Ambil data saham beserta indikator teknis
+        # Ambil data untuk semua timeframe
         stock_data = await get_stock_data_with_indicators(symbol)
-
-        if not stock_data or not isinstance(stock_data, dict):
+        
+        if not stock_data:
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
 
-        # Ambil data historis saham
+        # Format dan kirim analisis untuk setiap timeframe
+        for tf, data in stock_data.items():
+            if data:
+                analysis_text = (
+                    f"📊 Analisis {symbol} - Timeframe {tf}\n\n"
+                    f"🎯 Bollinger Bands:\n"
+                    f"   Upper: {data['bbands']['upper_band'] if data['bbands'] else 'N/A'}\n"
+                    f"   Middle: {data['bbands']['middle_band'] if data['bbands'] else 'N/A'}\n"
+                    f"   Lower: {data['bbands']['lower_band'] if data['bbands'] else 'N/A'}\n\n"
+                    f"📈 MACD:\n"
+                    f"   MACD Line: {data['macd']['macd'] if data['macd'] else 'N/A'}\n"
+                    f"   Signal: {data['macd']['signal'] if data['macd'] else 'N/A'}\n"
+                    f"   Histogram: {data['macd']['histogram'] if data['macd'] else 'N/A'}\n\n"
+                    f"💹 VWAP: {data['vwap']['vwap'] if data['vwap'] else 'N/A'}\n"
+                )
+                await update.message.reply_text(analysis_text)
+
+        # Ambil data historis
         historical_data = await get_stock_data(symbol)
+        if historical_data:
+            hist_text = "📅 Data Historis Terakhir:\n" + format_historical_data(historical_data)
+            await update.message.reply_text(hist_text)
 
-        if not historical_data:
-            await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Silakan coba lagi.")
-            return
-
-        # Format data saham dan indikator teknis
-        stock_info = (
-            f"Data untuk {symbol}:\n"
-            f"{format_technical_indicators(stock_data)}\n"
-            f"Data Historis:\n"
-            f"{format_historical_data(historical_data)}"
-        )
-
-        # Buat prompt untuk Gemini
+        # Buat prompt untuk analisis komprehensif
         prompt = (
-            f"Berikut adalah data untuk {symbol}:\n{stock_info}\n\n"
-            "Beri saya analisis mendalam tentang performa ini. "
-            "Analisis harus mencakup:\n"
-            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
-            "2. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, MACD, dan VWAP.\n"
-            "3. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
-            "Sertakan alasan yang mendukung saran Anda.\n"
-            "4. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
-            "Gunakan bahasa yang profesional namun mudah dipahami."
+            f"Berikut adalah data untuk {symbol} dalam berbagai timeframe. "
+            "Berikan analisis komprehensif yang mencakup:\n"
+            "1. Analisis tren untuk setiap timeframe\n"
+            "2. Konfirmasi sinyal antar timeframe\n"
+            "3. Identifikasi support dan resistance\n"
+            "4. Rekomendasi trading (jangka pendek dan menengah)\n"
+            "5. Manajemen risiko\n"
+            "Gunakan bahasa yang mudah dipahami."
         )
 
-        # Proses data saham dengan Gemini
+        # Proses analisis dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
-
         if response:
-            # Filter teks respons
             filtered_response = await filter_text(response)
-
-            # Bagi respons menjadi beberapa bagian jika terlalu panjang
             response_parts = split_message(filtered_response)
-
-            # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
                 await update.message.reply_text(part)
-        else:
-            await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
     except Exception as e:
         logger.error(f"Error in handle_stock_request: {e}")
