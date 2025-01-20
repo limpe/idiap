@@ -296,30 +296,33 @@ def format_technical_indicators(stock_data: Dict) -> str:
     """
     if not stock_data:
         return "Tidak ada data indikator teknis yang tersedia."
-
-    # Format data historis
+    
     historical_data = ""
-    for entry in stock_data:
-        historical_data += (
-            f"Tanggal: {entry['datetime']}\n"
-            f"  - Open: {entry['open']}\n"
-            f"  - Close: {entry['close']}\n"
-            f"  - High: {entry['high']}\n"
-            f"  - Low: {entry['low']}\n"
-            f"  - Volume: {entry['volume']}\n\n"
-        )
+    if isinstance(stock_data, list):
+        for entry in stock_data:
+            historical_data += (
+                f"Tanggal: {entry.get('datetime', 'Tidak tersedia')}\n"
+                f"  - Open: {entry.get('open', 'Tidak tersedia')}\n"
+                f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
+                f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
+                f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
+                f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
+            )
+    
+    bbands = stock_data.get('bbands')
+    macd = stock_data.get('macd')
+    vwap = stock_data.get('vwap')
 
-    # Format indikator teknis
     indicators = (
         f"1. **Bollinger Bands (BBANDS):**\n"
-        f"   - Upper Band: {stock_data['bbands'].get('upper_band', 'Tidak tersedia')}\n"
-        f"   - Middle Band: {stock_data['bbands'].get('middle_band', 'Tidak tersedia')}\n"
-        f"   - Lower Band: {stock_data['bbands'].get('lower_band', 'Tidak tersedia')}\n\n"
+        f"   - Upper Band: {bbands.get('upper_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
+        f"   - Middle Band: {bbands.get('middle_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
+        f"   - Lower Band: {bbands.get('lower_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n\n"
         f"2. **Moving Average Convergence Divergence (MACD):**\n"
-        f"   - MACD: {stock_data['macd'].get('macd', 'Tidak tersedia')}\n"
-        f"   - Signal: {stock_data['macd'].get('signal', 'Tidak tersedia')}\n"
-        f"   - Histogram: {stock_data['macd'].get('histogram', 'Tidak tersedia')}\n\n"
-        f"3. **Volume Weighted Average Price (VWAP):** {stock_data['vwap'].get('vwap', 'Tidak tersedia')}\n"
+        f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
+        f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
+        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
+        f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
     )
     
     return historical_data + indicators
