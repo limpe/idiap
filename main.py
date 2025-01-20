@@ -162,111 +162,143 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
+async def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data Bollinger Bands (BBANDS) dari TwelveData API.
     """
-    try:
-        api_key = os.getenv("TWELVEDATA_API_KEY")
-        if not api_key:
-            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
-            return None
-
-        url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()  # Cek apakah respons sukses
-
-        data = response.json()
-        if data.get("status") == "ok":
-            return data.get("values", [{}])[0]  # Ambil data terbaru
-        else:
-            logger.error(f"Gagal mengambil data BBANDS: {data.get('message', 'Unknown error')}")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil data BBANDS: {e}")
+    api_key = os.getenv("TWELVEDATA_API_KEY")
+    if not api_key:
+        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
-def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
+    url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&apikey={api_key}"
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Cek apakah respons sukses
+
+            data = response.json()
+            if data.get("status") == "ok":
+                return data.get("values", [{}])[0]  # Ambil data terbaru
+            else:
+                logger.error(f"Gagal mengambil data BBANDS: {data.get('message', 'Unknown error')}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error saat mengambil data BBANDS (percobaan {attempt + 1}): {e}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)  # Tunggu sebelum mencoba lagi
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error tak terduga saat mengambil data BBANDS: {e}")
+            return None
+    return None
+
+async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data MACD dari TwelveData API.
     """
-    try:
-        api_key = os.getenv("TWELVEDATA_API_KEY")
-        if not api_key:
-            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
-            return None
-
-        url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()  # Cek apakah respons sukses
-
-        data = response.json()
-        if data.get("status") == "ok":
-            return data.get("values", [{}])[0]  # Ambil data terbaru
-        else:
-            logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil data MACD: {e}")
+    api_key = os.getenv("TWELVEDATA_API_KEY")
+    if not api_key:
+        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
-def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
+    url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&apikey={api_key}"
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Cek apakah respons sukses
+
+            data = response.json()
+            if data.get("status") == "ok":
+                return data.get("values", [{}])[0]  # Ambil data terbaru
+            else:
+                logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error saat mengambil data MACD (percobaan {attempt + 1}): {e}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)  # Tunggu sebelum mencoba lagi
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error tak terduga saat mengambil data MACD: {e}")
+            return None
+    return None
+
+async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data VWAP dari TwelveData API.
     """
-    try:
-        api_key = os.getenv("TWELVEDATA_API_KEY")
-        if not api_key:
-            logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
-            return None
-
-        url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()  # Cek apakah respons sukses
-
-        data = response.json()
-        if data.get("status") == "ok":
-            return data.get("values", [{}])[0]  # Ambil data terbaru
-        else:
-            logger.error(f"Gagal mengambil data VWAP: {data.get('message', 'Unknown error')}")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil data VWAP: {e}")
+    api_key = os.getenv("TWELVEDATA_API_KEY")
+    if not api_key:
+        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
+
+    url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&apikey={api_key}"
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Cek apakah respons sukses
+
+            data = response.json()
+            if data.get("status") == "ok":
+                return data.get("values", [{}])[0]  # Ambil data terbaru
+            else:
+                logger.error(f"Gagal mengambil data VWAP: {data.get('message', 'Unknown error')}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error saat mengambil data VWAP (percobaan {attempt + 1}): {e}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)  # Tunggu sebelum mencoba lagi
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error tak terduga saat mengambil data VWAP: {e}")
+            return None
+    return None
 
 
 
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
-    try:
-        # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
-        if start_date is None:
-            start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-        
-        # Inisialisasi klien TwelveData
-        td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
-        
-        # Ambil data harga saham
-        ts = td.time_series(
-            symbol=symbol,
-            interval=interval,
-            outputsize=outputsize,
-            start_date=start_date,
-            end_date=end_date,
-            timezone="Asia/Bangkok"
-        )
-        
-        # Ambil data historis
-        data = ts.as_json()
-        if data:
-            logger.info(f"Data saham: {data}")  # Log respons API
-            return data  # Kembalikan semua data historis
-        return None
-    except Exception as e:
-        logger.error(f"Error fetching stock data: {str(e)}")
-        return None
+    # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+    
+    # Inisialisasi klien TwelveData
+    td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Ambil data harga saham
+            ts = td.time_series(
+                symbol=symbol,
+                interval=interval,
+                outputsize=outputsize,
+                start_date=start_date,
+                end_date=end_date,
+                timezone="Asia/Bangkok"
+            )
+            
+            # Ambil data historis
+            data = ts.as_json()
+            if data:
+                logger.info(f"Data saham: {data}")  # Log respons API
+                return data  # Kembalikan semua data historis
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching stock data (attempt {attempt + 1}): {str(e)}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)
+            else:
+                return None
+    return None
 
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
@@ -296,7 +328,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
     """
     if not stock_data:
         return "Tidak ada data indikator teknis yang tersedia."
-    
+
     historical_data = ""
     if isinstance(stock_data, list):
         for entry in stock_data:
@@ -308,7 +340,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
                 f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
                 f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
             )
-    
+
     bbands = stock_data.get('bbands')
     macd = stock_data.get('macd')
     vwap = stock_data.get('vwap')
@@ -324,8 +356,24 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
     )
-    
+
     return historical_data + indicators
+
+def format_historical_data(historical_data: List[Dict]) -> str:
+    """
+    Format data historis saham dalam bentuk yang mudah dibaca oleh Gemini.
+    """
+    formatted_data = ""
+    for entry in historical_data:
+        formatted_data += (
+            f"Tanggal: {entry.get('datetime', 'Tidak tersedia')}\n"
+            f"  - Open: {entry.get('open', 'Tidak tersedia')}\n"
+            f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
+            f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
+            f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
+            f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
+        )
+    return formatted_data
 
 
 
@@ -334,27 +382,36 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
         symbol = message_text.replace("/harga", "").strip()
-        
+
         if not symbol:
             await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
             return
-        
+
         # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
-        
+
         # Ambil data saham beserta indikator teknis
         stock_data = await get_stock_data_with_indicators(symbol)
-        
+
         if not stock_data or not isinstance(stock_data, dict):
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
-        
+
+        # Ambil data historis saham
+        historical_data = await get_stock_data(symbol)
+
+        if not historical_data:
+            await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Silakan coba lagi.")
+            return
+
         # Format data saham dan indikator teknis
         stock_info = (
             f"Data untuk {symbol}:\n"
-            f"{format_technical_indicators(stock_data)}"
+            f"{format_technical_indicators(stock_data)}\n"
+            f"Data Historis:\n"
+            f"{format_historical_data(historical_data)}"
         )
-        
+
         # Buat prompt untuk Gemini
         prompt = (
             f"Berikut adalah data untuk {symbol}:\n{stock_info}\n\n"
@@ -370,24 +427,24 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
-        
+
         if response:
             # Filter teks respons
             filtered_response = await filter_text(response)
-            
+
             # Bagi respons menjadi beberapa bagian jika terlalu panjang
             response_parts = split_message(filtered_response)
-            
+
             # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
                 await update.message.reply_text(part)
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
-    
+
     except Exception as e:
         logger.error(f"Error in handle_stock_request: {e}")
         await update.message.reply_text("Terjadi kesalahan saat memproses permintaan saham.")
-    
+
     finally:
         # Hapus pesan "Sedang memproses..."
         if processing_msg:
