@@ -162,8 +162,12 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-async def get_stock_data(symbol: str, interval: str = "1day", outputsize: int = 1, start_date: str = None, end_date: str = None) -> Optional[Dict]:
+async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 1, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     try:
+        # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
+        if start_date is None:
+            start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        
         # Inisialisasi klien TwelveData
         td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
         
