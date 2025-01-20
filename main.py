@@ -162,20 +162,18 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-async def get_stock_data(symbol: str) -> Optional[Dict]:
+async def get_stock_data(symbol: str, interval: str = "1day", outputsize: int = 1, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     try:
         # Inisialisasi klien TwelveData
         td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
         
-        # Tambahkan kode bursa default jika tidak ada
-        if "." not in symbol:
-            symbol += ".US"  # Default ke bursa AS
-        
         # Ambil data harga saham
         ts = td.time_series(
             symbol=symbol,
-            interval="1day",
-            outputsize=1,
+            interval=interval,
+            outputsize=outputsize,
+            start_date=start_date,
+            end_date=end_date,
             timezone="UTC"
         )
         
@@ -192,25 +190,25 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
-        symbol = message_text.replace("/harga", "").strip()
+        symbol = message_text.replace("/harga", "").strip()  # Ubah /stock ke /harga
         
         if not symbol:
             await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
             return
         
         # Kirim pesan "Sedang memproses..."
-        processing_msg = await update.message.reply_text("🔄 Sedang mengambil data saham...")
+        processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
         
         # Ambil data saham
         stock_data = await get_stock_data(symbol)
         
         if not stock_data:
-            await update.message.reply_text(f"Maaf, data saham untuk simbol {symbol} tidak ditemukan. Pastikan simbol saham benar.")
+            await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
         
         # Format data saham untuk diproses oleh Gemini
         stock_info = (
-            f"Data saham untuk {symbol}:\n"
+            f"Data untuk {symbol}:\n"
             f"Tanggal: {stock_data['datetime']}\n"
             f"Harga Terbuka: {stock_data['open']}\n"
             f"Harga Tertinggi: {stock_data['high']}\n"
@@ -219,8 +217,16 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Volume: {stock_data['volume']}"
         )
         
+        # Buat prompt untuk Gemini
+        prompt = (
+            f"Berikut adalah data saham untuk {symbol}:\n{stock_info}\n\n"
+            "Beri saya analisis singkat tentang performa saham ini. "
+            "Apakah ada tren kenaikan atau penurunan? Bagaimana perbandingan harga penutupan dengan harga terbuka? "
+            "Beri juga saran apakah ini saat yang baik untuk membeli atau menjual saham ini."
+        )
+        
         # Proses data saham dengan Gemini
-        response = await process_with_gemini([{"role": "user", "content": stock_info}])
+        response = await process_with_gemini([{"role": "user", "content": prompt}])
         
         if response:
             # Kirim respons ke pengguna
