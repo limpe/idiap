@@ -400,9 +400,25 @@ async def get_stock_data_with_indicators(symbol: str, timeframes: List[str] = No
 
     return results
 
+def get_safe_value(data: Dict, *keys, default: str = 'N/A') -> str:
+    """
+    Safely get nested dictionary values.
+    Returns default value if any key in the chain doesn't exist.
+    """
+    try:
+        result = data
+        for key in keys:
+            if not isinstance(result, dict):
+                return default
+            result = result.get(key)
+        return str(result) if result is not None else default
+    except Exception as e:
+        logger.error(f"Error accessing data with keys {keys}: {e}")
+        return default
+
 def format_technical_indicators(stock_data: Dict) -> str:
     """
-    Format semua indikator teknis dan data historis dalam bentuk yang mudah dibaca oleh Gemini.
+    Format semua indikator teknis dan data historis dengan safe access.
     """
     if not stock_data:
         return "Tidak ada data indikator teknis yang tersedia."
@@ -411,28 +427,25 @@ def format_technical_indicators(stock_data: Dict) -> str:
     if isinstance(stock_data, list):
         for entry in stock_data:
             historical_data += (
-                f"Tanggal: {entry.get('datetime', 'Tidak tersedia')}\n"
-                f"  - Open: {entry.get('open', 'Tidak tersedia')}\n"
-                f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
-                f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
-                f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
-                f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
+                f"Tanggal: {get_safe_value(entry, 'datetime')}\n"
+                f"  - Open: {get_safe_value(entry, 'open')}\n"
+                f"  - Close: {get_safe_value(entry, 'close')}\n"
+                f"  - High: {get_safe_value(entry, 'high')}\n"
+                f"  - Low: {get_safe_value(entry, 'low')}\n"
+                f"  - Volume: {get_safe_value(entry, 'volume')}\n\n"
             )
-
-    bbands = stock_data.get('bbands')
-    macd = stock_data.get('macd')
-    vwap = stock_data.get('vwap')
 
     indicators = (
         f"1. **Bollinger Bands (BBANDS):**\n"
-        f"   - Upper Band: {bbands.get('upper_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
-        f"   - Middle Band: {bbands.get('middle_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
-        f"   - Lower Band: {bbands.get('lower_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n\n"
+        f"   - Upper Band: {get_safe_value(stock_data, 'bbands', 'upper_band')}\n"
+        f"   - Middle Band: {get_safe_value(stock_data, 'bbands', 'middle_band')}\n"
+        f"   - Lower Band: {get_safe_value(stock_data, 'bbands', 'lower_band')}\n\n"
         f"2. **Moving Average Convergence Divergence (MACD):**\n"
-        f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
-        f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
+        f"   - MACD Line: {get_safe_value(stock_data, 'macd', 'macd')}\n"
+        f"   - Signal: {get_safe_value(stock_data, 'macd', 'signal')}\n"
+        f"   - Histogram: {get_safe_value(stock_data, 'macd', 'histogram')}\n\n"
+        f"3. **Volume Weighted Average Price (VWAP):**\n"
+        f"   - VWAP: {get_safe_value(stock_data, 'vwap', 'vwap')}\n"
     )
 
     return historical_data + indicators
@@ -471,7 +484,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         status_msg = await update.message.reply_text(
             "🔄 Memulai analisis saham...\n\n"
             "⚠️ Proses ini akan memakan waktu 2-3 menit karena:\n"
-            "1. API dibatasi 8 request per menit\n"
+            "1. Harap bersabar\n"
             "2. Mengumpulkan data dari 3 timeframe\n"
             "3. Menganalisis multiple indikator\n\n"
             "Mohon tunggu hingga selesai."
@@ -562,35 +575,64 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
                     indicator_results[name.lower()] = await get_indicator_with_retry(func, symbol, tf, name)
                     await asyncio.sleep(2)  # Add small delay between indicators
                 
-                # Check results
-                successful = {k: v for k, v in indicator_results.items() if v is not None}
-                failed = {k: v for k, v in indicator_results.items() if v is None}
+                # Process and validate indicator results
+                successful = {}
+                failed = []
+                
+                for name, result in indicator_results.items():
+                    try:
+                        if result is not None and isinstance(result, dict):
+                            # Validate indicator data structure
+                            if name == 'bbands' and all(k in result for k in ['upper_band', 'middle_band', 'lower_band']):
+                                successful[name] = result
+                            elif name == 'macd' and all(k in result for k in ['macd', 'signal', 'histogram']):
+                                successful[name] = result
+                            elif name == 'vwap' and 'vwap' in result:
+                                successful[name] = result
+                            else:
+                                failed.append(name)
+                                logger.warning(f"Invalid data structure for {name}")
+                        else:
+                            failed.append(name)
+                    except Exception as e:
+                        failed.append(name)
+                        logger.error(f"Error validating {name}: {e}")
                 
                 if successful:
-                    # Cache and use data even if only some indicators succeeded
-                    data = {
-                        **successful,
-                        "timeframe": tf,
-                        "timestamp": datetime.now().timestamp()
-                    }
-                    await set_cached_data(cache_key, data)
-                    collected_data[tf] = data
-                    
-                    # Show detailed status
-                    status_detail = (
-                        f"✅ {tf}:\n"
-                        f"• Berhasil: {', '.join(successful.keys())}\n"
-                    )
-                    if failed:
-                        status_detail += f"• Gagal: {', '.join(failed.keys())}"
+                    try:
+                        # Cache and use validated data
+                        data = {
+                            **successful,
+                            "timeframe": tf,
+                            "timestamp": datetime.now().timestamp()
+                        }
+                        await set_cached_data(cache_key, data)
+                        collected_data[tf] = data
+                        
+                        # Show detailed status
+                        status_detail = (
+                            f"✅ {tf}:\n"
+                            f"• Berhasil: {', '.join(successful.keys())}\n"
+                        )
+                        if failed:
+                            status_detail += f"• Gagal: {', '.join(failed)}"
+                    except Exception as e:
+                        logger.error(f"Error processing successful indicators: {e}")
                     
                     logger.info(f"Timeframe {tf}: {len(successful)}/{len(indicators_to_fetch)} indikator berhasil")
                 else:
-                    await status_msg.edit_text(
-                        f"{status_text}\n\n"
-                        f"⚠️ {tf}: Semua indikator gagal\n"
-                        "Mencoba timeframe berikutnya..."
+                    error_detail = (
+                        f"⚠️ {tf}: Tidak ada data valid\n\n"
+                        "Kemungkinan penyebab:\n"
+                        "• Rate limit API tercapai\n"
+                        "• Data tidak tersedia\n"
+                        "• Server sedang sibuk\n\n"
+                        "💡 Tips:\n"
+                        "• Tunggu 1-2 menit\n"
+                        "• Data yang ada di-cache\n"
+                        "• Coba timeframe lain"
                     )
+                    await status_msg.edit_text(f"{status_text}\n\n{error_detail}")
                     logger.warning(f"Semua indikator gagal untuk timeframe {tf}")
                     await asyncio.sleep(2)  # Wait before next timeframe
 
@@ -598,23 +640,43 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
                 error_msg = str(e).lower()
                 logger.error(f"Error mengumpulkan data untuk {tf}: {e}")
                 
+                # Check for specific error types
                 if "not found" in error_msg or "invalid symbol" in error_msg:
-                    await status_msg.edit_text(
-                        "❌ Symbol saham tidak ditemukan\n\n"
-                        "Kemungkinan penyebab:\n"
-                        "• Symbol tidak valid\n"
-                        "• Data tidak tersedia\n"
-                        "• Pasar sedang tutup\n\n"
-                        "Silakan cek symbol dan coba lagi."
+                    error_detail = (
+                        "❌ Symbol tidak valid atau tidak tersedia\n\n"
+                        "Detail:\n"
+                        "• Symbol tidak ditemukan di TwelveData\n"
+                        "• Data mungkin tidak tersedia\n"
+                        "• Pasar mungkin sedang tutup\n\n"
+                        "Saran:\n"
+                        "1. Periksa penulisan symbol\n"
+                        "2. Coba saat market aktif\n"
+                        "3. Gunakan format: /harga AAPL"
                     )
+                    await status_msg.edit_text(error_detail)
                     return
-                else:
-                    await status_msg.edit_text(
-                        f"{status_text}\n\n"
-                        f"⚠️ Error pada {tf}: {str(e)}\n"
-                        "Mencoba timeframe berikutnya...\n\n"
-                        "Tips: Tunggu 1-2 menit jika rate limit"
+                elif "rate limit" in error_msg:
+                    error_detail = (
+                        f"⚠️ Rate Limit untuk {tf}\n\n"
+                        "Detail:\n"
+                        "• API dibatasi 8 request/menit\n"
+                        "• Mencoba menggunakan cache\n"
+                        "• Akan retry dalam 60 detik\n\n"
+                        "💡 Tips:\n"
+                        "• Tunggu 1-2 menit\n"
+                        "• Coba lagi nanti"
                     )
+                    await status_msg.edit_text(f"{status_text}\n\n{error_detail}")
+                else:
+                    error_detail = (
+                        f"⚠️ Error tidak terduga pada {tf}\n\n"
+                        f"Detail error: {str(e)}\n\n"
+                        "Saran:\n"
+                        "• Coba timeframe berbeda\n"
+                        "• Gunakan data cache jika ada\n"
+                        "• Coba lagi dalam beberapa saat"
+                    )
+                    await status_msg.edit_text(f"{status_text}\n\n{error_detail}")
                     await asyncio.sleep(2)
 
         # Hitung statistik pengumpulan data
