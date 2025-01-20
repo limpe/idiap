@@ -174,12 +174,13 @@ async def get_stock_data(symbol: str, interval: str = "1day", outputsize: int = 
             outputsize=outputsize,
             start_date=start_date,
             end_date=end_date,
-            timezone="UTC"
+            timezone="ASIA/Bangkok"
         )
         
         # Ambil data terbaru
         data = ts.as_json()
         if data:
+            logger.info(f"Data saham: {data}")  # Log respons API
             return data[0]  # Kembalikan data terbaru
         return None
     except Exception as e:
@@ -190,7 +191,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
-        symbol = message_text.replace("/harga", "").strip()  # Ubah /stock ke /harga
+        symbol = message_text.replace("/harga", "").strip()
         
         if not symbol:
             await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
@@ -206,15 +207,18 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
         
+        # Pastikan key 'volume' ada dalam respons
+        volume = stock_data.get('volume', 'Tidak tersedia')
+        
         # Format data saham untuk diproses oleh Gemini
         stock_info = (
             f"Data untuk {symbol}:\n"
-            f"Tanggal: {stock_data['datetime']}\n"
-            f"Harga Terbuka: {stock_data['open']}\n"
-            f"Harga Tertinggi: {stock_data['high']}\n"
-            f"Harga Terendah: {stock_data['low']}\n"
-            f"Harga Penutupan: {stock_data['close']}\n"
-            f"Volume: {stock_data['volume']}"
+            f"Tanggal: {stock_data.get('datetime', 'Tidak tersedia')}\n"
+            f"Harga Terbuka: {stock_data.get('open', 'Tidak tersedia')}\n"
+            f"Harga Tertinggi: {stock_data.get('high', 'Tidak tersedia')}\n"
+            f"Harga Terendah: {stock_data.get('low', 'Tidak tersedia')}\n"
+            f"Harga Penutupan: {stock_data.get('close', 'Tidak tersedia')}\n"
+            f"Volume: {volume}"
         )
         
         # Buat prompt untuk Gemini
