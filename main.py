@@ -300,69 +300,21 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 return None
     return None
 
-async def get_stock_recommendations(symbol: str) -> Optional[Dict]:
-    """
-    Mengambil rekomendasi saham dari TwelveData API.
-    
-    Endpoint: https://api.twelvedata.com/recommendations
-    
-    Example Response:
-    {
-        "symbol": "AAPL",
-        "interval": "1month",
-        "recommendations": {
-            "strong_buy": 19,
-            "buy": 10,
-            "neutral": 8,
-            "sell": 2,
-            "strong_sell": 0
-        }
-    }
-    """
-    api_key = os.getenv("TWELVEDATA_API_KEY")
-    if not api_key:
-        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
-        return None
-
-    url = f"https://api.twelvedata.com/recommendations?symbol={symbol}&apikey={api_key}"
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-
-            data = response.json()
-            logger.info(f"Data rekomendasi: {data}")  # Log respons API
-            return data
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error saat mengambil rekomendasi (percobaan {attempt + 1}): {e}")
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(RETRY_DELAY)
-            else:
-                return None
-        except Exception as e:
-            logger.error(f"Error tak terduga saat mengambil rekomendasi: {e}")
-            return None
-    return None
-
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
-    Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP) dan rekomendasi.
+    Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP).
     """
     try:
         # Ambil data dari setiap endpoint
         bbands = await get_bbands(symbol)
         macd = await get_macd(symbol)
         vwap = await get_vwap(symbol)
-        recommendations = await get_stock_recommendations(symbol)
 
         # Gabungkan data
         stock_data = {
             "bbands": bbands,
             "macd": macd,
             "vwap": vwap,
-            "recommendations": recommendations
         }
 
         return stock_data
@@ -392,21 +344,6 @@ def format_technical_indicators(stock_data: Dict) -> str:
     bbands = stock_data.get('bbands')
     macd = stock_data.get('macd')
     vwap = stock_data.get('vwap')
-    recommendations = stock_data.get('recommendations', {}).get('recommendations', {})
-
-    # Format untuk rekomendasi
-    recommendation_text = ""
-    if recommendations:
-        total_analysts = sum(int(v) for v in recommendations.values())
-        if total_analysts > 0:
-            recommendation_text = (
-                f"\n4. **Rekomendasi Analis (Total {total_analysts} Analis):**\n"
-                f"   - Strong Buy: {recommendations.get('strong_buy', 0)} ({(int(recommendations.get('strong_buy', 0))/total_analysts*100):.1f}%)\n"
-                f"   - Buy: {recommendations.get('buy', 0)} ({(int(recommendations.get('buy', 0))/total_analysts*100):.1f}%)\n"
-                f"   - Neutral: {recommendations.get('neutral', 0)} ({(int(recommendations.get('neutral', 0))/total_analysts*100):.1f}%)\n"
-                f"   - Sell: {recommendations.get('sell', 0)} ({(int(recommendations.get('sell', 0))/total_analysts*100):.1f}%)\n"
-                f"   - Strong Sell: {recommendations.get('strong_sell', 0)} ({(int(recommendations.get('strong_sell', 0))/total_analysts*100):.1f}%)\n"
-            )
 
     indicators = (
         f"1. **Bollinger Bands (BBANDS):**\n"
@@ -418,7 +355,6 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
-        f"{recommendation_text}"
     )
 
     return historical_data + indicators
