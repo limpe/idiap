@@ -1070,27 +1070,27 @@ async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
             logger.error("IMGFOTO_API_KEY tidak ditemukan di environment variables")
             return None
 
-        # Convert image bytes to base64
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        
-        # Set up request
         url = "https://imgfoto.host/api/1/upload"
         headers = {
             'X-API-Key': IMGFOTO_API_KEY,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
+            'Accept': 'application/json'
         }
-        
-        data = {
-            'source': base64_image,
-            'format': 'json',
-            'expiration': 'PT15M'  # Set expiration to 15 menit
-        }
+
+        # Buat form data untuk upload file
+        form = aiohttp.FormData()
+        form.add_field(
+            'source',
+            image_bytes,
+            filename='image.jpg',
+            content_type='image/jpeg'
+        )
+        form.add_field('format', 'json')
+        form.add_field('expiration', 'P1W')
         
         timeout = aiohttp.ClientTimeout(total=60)
         
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=data, headers=headers) as response:
+            async with session.post(url, data=form, headers=headers) as response:
                 logger.info(f"ImgFoto response status: {response.status}")
                 response_text = await response.text()
                 logger.info(f"ImgFoto response body: {response_text}")
