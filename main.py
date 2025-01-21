@@ -338,7 +338,6 @@ def format_technical_indicators(stock_data: Dict) -> str:
                 f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
                 f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
                 f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
-                f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
             )
 
     bbands = stock_data.get('bbands')
@@ -414,16 +413,24 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Buat prompt untuk Gemini
         prompt = (
-            f"Berikut adalah data untuk {symbol}:\n{stock_info}\n\n"
-            "Beri saya analisis mendalam tentang performa ini. "
-            "Analisis harus mencakup:\n"
-            "1. Tren harga: Apakah ada tren kenaikan atau penurunan dalam jangka pendek dan jangka panjang?\n"
-            "2. Indikator teknis: Berikan analisis singkat tentang Bollinger Bands, MACD, dan VWAP.\n"
-            "3. Saran investasi: Berdasarkan analisis di atas, berikan saran apakah ini saat yang baik untuk membeli, menjual. "
-            "Sertakan alasan yang mendukung saran Anda.\n"
-            "4. Risiko: Sebutkan risiko potensial yang perlu dipertimbangkan sebelum mengambil keputusan investasi.\n"
-            "Gunakan bahasa yang profesional namun mudah dipahami."
-        )
+            f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
+             "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
+             "1. **Tren Harga:**\n"
+             "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek dan panjang?\n"
+             "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
+              "2. **Indikator Teknis:**\n"
+              "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
+             "   - Tinjau sinyal konvergensi/divergensi MACD untuk mengidentifikasi momentum tren.\n"
+             "   - Tinjau jika ada pola tertentu pada chart.\n"
+             "   - Evaluasi penggunaan VWAP untuk menentukan nilai harga yang wajar.\n\n"
+             "3. **Saran Investasi:**\n"
+             "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
+              "   - Berikan alasan berbasis data yang kuat, termasuk potensi entry dan exit level.\n\n"
+              "4. **Manajemen Risiko:**\n"
+             "   - Sebutkan risiko yang perlu diperhatikan seperti volatilitas pasar, berita ekonomi, dan faktor teknis lainnya.\n"
+             "   - Berikan saran penggunaan stop-loss dan take-profit untuk mengelola risiko dengan bijak.\n\n"
+             "Gunakan bahasa yang profesional namun tetap mudah dipahami oleh trader forex dengan berbagai tingkat pengalaman."
+            )
 
         # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
