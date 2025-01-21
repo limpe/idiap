@@ -70,18 +70,27 @@ except Exception as e:
     redis_available = False
 
 def check_required_settings():
-    if not TELEGRAM_TOKEN:
-        print("Error: TELEGRAM_TOKEN tidak ditemukan!")
+    missing_vars = []
+    required_vars = {
+        'TELEGRAM_TOKEN': 'Token Telegram Bot',
+        'MISTRAL_API_KEY': 'API Key Mistral',
+        'GOOGLE_API_KEY': 'API Key Google',
+        'TOGETHER_API_KEY': 'API Key Together',
+        'IMGFOTO_API_KEY': 'API Key ImgFoto.host'
+    }
+
+    for var_name, var_desc in required_vars.items():
+        if not os.getenv(var_name):
+            missing_vars.append(f"{var_desc} ({var_name})")
+            logger.error(f"Error: {var_name} tidak ditemukan!")
+
+    if missing_vars:
+        print("Error: Variabel environment yang diperlukan tidak ditemukan:")
+        for var in missing_vars:
+            print(f"- {var}")
         return False
-    if not MISTRAL_API_KEY:
-        print("Error: MISTRAL_API_KEY tidak ditemukan!")
-        return False
-    if not GOOGLE_API_KEY:
-        print("Error: GOOGLE_API_KEY tidak ditemukan!")
-        return False
-    if not TOGETHER_API_KEY:
-        print("Error: TOGETHER_API_KEY tidak ditemukan!")
-        return False
+    
+    logger.info("Semua konfigurasi yang diperlukan tersedia")
     return True
 
 def sanitize_input(text: str) -> str:
@@ -1053,41 +1062,60 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
 
-async def upload_image_to_telegraph(image_bytes: bytes) -> Optional[str]:
-    """Upload image to Telegraph and return the URL"""
+async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
+    """Upload image to ImgFoto.host and return the URL"""
     try:
-        # Buat form data dengan content-type yang benar
-        form = aiohttp.FormData()
-        form.add_field(
-            'file', 
-            image_bytes, 
-            filename='image.jpg', 
-            content_type='image/jpeg'
-        )
+        IMGFOTO_API_KEY = os.getenv('IMGFOTO_API_KEY')
+        if not IMGFOTO_API_KEY:
+            logger.error("IMGFOTO_API_KEY tidak ditemukan di environment variables")
+            return None
+
+        # Convert image bytes to base64
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
         
-        # Gunakan timeout yang lebih lama
-        timeout = aiohttp.ClientTimeout(total=30)
+        # Set up request
+        url = "https://imgfoto.host/api/1/upload"
         headers = {
-            'Accept': 'application/json'
+            'X-API-Key': IMGFOTO_API_KEY,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
         }
         
+        data = {
+            'source': base64_image,
+            'format': 'json',
+            'expiration': 'PT15M'  # Set expiration to 15 menit
+        }
+        
+        timeout = aiohttp.ClientTimeout(total=60)
+        
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                'https://telegra.ph/upload', 
-                data=form,
-                headers=headers
-            ) as response:
+            async with session.post(url, json=data, headers=headers) as response:
+                logger.info(f"ImgFoto response status: {response.status}")
+                response_text = await response.text()
+                logger.info(f"ImgFoto response body: {response_text}")
+                
                 if response.status == 200:
-                    result = await response.json()
-                    if result and isinstance(result, list) and len(result) > 0:
-                        return f"https://telegra.ph{result[0]['src']}"
-                    else:
-                        logger.error(f"Invalid response from Telegraph: {result}")
+                    try:
+                        result = await response.json()
+                        if result.get('status_code') == 200 and result.get('success'):
+                            image_url = result.get('image', {}).get('url')
+                            if image_url:
+                                logger.info(f"Upload successful. URL: {image_url}")
+                                return image_url
+                            else:
+                                logger.error("No image URL in successful response")
+                        else:
+                            logger.error(f"Upload failed: {result.get('status_txt')}")
+                    except Exception as e:
+                        logger.error(f"Error parsing ImgFoto response: {str(e)}")
                 else:
-                    logger.error(f"Telegraph upload failed with status {response.status}")
+                    logger.error(f"ImgFoto upload failed with status {response.status}. Response: {response_text}")
                     
     except Exception as e:
-        logger.error(f"Error uploading to Telegraph: {str(e)}")
+        logger.error(f"Error uploading to ImgFoto: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
     return None
 
 async def get_google_image_search_url(image_url: str) -> str:
@@ -1098,6 +1126,14 @@ async def get_google_image_search_url(image_url: str) -> str:
 async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /carigambar command"""
     try:
+        # Cek apakah IMGFOTO_API_KEY tersedia
+        if not os.getenv('IMGFOTO_API_KEY'):
+            await update.message.reply_text(
+                "❌ Fitur pencarian gambar belum dikonfigurasi.\n"
+                "Mohon hubungi admin untuk mengatur IMGFOTO_API_KEY."
+            )
+            return
+
         # Cek apakah ada reply ke gambar
         if not update.message.reply_to_message or not update.message.reply_to_message.photo:
             await update.message.reply_text(
@@ -1114,32 +1150,54 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             photo = update.message.reply_to_message.photo[-1]
             photo_file = await photo.get_file()
 
+            # Log informasi file
+            logger.info(f"Processing image: size={photo.file_size} bytes, file_id={photo.file_id}")
+
             # Download gambar
             photo_bytes = await photo_file.download_as_bytearray()
+            logger.info(f"Downloaded image size: {len(photo_bytes)} bytes")
             
-            # Coba upload ke Telegraph dengan retry
-            telegraph_url = None
+            # Coba upload ke ImgFoto dengan retry dan exponential backoff
+            image_url = None
             max_retries = 3
             
             for attempt in range(max_retries):
-                telegraph_url = await upload_image_to_telegraph(photo_bytes)
-                if telegraph_url:
-                    break
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1)  # Tunggu 1 detik sebelum retry
+                try:
+                    image_url = await upload_image_to_imgfoto(photo_bytes)
+                    if image_url:
+                        logger.info(f"Successfully uploaded to ImgFoto on attempt {attempt + 1}")
+                        break
+                    else:
+                        logger.warning(f"Upload attempt {attempt + 1} failed, retrying...")
+                        
+                    if attempt < max_retries - 1:
+                        delay = min(10, (2 ** attempt))  # Exponential backoff with max 10 seconds
+                        logger.info(f"Waiting {delay} seconds before retry")
+                        await asyncio.sleep(delay)
+                except Exception as e:
+                    logger.error(f"Error during upload attempt {attempt + 1}: {str(e)}")
+                    if attempt < max_retries - 1:
+                        continue
+                    raise
             
-            if not telegraph_url:
-                await update.message.reply_text(
-                    "❌ Gagal mengupload gambar. Silakan coba lagi dalam beberapa saat."
+            if not image_url:
+                error_msg = (
+                    "❌ Gagal mengupload gambar ke ImgFoto.\n"
+                    "Silakan coba lagi dalam beberapa saat."
                 )
+                logger.error("All upload attempts to ImgFoto failed")
+                await update.message.reply_text(error_msg)
                 return
 
             # Generate dan kirim URL Google Lens
-            google_search_url = await get_google_image_search_url(telegraph_url)
+            google_search_url = await get_google_image_search_url(image_url)
+            
+            # Kirim kedua URL (Image dan Google Lens)
             await update.message.reply_text(
                 "🔍 Hasil pencarian gambar:\n\n"
+                f"📸 Link gambar: {image_url}\n\n"
                 f"🌐 Cari dengan Google Lens:\n{google_search_url}\n\n"
-                "ℹ️ Klik link di atas untuk melihat hasil pencarian gambar serupa di Google"
+                "ℹ️ Klik link Google Lens di atas untuk melihat hasil pencarian gambar serupa"
             )
 
         finally:
@@ -1147,13 +1205,20 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             if processing_msg:
                 try:
                     await processing_msg.delete()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Error deleting processing message: {str(e)}")
 
     except Exception as e:
-        logger.exception("Error in search_image_command")
+        error_message = f"Error in search_image_command: {str(e)}"
+        logger.exception(error_message)
         await update.message.reply_text(
-            "❌ Terjadi kesalahan. Silakan coba lagi nanti."
+            "❌ Terjadi kesalahan saat memproses gambar.\n"
+            "Pastikan:\n"
+            "1. Gambar yang di-reply masih tersedia\n"
+            "2. Ukuran gambar tidak terlalu besar (max 10MB)\n"
+            "3. Format gambar didukung (JPG, PNG)\n"
+            "4. Koneksi internet stabil\n"
+            "\nSilakan coba lagi nanti."
         )
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
