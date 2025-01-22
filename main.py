@@ -1313,6 +1313,8 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
     message_text = update.message.text or update.message.caption or ""
+    is_reply = bool(update.message.reply_to_message)
+    replied_message = None
 
     # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
@@ -1323,20 +1325,20 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_text = message_text.replace(f'@{context.bot.username}', '').strip()
             should_process = True
 
-        # Cek reply
-        elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+        # Cek reply dan ambil konteks pesan yang direply
+        elif is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
             should_process = True
-
+            replied_message = update.message.reply_to_message.text
+            
         if should_process and message_text:
             # Sanitasi input teks
             sanitized_text = sanitize_input(message_text)
 
             # Cek apakah pesan mengandung perintah /gambar atau /image
             if sanitized_text.lower().startswith(('/gambar', '/image')):
-                await handle_generate_image(update, context)  # Panggil handler untuk /gambar
+                await handle_generate_image(update, context)
                 return
 
-            # Lanjutkan pemrosesan pesan biasa
             # Periksa apakah sesi sudah ada di Redis
             if not redis_client.exists(f"session:{chat_id}"):
                 await initialize_session(chat_id)
@@ -1344,16 +1346,22 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Reset konteks jika diperlukan
-            if await should_reset_context(chat_id, sanitized_text):
+            # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
+            if not is_reply and await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
+                session = json.loads(redis_client.get(f"session:{chat_id}"))
+
+            # Tambahkan konteks dari pesan yang direply jika ada
+            if replied_message:
+                sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
             # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-            # Proses pesan dengan konteks cerdas
-            response = await process_with_smart_context(session['messages'][-10:])  # Ambil 10 pesan terakhir
+            # Proses pesan dengan konteks cerdas, dengan menyertakan lebih banyak konteks untuk reply
+            context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+            response = await process_with_smart_context(session['messages'][-context_window:])
 
             if response:
                 # Filter hasil respons
@@ -1366,6 +1374,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
                 for part in response_parts:
+                    # Reply ke pesan pengguna untuk mempertahankan thread percakapan
                     await update.message.reply_text(part)
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
@@ -1592,6 +1601,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+    is_reply = bool(update.message.reply_to_message)
+    replied_message = None
+
     session_json = redis_client.get(f"session:{chat_id}")
     if not session_json:
         await initialize_session(chat_id)
@@ -1599,25 +1612,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
+    # Handle replies khusus untuk private chat
+    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+        replied_message = update.message.reply_to_message.text
+        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
+
+    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
+    if not is_reply and await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
+
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Proses pesan dengan Gemini
-    response = await process_with_gemini(session['messages'])
+    # Proses pesan dengan konteks cerdas
+    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+    response = await process_with_smart_context(session['messages'][-context_window:])
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)  # Panggil filter_text di sini
-        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+        filtered_response = await filter_text(response)
 
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)  # Gunakan filtered_response
+        response_parts = split_message(filtered_response)
         for part in response_parts:
+            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
             await update.message.reply_text(part)
     else:
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
