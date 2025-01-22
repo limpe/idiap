@@ -427,6 +427,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
              "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
              "1. **Tren Harga:**\n"
              "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek dan panjang?\n"
+            "   - Apakah Market Structure tren bullish atau bearish ?\n"
              "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
               "2. **Indikator Teknis:**\n"
               "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
