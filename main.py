@@ -1,31 +1,31 @@
-import os
-import logging
-import tempfile
-import asyncio
-import base64
-import uuid
-import redis
-import json
-import speech_recognition as sr
-import urllib.parse
-import gtts
-import aiohttp
-import google.generativeai as genai
-import re
-import bleach
-import requests
-import googlemaps
-
-from twelvedata import TDClient
-from deep_translator import GoogleTranslator
-from keywords import complex_keywords
-from collections import Counter
-from typing import Optional, List, Dict
-from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from pydub import AudioSegment
-from langdetect import detect
-from PIL import Image
+async def search_places(location: str, query: str, place_type: str = None) -> list:
+    """Cari tempat menggunakan Google Places API"""
+    try:
+        # Konversi string lokasi ke float
+        lat, lng = map(float, location.split(','))
+        
+        # Tentukan parameter untuk places_nearby
+        params = {
+            'location': (lat, lng),
+            'radius': 1500,  # 1.5km
+            'keyword': query,
+            'language': 'id'
+        }
+        
+        # Tambahkan type jika diberikan
+        if place_type:
+            params['type'] = place_type
+            
+        # Lakukan pencarian tempat
+        places_result = gmaps.places_nearby(**params)
+        
+        # Ambil 5 hasil pertama
+        logger.info(f"Mencari: {query} di lokasi: {location} dengan tipe: {place_type}")
+        logger.info(f"Respons Google API: {places_result}")
+        return places_result.get('results', [])[:5]
+        
+    except Exception as e:
+        logger.error(f"Error Google Places API: {str(e)}")
 from io import BytesIO
 from aiohttp import FormData
 from datetime import datetime, timedelta
@@ -731,10 +731,6 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Format pesan untuk Gemini
         gemini_messages = [
             {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
-            for msg in messages
-        ]
-
-        # Mulai chat dengan Gemini
             for msg in messages
         ]
 
