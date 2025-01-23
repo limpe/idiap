@@ -14,7 +14,6 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
-import googlemaps
 
 
 from twelvedata import TDClient
@@ -110,12 +109,8 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')  # Tambahkan ini
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
-
-# Inisialisasi Google Maps Client
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else None
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -436,7 +431,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
              "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
               "2. **Indikator Teknis:**\n"
               "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
-             "   - Tinjau sinyal konvergensi/divergensi MACD untuk mengidentifikasi momentum tren.\n"
+             "   - MACD untuk mengidentifikasi momentum tren.\n"
              "   - Evaluasi penggunaan VWAP untuk menentukan nilai harga yang wajar.\n\n"
              "3. **Saran:**\n"
              "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
@@ -671,7 +666,7 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
         # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
@@ -721,31 +716,22 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         logger.info(f"Conversation complexity: {complexity}")
 
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "model", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {"role": "model", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
-                system_message = {"role": "model", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
-                system_message = {"role": "model", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
 
         # Format pesan untuk Gemini
-        gemini_messages = []
-        for msg in messages:
-            role = msg.get('role', 'user')
-            # Gemini hanya menerima role 'user' atau 'model'
-            if role == 'assistant':
-                role = 'model'
-            
-            content = msg.get('content') or (msg.get('parts', [{}])[0].get('text') if msg.get('parts') else '')
-            
-            gemini_messages.append({
-                "role": role,
-                "parts": [{"text": content}]
-            })
+        gemini_messages = [
+            {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
+            for msg in messages
+        ]
 
         # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=gemini_messages)
@@ -933,13 +919,6 @@ def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str
         audio[i:i + chunk_duration * 1000].export(chunk_path, format="wav")
         chunks.append(chunk_path)
     return chunks
-
-def get_context_window(complexity: str, is_reply: bool = False) -> int:
-    """
-    Tentukan ukuran context window berdasarkan kompleksitas dan status reply
-    """
-    base_window = {"simple": 15, "medium": 30, "complex": 50}[complexity]
-    return base_window * 2 if is_reply else base_window
 
 def get_max_conversation_messages(complexity: str) -> int:
     """
@@ -1372,9 +1351,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Tambahkan konteks dari pesan yang direply jika ada
-            if replied_message:
-                sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
+            # Handle replies
+            if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+                # Ambil seluruh konteks percakapan yang direply
+                replied_context = await get_replied_context(update.message.reply_to_message)
+                context_messages = replied_context + session['messages'][-5:]  # Gabungkan dengan 5 pesan terakhir
+                session['messages'] = context_messages  # Update session dengan konteks gabungan
 
             # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1401,91 +1383,61 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
             
 
-async def initialize_session(chat_id: int, feature: str = 'chat') -> None:
-    """
-    Inisialisasi sesi baru dengan dukungan untuk berbagai fitur.
-    Features: 'chat', 'image', 'location', 'voice'
-    """
+async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],
+        'messages': [],  # Riwayat pesan
+        'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
-        'conversation_id': str(uuid.uuid4())
+        'conversation_id': str(uuid.uuid4()),
+        'complexity': 'simple'  # Kompleksitas percakapan
     }
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
-    # Set session data untuk fitur spesifik
-    session_key = f"session:{chat_id}:{feature}"
-    redis_client.set(session_key, json.dumps(session))
-    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
-
-    # Inisialisasi counter
-    redis_client.set(f"session:{chat_id}:counter", 0)
-    redis_client.expire(f"session:{chat_id}:counter", CONVERSATION_TIMEOUT)
-
-    # Inisialisasi kompleksitas
-    redis_client.set(f"session:{chat_id}:complexity", 'simple')
-    redis_client.expire(f"session:{chat_id}:complexity", CONVERSATION_TIMEOUT)
-
-    logger.info(f"Sesi {feature} direset untuk chat_id {chat_id}.")
-
-    # Handle inisialisasi khusus untuk fitur tertentu
-    if feature == 'location':
-        # Hapus data lokasi yang lama jika ada
-        redis_client.delete(f"user:{chat_id}:location")
-    elif feature == 'image':
-        # Hapus cache analisis gambar sebelumnya
-        redis_client.delete(f"session:{chat_id}:last_image_analysis")
-
-async def update_session(chat_id: int, message: Dict[str, str], feature: str = 'chat', is_reply: bool = False) -> None:
-    """
-    Update session dengan fitur terpisah untuk berbagai jenis interaksi.
-    Features: 'chat', 'image', 'location', 'voice'
-    """
-    # Buat key spesifik untuk fitur
-    session_key = f"session:{chat_id}:{feature}"
-    counter_key = f"session:{chat_id}:counter"
-    complexity_key = f"session:{chat_id}:complexity"
-
-    # Tambahkan metadata reply jika ini adalah reply message
-    if is_reply:
-        message['is_reply'] = True
-    
-    # Ambil sesi yang ada atau buat baru
-    session_json = redis_client.get(session_key)
+async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    session_json = redis_client.get(f"session:{chat_id}")
     if session_json:
         session = json.loads(session_json)
     else:
+        # Jika sesi tidak ada, inisialisasi sesi baru
         session = {
-            'messages': [],
-            'last_update': datetime.now().timestamp()
+            'messages': [],  # Riwayat pesan
+            'message_counter': 0,  # Counter pesan
+            'last_update': datetime.now().timestamp(),
+            'complexity': 'simple'  # Kompleksitas percakapan
         }
 
-    # Ambil dan update counter
-    message_counter = int(redis_client.get(counter_key) or '0')
-    message_counter += 1
-    redis_client.set(counter_key, message_counter)
-    
-    # Ambil kompleksitas sebelumnya
-    previous_complexity = redis_client.get(complexity_key) or 'simple'
+    # Pastikan kunci 'message_counter' ada
+    if 'message_counter' not in session:
+        session['message_counter'] = 0
+
+    # Simpan kompleksitas sebelumnya
+    previous_complexity = session.get('complexity', 'simple')
 
     # Tentukan kompleksitas baru
-    new_complexity = await determine_conversation_complexity(session['messages'],
-                                                          {'message_counter': message_counter},
-                                                          previous_complexity)
+    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
+    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
-    # Update kompleksitas tanpa mereset counter
+    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
+    if new_complexity == "simple" and previous_complexity == "medium":
+        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
+        session['message_counter'] = 0  # Reset counter pesan
+
+    # Update counter pesan
+    session['message_counter'] += 1
+
+    # Catat perubahan kompleksitas jika ada
     if previous_complexity != new_complexity:
-        logger.info(f"Perubahan kompleksitas untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
-        redis_client.set(complexity_key, new_complexity)
+        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-    # Tambah pesan ke sesi
+    # Tambahkan pesan ke sesi
     session['messages'].append(message)
     session['last_update'] = datetime.now().timestamp()
 
-    # Simpan sesi ke Redis dengan TTL
-    redis_client.set(session_key, json.dumps(session))
-    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
-    redis_client.expire(counter_key, CONVERSATION_TIMEOUT)
-    redis_client.expire(complexity_key, CONVERSATION_TIMEOUT)
+    # Simpan sesi ke Redis
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1516,14 +1468,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
     
-def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
-    # Daftar kata-kata penting yang tidak perlu di-stem
-    important_words = {
-        'lokasi', 'rute', 'jalan', 'dekat', 'terdekat', 'restoran', 'cafe', 'toko',
-        'mall', 'pasar', 'stasiun', 'halte', 'bandara', 'rumah', 'sakit', 'sekolah',
-        'universitas', 'kampus', 'bank', 'atm', 'apotek', 'hotel'
-    }
-    
+def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 7) -> List[str]:
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
     
@@ -1533,76 +1478,71 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     # Hapus tanda baca dan karakter khusus
     words = [re.sub(r'[^\w\s]', '', word) for word in words]
     
-    # Buat bigrams (pasangan kata)
-    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
+    # Hapus kata-kata yang terlalu pendek (kurang dari 3 huruf)
+    words = [word for word in words if len(word) >= 3]
     
-    # Hapus kata-kata yang terlalu pendek dan stop words
-    filtered_words = []
-    for word in words:
-        if len(word) >= 3 and word not in stop_words:
-            if word in important_words:
-                filtered_words.append(word)  # Gunakan kata asli jika ada di daftar penting
-            else:
-                filtered_words.append(stemmer.stem(word))  # Stem hanya kata-kata umum
+    # Hapus stop words
+    words = [word for word in words if word not in stop_words]
     
-    # Gabungkan unigrams dan bigrams
-    all_terms = filtered_words + bigrams
+    # Lakukan stemming untuk mengurangi variasi kata menggunakan Sastrawi
+    stemmed_words = [stemmer.stem(word) for word in words]
     
-    # Hitung frekuensi kemunculan
-    term_counts = Counter(all_terms)
+    # Hitung frekuensi kata
+    word_counts = Counter(stemmed_words)
+    
+    # Hitung bigrams
+    bigrams = zip(words, words[1:])
+    bigram_counts = Counter([" ".join(bigram) for bigram in bigrams])
+    
+    # Gabungkan single word dan bigram
+    combined_counts = word_counts + bigram_counts
     
     # Ambil kata kunci yang paling sering muncul
-    relevant_keywords = [term for term, count in term_counts.most_common(top_n)]
+    relevant_keywords = [item[0] for item in combined_counts.most_common(top_n)]
     
     # Log untuk debugging
     logger.info(f"Extracted relevant keywords: {relevant_keywords}")
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1, is_reply: bool = False) -> bool:
-    # Jika ini adalah reply, otomatis anggap topik sama
-    if is_reply:
-        logger.info("Reply message terdeteksi, menganggap topik sama")
-        return True
+def get_replied_context(replied_message: Message) -> List[Dict]:
+    # Cari sesi dari pesan yang direply
+    session = redis_client.get(f"session:{replied_message.chat_id}")
+    if session:
+        return json.loads(session).get('messages', [])
+    return []
 
-    # Ekstrak kata kunci relevan dari konteks percakapan
-    relevant_keywords = extract_relevant_keywords(context_messages)
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 3) -> bool:
+    # Ekstrak kata kunci relevan dari seluruh konteks percakapan
+    relevant_keywords = extract_relevant_keywords(context_messages[-10:])  # Ambil 10 pesan terakhir
     
     # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
-    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
-    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
+    last_message_keywords = extract_relevant_keywords([{"content": last_message}])
+    current_message_keywords = extract_relevant_keywords([{"content": current_message}])
 
-    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
-    common_keywords = set(last_keywords) & set(current_keywords)
+    # Temukan kata kunci yang sama antara konteks dan pesan saat ini
+    common_with_context = set(relevant_keywords) & set(current_message_keywords)
+    common_between_messages = set(last_message_keywords) & set(current_message_keywords)
     
     # Log untuk debugging
-    logger.info(f"Last keywords: {last_keywords}")
-    logger.info(f"Current keywords: {current_keywords}")
-    logger.info(f"Common keywords: {common_keywords}")
+    logger.info(f"Context keywords: {relevant_keywords}")
+    logger.info(f"Last message keywords: {last_message_keywords}")
+    logger.info(f"Current message keywords: {current_message_keywords}")
+    logger.info(f"Common keywords with context: {common_with_context}")
+    logger.info(f"Common keywords between messages: {common_between_messages}")
     
-    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
-    return len(common_keywords) >= threshold
+    # Kembalikan True jika ada cukup kata kunci yang cocok dengan konteks atau pesan sebelumnya
+    return len(common_with_context) >= threshold or len(common_between_messages) >= threshold
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-async def should_reset_context(chat_id: int, message: str, feature: str = 'chat', is_reply: bool = False) -> bool:
-    """
-    Memeriksa apakah konteks perlu direset berdasarkan fitur spesifik
-    """
+async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
-        # Jangan reset jika ini adalah reply
-        if is_reply:
-            logger.info(f"Reply message terdeteksi, tidak reset konteks untuk chat_id {chat_id}")
-            return False
-
-        # Get session data
-        session_key = f"session:{chat_id}:{feature}"
-        session_json = redis_client.get(session_key)
-        
+        session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
-            logger.info(f"Tidak ada sesi {feature} untuk chat_id {chat_id}, reset konteks.")
+            logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
             return True
 
         session = json.loads(session_json)
@@ -1612,67 +1552,52 @@ async def should_reset_context(chat_id: int, message: str, feature: str = 'chat'
 
         # Reset jika percakapan sudah timeout
         if time_diff > CONVERSATION_TIMEOUT:
-            logger.info(f"Reset konteks {feature} untuk chat_id {chat_id} karena timeout.")
-            await clear_feature_data(chat_id, feature)
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
+            redis_client.delete(f"session:{chat_id}")
             return True
 
         # Daftar kata kunci yang memicu reset
-        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih',
-                         'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
+        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
 
-        # Normalisasi pesan
+        # Normalisasi pesan untuk pengecekan kata kunci
         normalized_message = message.lower().strip()
 
-        # Cek kata kunci reset
+        # Cek apakah pesan mengandung kata kunci reset
         if any(keyword in normalized_message for keyword in reset_keywords):
-            logger.info(f"Reset konteks {feature} karena kata kunci: {message}")
-            await clear_feature_data(chat_id, feature)
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
+            redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
             return True
 
-        # Get message counter and complexity
-        message_counter = int(redis_client.get(f"session:{chat_id}:counter") or '0')
-        complexity = redis_client.get(f"session:{chat_id}:complexity") or 'simple'
+        # Pastikan kunci 'message_counter' ada
+        if 'message_counter' not in session:
+            session['message_counter'] = 0
+
+        # Ambil kompleksitas percakapan
+        complexity = await determine_conversation_complexity(session['messages'], session)
         max_messages = get_max_conversation_messages(complexity)
 
-        # Reset jika melebihi batas pesan
-        if message_counter > max_messages:
-            logger.info(f"Reset konteks {feature} karena melebihi batas pesan: {message_counter}")
+        # Reset jika jumlah pesan melebihi batas
+        if len(session['messages']) > max_messages:
+            logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Cek perubahan topik hanya untuk fitur chat
-        if feature == 'chat' and session['messages']:
-            last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']):
-                logger.info(f"Reset konteks chat karena perubahan topik.")
-                return True
+        # Kurangi sensitivity untuk kata kunci reset
+        reset_keywords = ['reset', 'clear', 'mulai baru']
 
-        logger.info(f"Tidak perlu reset konteks {feature} untuk chat_id {chat_id}")
+        # Evaluasi perubahan topik dengan lebih ketat
+        if session['messages']:
+            if len(session['messages']) > 3:  # Cek hanya setelah ada beberapa pesan
+                last_message = session['messages'][-1]['content']
+                # Naikkan threshold perubahan topik dengan context window yang lebih besar
+                if not is_same_topic(last_message, message, session['messages'][-3:]):
+                    logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik signifikan")
+                    return True
+
+        logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
-
     except redis.RedisError as e:
-        logger.error(f"Redis Error saat memeriksa konteks {feature}: {str(e)}")
+        logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
-
-async def clear_feature_data(chat_id: int, feature: str):
-    """
-    Membersihkan data terkait fitur tertentu
-    """
-    try:
-        keys_to_delete = [
-            f"session:{chat_id}:{feature}",
-            f"session:{chat_id}:counter",
-            f"session:{chat_id}:complexity"
-        ]
-        
-        if feature == 'location':
-            keys_to_delete.append(f"user:{chat_id}:location")
-        elif feature == 'image':
-            keys_to_delete.append(f"session:{chat_id}:last_image_analysis")
-            
-        redis_client.delete(*keys_to_delete)
-        logger.info(f"Berhasil membersihkan data {feature} untuk chat_id {chat_id}")
-    except redis.RedisError as e:
-        logger.error(f"Gagal membersihkan data {feature}: {str(e)}")
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
@@ -1689,9 +1614,6 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     if not message_text:
         message_text = update.message.text or ""
-
-    # Deteksi reply
-    is_reply = bool(update.message.reply_to_message)
 
     # Sanitasi input teks
     sanitized_text = sanitize_input(message_text)
@@ -1715,22 +1637,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Handle replies khusus untuk private chat
-    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-        replied_message = update.message.reply_to_message.text
-        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
+    # Handle replies untuk semua jenis chat
+    if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+        # Ambil seluruh konteks percakapan yang direply
+        replied_context = await get_replied_context(update.message.reply_to_message)
+        context_messages = replied_context + session['messages'][-5:]  # Gabungkan dengan 5 pesan terakhir
+        session['messages'] = context_messages  # Update session dengan konteks gabungan
 
-    # Reset konteks jika diperlukan dengan parameter is_reply
-    if await should_reset_context(chat_id, sanitized_text, is_reply=is_reply):
+    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
+    if not is_reply and await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
         session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-    # Tambahkan pesan pengguna ke sesi dengan flag is_reply
+    # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text}, is_reply=is_reply)
+    await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Gunakan context window yang diperbesar untuk reply
-    context_window = get_context_window(session.get('complexity', 'medium'), is_reply)  # Double window untuk reply
+    # Proses pesan dengan konteks cerdas
+    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
     response = await process_with_smart_context(session['messages'][-context_window:])
     
     if response:
@@ -1777,11 +1701,9 @@ def main():
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(filters.LOCATION, handle_location))
-        application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(restoran|rute|jalan|lokasi|dekat|terdekat)'), handle_location_query))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) &
-            (filters.Entity("mention") | filters.REPLY),
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
             handle_mention
         ))
 
@@ -1792,210 +1714,6 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
         
-async def search_places(location: str, query: str) -> list:
-    """Cari tempat menggunakan Google Places API"""
-    try:
-        lat, lng = map(float, location.split(","))
-        places_result = gmaps.places_nearby(
-            location=(lat, lng),
-            radius=5000,  # 5km
-            keyword=query,
-            language="id",
-            type="restaurant|atm|cafe"  # Sesuaikan dengan kebutuhan
-        )
-        return places_result.get("results", [])[:5]  # Ambil 5 hasil pertama
-    except Exception as e:
-        logger.error(f"Google Places API error: {e}")
-        return []
-
-async def get_directions(origin: str, destination: str) -> list:
-    """Dapatkan petunjuk arah menggunakan Google Directions API"""
-    try:
-        directions_result = gmaps.directions(
-            origin=origin,
-            destination=destination,
-            mode="driving",  # atau "walking", "transit", dll.
-            language="id",
-            alternatives=True
-        )
-        return directions_result
-    except Exception as e:
-        logger.error(f"Google Directions API error: {e}")
-        return []
-
-async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk lokasi pengguna"""
-    try:
-        user_location = update.message.location
-        lat, lng = user_location.latitude, user_location.longitude
-        
-        # Simpan lokasi ke Redis
-        user_id = update.message.from_user.id
-        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}", ex=86400)  # TTL 24 jam
-        
-        await update.message.reply_text(
-            "📍 Lokasi Anda berhasil disimpan!\n"
-            "Anda bisa bertanya:\n"
-            "- 'Restoran terdekat'\n"
-            "- 'Rute ke Monas'\n"
-            "- 'ATM terdekat'"
-        )
-    except Exception as e:
-        logger.error(f"Error handling location: {e}")
-        await update.message.reply_text("Gagal menyimpan lokasi. Silakan coba lagi.")
-
-async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle lokasi dan pertanyaan navigasi dari pengguna"""
-    try:
-        # Validasi API Key dengan logging
-        if not GOOGLE_MAPS_API_KEY:
-            logger.error("GOOGLE_MAPS_API_KEY tidak tersedia!")
-            await update.message.reply_text("❌ Layanan lokasi belum aktif. Mohon hubungi admin.")
-            return
-
-        user_id = update.message.from_user.id
-        user_msg = update.message.text
-        
-        # Ambil dan validasi lokasi
-        location = redis_client.get(f"user:{user_id}:location")
-        if not location:
-            await update.message.reply_text(
-                "📍 Lokasi Anda belum tersedia. Silakan kirim lokasi Anda terlebih dahulu."
-            )
-            return
-        
-        if ',' not in location:
-            logger.error(f"Format lokasi tidak valid: {location}")
-            await update.message.reply_text("❌ Format lokasi tidak valid. Silakan kirim ulang lokasi Anda.")
-            return
-
-        # Logging untuk debugging
-        logger.info(f"Memproses permintaan: {user_msg} dengan lokasi: {location}")
-        
-        # Prompt Gemini yang lebih spesifik
-        prompt = f"""
-TUGAS: Ekstrak jenis permintaan dan parameter dari pertanyaan pengguna.
-Format respons HARUS: jenis|parameter
-
-Contoh:
-- "Restoran seafood terdekat" → tempat|restoran seafood
-- "ATM terdekat" → tempat|atm
-
-Pertanyaan: {user_msg}
-"""
-        try:
-            gemini_response = gemini_model.generate_content(prompt)
-            response_text = gemini_response.text.strip().lower()
-            logger.info(f"Respons Gemini: {response_text}")
-        except Exception as e:
-            logger.error(f"Error Gemini: {str(e)}")
-            await update.message.reply_text("❌ Gagal memproses permintaan. Silakan coba lagi.")
-            return
-        
-        if "|" not in response_text:
-            logger.error(f"Format respons tidak valid: {response_text}")
-            await update.message.reply_text("Maaf, saya tidak mengerti pertanyaan lokasi Anda.")
-            return
-            
-        request_type, param = response_text.split("|")
-        logger.info(f"Memproses: {request_type} - {param}")
-
-        # Validasi koordinat
-        try:
-            lat, lng = map(float, location.split(','))
-        except ValueError as e:
-            logger.error(f"Error parsing koordinat: {e}")
-            await update.message.reply_text("❌ Format lokasi tidak valid. Silakan kirim ulang lokasi.")
-            return
-
-        if request_type == "tempat":
-            # Tambahkan logging untuk API Places
-            logger.info(f"Mencari tempat: {param} di {location}")
-            places = await search_places(location, param)
-            if not places:
-                logger.warning("Tidak ada hasil dari Google Places API")
-                await update.message.reply_text("Tidak ditemukan tempat yang sesuai.")
-                return
-            
-            # Format respons
-            response = ["📍 Hasil pencarian:"]
-            for place in places:
-                name = place.get('name', 'Tidak diketahui')
-                rating = place.get('rating', '?')
-                address = place.get('vicinity', 'Alamat tidak tersedia')
-                response.append(f"- {name} ({rating}⭐) - {address}")
-            
-            await update.message.reply_text("\n".join(response))
-            
-            # Kirim peta
-            static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lng}&zoom=15&size=600x300&markers=color:red%7C{lat},{lng}&key={GOOGLE_MAPS_API_KEY}"
-            await update.message.reply_photo(static_map_url)
-
-        elif request_type == "rute":
-            # Tambahkan logging untuk API Directions
-            logger.info(f"Mencari rute ke: {param} dari {location}")
-            directions = await get_directions(location, param)
-            
-            if not directions:
-                logger.warning("Tidak ada hasil dari Google Directions API")
-                await update.message.reply_text("Gagal mendapatkan petunjuk arah.")
-                return
-                
-            # Proses petunjuk arah
-            route = directions[0]['legs'][0]
-            response = [
-                f"🗺️ Rute ke {param}:",
-                f"Jarak: {route['distance']['text']}",
-                f"Durasi: {route['duration']['text']}",
-                "\nPetunjuk:"
-            ]
-            
-            for i, step in enumerate(route['steps'][:5], 1):
-                instruction = re.sub('<[^<]+?>', '', step['html_instructions'])
-                response.append(f"{i}. {instruction}")
-            
-            await update.message.reply_text("\n".join(response))
-            
-            # Kirim peta rute
-            polyline = directions[0]['overview_polyline']['points']
-            static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?path=enc:{polyline}&size=600x300&key={GOOGLE_MAPS_API_KEY}"
-            await update.message.reply_photo(static_map_url)
-
-    except Exception as e:
-        logger.exception(f"Error fatal di handle_location_query: {str(e)}")
-        await update.message.reply_text("🔥 Terjadi kesalahan sistem. Silakan coba lagi nanti.")
-
-
-async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk menyimpan lokasi pengguna"""
-    try:
-        user_location = update.message.location
-        lat, lng = user_location.latitude, user_location.longitude
-        
-        # Validasi koordinat
-        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
-            logger.error(f"Koordinat tidak valid: lat={lat}, lng={lng}")
-            await update.message.reply_text("❌ Koordinat lokasi tidak valid. Silakan coba lagi.")
-            return
-
-        # Simpan lokasi ke Redis dengan TTL 24 jam
-        user_id = update.message.from_user.id
-        location_str = f"{lat},{lng}"
-        redis_client.set(f"user:{user_id}:location", location_str, ex=86400)  # TTL 24 jam
-        
-        logger.info(f"Lokasi tersimpan untuk user {user_id}: {location_str}")
-        
-        await update.message.reply_text(
-            "📍 Lokasi Anda berhasil disimpan!\n"
-            "Anda bisa bertanya:\n"
-            "- 'Restoran terdekat'\n"
-            "- 'Rute ke Monas'\n"
-            "- 'ATM terdekat'"
-        )
-    except Exception as e:
-        logger.error(f"Error handling location: {e}")
-        await update.message.reply_text("Gagal menyimpan lokasi. Silakan coba lagi.")
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
@@ -2031,24 +1749,6 @@ Berikut adalah daftar perintah yang tersedia:
 /carigambar - Mencari gambar serupa menggunakan Google Lens.
 /gambar <prompt> - Generate gambar berdasarkan prompt.
 /reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
-
-**Fitur Baru - Peta dan Lokasi** 🗺️
-- Kirim lokasi Anda untuk menyimpan posisi saat ini
-- Tanyakan tentang:
-  • "Restoran terdekat"
-  • "ATM terdekat"
-  • "Rute ke [tujuan]"
-  • "Cafe kekinian di sekitar"
-- Dapatkan petunjuk arah dan peta
-
-**Fitur Baru - Peta dan Lokasi** 🗺️
-- Kirim lokasi Anda untuk menyimpan posisi saat ini
-- Tanyakan tentang:
-  • "Restoran terdekat"
-  • "ATM terdekat"
-  • "Rute ke [tujuan]"
-  • "Cafe kekinian di sekitar"
-- Dapatkan petunjuk arah dan peta
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
