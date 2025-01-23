@@ -14,6 +14,7 @@ import google.generativeai as genai
 import re
 import bleach
 import requests
+import googlemaps
 
 
 from twelvedata import TDClient
@@ -109,8 +110,12 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')  # Tambahkan ini
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
+
+# Inisialisasi Google Maps Client
+gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else None
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -1674,9 +1679,11 @@ def main():
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler(filters.LOCATION, handle_location))
+        application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(restoran|rute|jalan|lokasi|dekat|terdekat)'), handle_location_query))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
+            (filters.TEXT | filters.CAPTION) &
+            (filters.Entity("mention") | filters.REPLY),
             handle_mention
         ))
 
@@ -1687,6 +1694,200 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
         
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk lokasi pengguna"""
+    try:
+        user_location = update.message.location
+        lat, lng = user_location.latitude, user_location.longitude
+        
+        # Simpan lokasi ke Redis
+        user_id = update.message.from_user.id
+        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}")
+        
+        await update.message.reply_text(
+            "📍 Lokasi Anda berhasil disimpan!\n"
+            "Anda bisa bertanya:\n"
+            "- 'Restoran terdekat'\n"
+            "- 'Rute ke Monas'\n"
+            "- 'ATM terdekat'"
+        )
+    except Exception as e:
+        logger.error(f"Error handling location: {e}")
+        await update.message.reply_text("Gagal menyimpan lokasi. Silakan coba lagi.")
+
+async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_id = update.message.from_user.id
+        user_msg = update.message.text
+        
+        # Ambil lokasi yang disimpan
+        location = redis_client.get(f"user:{user_id}:location")
+        if not location:
+            await update.message.reply_text("Silakan kirim lokasi Anda terlebih dahulu atau ketik lokasi awalnya.")
+            return
+
+        # Proses dengan Gemini untuk ekstraksi parameter
+        prompt = f"""
+        User bertanya: {user_msg}
+        Lokasi saat ini: {location}
+        Tugas:
+        1. Identifikasi jenis permintaan (tempat, rute, info)
+        2. Ekstrak parameter utama (jenis tempat, tujuan, dll)
+        Format respons: jenis|parameter
+        Contoh: tempat|restoran atau rute|Monas
+        """
+        
+        gemini_response = gemini_model.generate_content(prompt)
+        response_text = gemini_response.text.strip().lower()
+        
+        if "|" not in response_text:
+            await update.message.reply_text("Maaf, saya tidak mengerti pertanyaan Anda tentang lokasi.")
+            return
+            
+        request_type, param = response_text.split("|")
+        
+        if request_type == "tempat":
+            # Cari tempat terdekat
+            places = await search_places(location, param)
+            if places:
+                response = "📍 Hasil pencarian:\n" + "\n".join(
+                    [f"- {place['name']} ({place.get('rating', '?')}⭐) - {place['vicinity']}"
+                     for place in places]
+                )
+                await update.message.reply_text(response)
+                
+                # Kirim peta statis
+                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?center={location}&zoom=15&size=600x300&markers=color:red%7C{location}&key={GOOGLE_MAPS_API_KEY}"
+                await update.message.reply_photo(static_map_url)
+            else:
+                await update.message.reply_text("Tidak ditemukan tempat yang sesuai.")
+                
+        elif request_type == "rute":
+            # Dapatkan petunjuk arah
+            directions = await get_directions(location, param)
+            if directions:
+                first_route = directions[0]['legs'][0]
+                distance = first_route['distance']['text']
+                duration = first_route['duration']['text']
+                steps = "\n".join(
+                    [f"{i+1}. {step['html_instructions']}"
+                     for i, step in enumerate(first_route['steps'][:5])]  # Ambil 5 langkah pertama
+                )
+                
+                await update.message.reply_text(
+                    f"🗺️ Rute ke {param}:\n"
+                    f"Jarak: {distance}\n"
+                    f"Durasi: {duration}\n\n"
+                    f"Petunjuk:\n{steps}"
+                )
+                
+                # Kirim peta rute
+                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?path=enc:{directions[0]['overview_polyline']['points']}&size=600x300&key={GOOGLE_MAPS_API_KEY}"
+                await update.message.reply_photo(static_map_url)
+            else:
+                await update.message.reply_text("Gagal mendapatkan petunjuk arah.")
+                
+    except Exception as e:
+        logger.error(f"Location query error: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat memproses permintaan lokasi.")
+
+async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_id = update.message.from_user.id
+        user_msg = update.message.text
+        
+        # Ambil lokasi yang disimpan
+        location = redis_client.get(f"user:{user_id}:location")
+        if not location:
+            await update.message.reply_text("Silakan kirim lokasi Anda terlebih dahulu atau ketik lokasi awalnya.")
+            return
+
+        # Proses dengan Gemini untuk ekstraksi parameter
+        prompt = f"""
+        User bertanya: {user_msg}
+        Lokasi saat ini: {location}
+        Tugas:
+        1. Identifikasi jenis permintaan (tempat, rute, info)
+        2. Ekstrak parameter utama (jenis tempat, tujuan, dll)
+        Format respons: jenis|parameter
+        Contoh: tempat|restoran atau rute|Monas
+        """
+        
+        gemini_response = gemini_model.generate_content(prompt)
+        response_text = gemini_response.text.strip().lower()
+        
+        if "|" not in response_text:
+            await update.message.reply_text("Maaf, saya tidak mengerti pertanyaan Anda tentang lokasi.")
+            return
+            
+        request_type, param = response_text.split("|")
+        
+        if request_type == "tempat":
+            # Cari tempat terdekat
+            places = await search_places(location, param)
+            if places:
+                response = "📍 Hasil pencarian:\n" + "\n".join(
+                    [f"- {place['name']} ({place.get('rating', '?')}⭐) - {place['vicinity']}"
+                     for place in places]
+                )
+                await update.message.reply_text(response)
+                
+                # Kirim peta statis
+                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?center={location}&zoom=15&size=600x300&markers=color:red%7C{location}&key={GOOGLE_MAPS_API_KEY}"
+                await update.message.reply_photo(static_map_url)
+            else:
+                await update.message.reply_text("Tidak ditemukan tempat yang sesuai.")
+                
+        elif request_type == "rute":
+            # Dapatkan petunjuk arah
+            directions = await get_directions(location, param)
+            if directions:
+                first_route = directions[0]['legs'][0]
+                distance = first_route['distance']['text']
+                duration = first_route['duration']['text']
+                steps = "\n".join(
+                    [f"{i+1}. {step['html_instructions']}"
+                     for i, step in enumerate(first_route['steps'][:5])]  # Ambil 5 langkah pertama
+                )
+                
+                await update.message.reply_text(
+                    f"🗺️ Rute ke {param}:\n"
+                    f"Jarak: {distance}\n"
+                    f"Durasi: {duration}\n\n"
+                    f"Petunjuk:\n{steps}"
+                )
+                
+                # Kirim peta rute
+                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?path=enc:{directions[0]['overview_polyline']['points']}&size=600x300&key={GOOGLE_MAPS_API_KEY}"
+                await update.message.reply_photo(static_map_url)
+            else:
+                await update.message.reply_text("Gagal mendapatkan petunjuk arah.")
+                
+    except Exception as e:
+        logger.error(f"Location query error: {e}")
+        await update.message.reply_text("Terjadi kesalahan saat memproses permintaan lokasi.")
+
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk lokasi pengguna"""
+    try:
+        user_location = update.message.location
+        lat, lng = user_location.latitude, user_location.longitude
+        
+        # Simpan lokasi ke Redis
+        user_id = update.message.from_user.id
+        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}")
+        
+        await update.message.reply_text(
+            "📍 Lokasi Anda berhasil disimpan!\n"
+            "Anda bisa bertanya:\n"
+            "- 'Restoran terdekat'\n"
+            "- 'Rute ke Monas'\n"
+            "- 'ATM terdekat'"
+        )
+    except Exception as e:
+        logger.error(f"Error handling location: {e}")
+        await update.message.reply_text("Gagal menyimpan lokasi. Silakan coba lagi.")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
@@ -1722,6 +1923,24 @@ Berikut adalah daftar perintah yang tersedia:
 /carigambar - Mencari gambar serupa menggunakan Google Lens.
 /gambar <prompt> - Generate gambar berdasarkan prompt.
 /reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
+
+**Fitur Baru - Peta dan Lokasi** 🗺️
+- Kirim lokasi Anda untuk menyimpan posisi saat ini
+- Tanyakan tentang:
+  • "Restoran terdekat"
+  • "ATM terdekat"
+  • "Rute ke [tujuan]"
+  • "Cafe kekinian di sekitar"
+- Dapatkan petunjuk arah dan peta
+
+**Fitur Baru - Peta dan Lokasi** 🗺️
+- Kirim lokasi Anda untuk menyimpan posisi saat ini
+- Tanyakan tentang:
+  • "Restoran terdekat"
+  • "ATM terdekat"
+  • "Rute ke [tujuan]"
+  • "Cafe kekinian di sekitar"
+- Dapatkan petunjuk arah dan peta
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
