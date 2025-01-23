@@ -124,6 +124,7 @@ SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
+CONVERSATION_TTL = CONVERSATION_TIMEOUT  # TTL untuk sesi Redis sama dengan timeout percakapan
 MAX_CONCURRENT_SESSIONS = 1000
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
@@ -1412,9 +1413,17 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def initialize_session(chat_id: int) -> None:
     """
     Inisialisasi session baru dengan struktur lengkap.
-    Memastikan semua field yang diperlukan tersedia.
+    Memastikan semua field yang diperlukan tersedia dan proper error handling.
+    Args:
+        chat_id: ID chat dari pengguna
+    Raises:
+        ValueError: Jika validasi field gagal
+        RedisError: Jika ada masalah dengan Redis
     """
     try:
+        if not redis_client:
+            raise redis.RedisError("Redis client tidak tersedia")
+
         session = {
             'messages': [],
             'context': {
@@ -1431,23 +1440,41 @@ async def initialize_session(chat_id: int) -> None:
             'conversation_id': str(uuid.uuid4()),
             'complexity': 'simple'
         }
-        # Tambahkan validasi untuk memastikan semua field required tersedia
+
+        # Validasi struktur session
         required_fields = ['messages', 'context', 'settings', 'message_counter']
         required_context_fields = ['corrections', 'image_history', 'last_interaction']
         
         if not all(field in session for field in required_fields):
-            logger.error(f"Gagal inisialisasi session: missing required fields")
-            raise ValueError("Session initialization failed: missing required fields")
+            error_msg = "Gagal inisialisasi session: missing required fields"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
             
         if not all(field in session['context'] for field in required_context_fields):
-            logger.error(f"Gagal inisialisasi session: missing required context fields")
-            raise ValueError("Session initialization failed: missing required context fields")
-            
-        redis_client.setex(f"session:{chat_id}", CONVERSATION_TTL, json.dumps(session))
-        logger.info(f"Sesi berhasil diinisialisasi untuk chat_id {chat_id}")
-        
+            error_msg = "Gagal inisialisasi session: missing required context fields"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Simpan ke Redis dengan proper error handling
+        try:
+            redis_client.setex(
+                f"session:{chat_id}",
+                CONVERSATION_TTL,
+                json.dumps(session)
+            )
+            logger.info(f"Sesi berhasil diinisialisasi untuk chat_id {chat_id}")
+        except redis.RedisError as re:
+            logger.error(f"Redis error saat menyimpan session: {str(re)}")
+            raise
+
+    except redis.RedisError as e:
+        logger.error(f"Redis error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"Validasi error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
+        raise
     except Exception as e:
-        logger.error(f"Error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
+        logger.error(f"Error tidak terduga saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
         raise
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
