@@ -1394,61 +1394,87 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
             
 
-async def initialize_session(chat_id: int) -> None:
+async def initialize_session(chat_id: int, feature: str = 'chat') -> None:
+    """
+    Inisialisasi sesi baru dengan dukungan untuk berbagai fitur.
+    Features: 'chat', 'image', 'location', 'voice'
+    """
     session = {
-        'messages': [],  # Riwayat pesan
-        'message_counter': 0,  # Counter pesan
+        'messages': [],
         'last_update': datetime.now().timestamp(),
-        'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'  # Kompleksitas percakapan
+        'conversation_id': str(uuid.uuid4())
     }
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
-async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    session_json = redis_client.get(f"session:{chat_id}")
+    # Set session data untuk fitur spesifik
+    session_key = f"session:{chat_id}:{feature}"
+    redis_client.set(session_key, json.dumps(session))
+    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
+
+    # Inisialisasi counter
+    redis_client.set(f"session:{chat_id}:counter", 0)
+    redis_client.expire(f"session:{chat_id}:counter", CONVERSATION_TIMEOUT)
+
+    # Inisialisasi kompleksitas
+    redis_client.set(f"session:{chat_id}:complexity", 'simple')
+    redis_client.expire(f"session:{chat_id}:complexity", CONVERSATION_TIMEOUT)
+
+    logger.info(f"Sesi {feature} direset untuk chat_id {chat_id}.")
+
+    # Handle inisialisasi khusus untuk fitur tertentu
+    if feature == 'location':
+        # Hapus data lokasi yang lama jika ada
+        redis_client.delete(f"user:{chat_id}:location")
+    elif feature == 'image':
+        # Hapus cache analisis gambar sebelumnya
+        redis_client.delete(f"session:{chat_id}:last_image_analysis")
+
+async def update_session(chat_id: int, message: Dict[str, str], feature: str = 'chat') -> None:
+    """
+    Update session dengan fitur terpisah untuk berbagai jenis interaksi.
+    Features: 'chat', 'image', 'location', 'voice'
+    """
+    # Buat key spesifik untuk fitur
+    session_key = f"session:{chat_id}:{feature}"
+    counter_key = f"session:{chat_id}:counter"
+    complexity_key = f"session:{chat_id}:complexity"
+    
+    # Ambil sesi yang ada atau buat baru
+    session_json = redis_client.get(session_key)
     if session_json:
         session = json.loads(session_json)
     else:
-        # Jika sesi tidak ada, inisialisasi sesi baru
         session = {
-            'messages': [],  # Riwayat pesan
-            'message_counter': 0,  # Counter pesan
-            'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'  # Kompleksitas percakapan
+            'messages': [],
+            'last_update': datetime.now().timestamp()
         }
 
-    # Pastikan kunci 'message_counter' ada
-    if 'message_counter' not in session:
-        session['message_counter'] = 0
-
-    # Simpan kompleksitas sebelumnya
-    previous_complexity = session.get('complexity', 'simple')
+    # Ambil dan update counter
+    message_counter = int(redis_client.get(counter_key) or '0')
+    message_counter += 1
+    redis_client.set(counter_key, message_counter)
+    
+    # Ambil kompleksitas sebelumnya
+    previous_complexity = redis_client.get(complexity_key) or 'simple'
 
     # Tentukan kompleksitas baru
-    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+    new_complexity = await determine_conversation_complexity(session['messages'],
+                                                          {'message_counter': message_counter},
+                                                          previous_complexity)
 
-    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
-    if new_complexity == "simple" and previous_complexity == "medium":
-        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-        session['message_counter'] = 0  # Reset counter pesan
-
-    # Update counter pesan
-    session['message_counter'] += 1
-
-    # Catat perubahan kompleksitas jika ada
+    # Update kompleksitas tanpa mereset counter
     if previous_complexity != new_complexity:
-        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
+        logger.info(f"Perubahan kompleksitas untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
+        redis_client.set(complexity_key, new_complexity)
 
-    # Tambahkan pesan ke sesi
+    # Tambah pesan ke sesi
     session['messages'].append(message)
     session['last_update'] = datetime.now().timestamp()
 
-    # Simpan sesi ke Redis
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    # Simpan sesi ke Redis dengan TTL
+    redis_client.set(session_key, json.dumps(session))
+    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
+    redis_client.expire(counter_key, CONVERSATION_TIMEOUT)
+    redis_client.expire(complexity_key, CONVERSATION_TIMEOUT)
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
@@ -1480,6 +1506,13 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         return None
     
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
+    # Daftar kata-kata penting yang tidak perlu di-stem
+    important_words = {
+        'lokasi', 'rute', 'jalan', 'dekat', 'terdekat', 'restoran', 'cafe', 'toko',
+        'mall', 'pasar', 'stasiun', 'halte', 'bandara', 'rumah', 'sakit', 'sekolah',
+        'universitas', 'kampus', 'bank', 'atm', 'apotek', 'hotel'
+    }
+    
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
     
@@ -1489,27 +1522,33 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     # Hapus tanda baca dan karakter khusus
     words = [re.sub(r'[^\w\s]', '', word) for word in words]
     
-    # Hapus kata-kata yang terlalu pendek (kurang dari 3 huruf)
-    words = [word for word in words if len(word) >= 3]
+    # Buat bigrams (pasangan kata)
+    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
     
-    # Hapus stop words
-    words = [word for word in words if word not in stop_words]
+    # Hapus kata-kata yang terlalu pendek dan stop words
+    filtered_words = []
+    for word in words:
+        if len(word) >= 3 and word not in stop_words:
+            if word in important_words:
+                filtered_words.append(word)  # Gunakan kata asli jika ada di daftar penting
+            else:
+                filtered_words.append(stemmer.stem(word))  # Stem hanya kata-kata umum
     
-    # Lakukan stemming untuk mengurangi variasi kata menggunakan Sastrawi
-    stemmed_words = [stemmer.stem(word) for word in words]
+    # Gabungkan unigrams dan bigrams
+    all_terms = filtered_words + bigrams
     
-    # Hitung frekuensi kata
-    word_counts = Counter(stemmed_words)
+    # Hitung frekuensi kemunculan
+    term_counts = Counter(all_terms)
     
     # Ambil kata kunci yang paling sering muncul
-    relevant_keywords = [word for word, count in word_counts.most_common(top_n)]
+    relevant_keywords = [term for term, count in term_counts.most_common(top_n)]
     
     # Log untuk debugging
     logger.info(f"Extracted relevant keywords: {relevant_keywords}")
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1532,11 +1571,17 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-async def should_reset_context(chat_id: int, message: str) -> bool:
+async def should_reset_context(chat_id: int, message: str, feature: str = 'chat') -> bool:
+    """
+    Memeriksa apakah konteks perlu direset berdasarkan fitur spesifik
+    """
     try:
-        session_json = redis_client.get(f"session:{chat_id}")
+        # Get session data
+        session_key = f"session:{chat_id}:{feature}"
+        session_json = redis_client.get(session_key)
+        
         if not session_json:
-            logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
+            logger.info(f"Tidak ada sesi {feature} untuk chat_id {chat_id}, reset konteks.")
             return True
 
         session = json.loads(session_json)
@@ -1546,47 +1591,67 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
 
         # Reset jika percakapan sudah timeout
         if time_diff > CONVERSATION_TIMEOUT:
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
-            redis_client.delete(f"session:{chat_id}")
+            logger.info(f"Reset konteks {feature} untuk chat_id {chat_id} karena timeout.")
+            await clear_feature_data(chat_id, feature)
             return True
 
         # Daftar kata kunci yang memicu reset
-        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
+        reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih',
+                         'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
 
-        # Normalisasi pesan untuk pengecekan kata kunci
+        # Normalisasi pesan
         normalized_message = message.lower().strip()
 
-        # Cek apakah pesan mengandung kata kunci reset
+        # Cek kata kunci reset
         if any(keyword in normalized_message for keyword in reset_keywords):
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
-            redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
+            logger.info(f"Reset konteks {feature} karena kata kunci: {message}")
+            await clear_feature_data(chat_id, feature)
             return True
 
-        # Pastikan kunci 'message_counter' ada
-        if 'message_counter' not in session:
-            session['message_counter'] = 0
-
-        # Ambil kompleksitas percakapan
-        complexity = await determine_conversation_complexity(session['messages'], session)
+        # Get message counter and complexity
+        message_counter = int(redis_client.get(f"session:{chat_id}:counter") or '0')
+        complexity = redis_client.get(f"session:{chat_id}:complexity") or 'simple'
         max_messages = get_max_conversation_messages(complexity)
 
-        # Reset jika jumlah pesan melebihi batas
-        if len(session['messages']) > max_messages:
-            logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
+        # Reset jika melebihi batas pesan
+        if message_counter > max_messages:
+            logger.info(f"Reset konteks {feature} karena melebihi batas pesan: {message_counter}")
             return True
 
-        # Cek apakah topik percakapan berubah
-        if session['messages']:
+        # Cek perubahan topik hanya untuk fitur chat
+        if feature == 'chat' and session['messages']:
             last_message = session['messages'][-1]['content']
             if not is_same_topic(last_message, message, session['messages']):
-                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
+                logger.info(f"Reset konteks chat karena perubahan topik.")
                 return True
 
-        logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
+        logger.info(f"Tidak perlu reset konteks {feature} untuk chat_id {chat_id}")
         return False
+
     except redis.RedisError as e:
-        logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
+        logger.error(f"Redis Error saat memeriksa konteks {feature}: {str(e)}")
         return True
+
+async def clear_feature_data(chat_id: int, feature: str):
+    """
+    Membersihkan data terkait fitur tertentu
+    """
+    try:
+        keys_to_delete = [
+            f"session:{chat_id}:{feature}",
+            f"session:{chat_id}:counter",
+            f"session:{chat_id}:complexity"
+        ]
+        
+        if feature == 'location':
+            keys_to_delete.append(f"user:{chat_id}:location")
+        elif feature == 'image':
+            keys_to_delete.append(f"session:{chat_id}:last_image_analysis")
+            
+        redis_client.delete(*keys_to_delete)
+        logger.info(f"Berhasil membersihkan data {feature} untuk chat_id {chat_id}")
+    except redis.RedisError as e:
+        logger.error(f"Gagal membersihkan data {feature}: {str(e)}")
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
