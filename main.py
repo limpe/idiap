@@ -934,6 +934,13 @@ def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str
         chunks.append(chunk_path)
     return chunks
 
+def get_context_window(complexity: str, is_reply: bool = False) -> int:
+    """
+    Tentukan ukuran context window berdasarkan kompleksitas dan status reply
+    """
+    base_window = {"simple": 15, "medium": 30, "complex": 50}[complexity]
+    return base_window * 2 if is_reply else base_window
+
 def get_max_conversation_messages(complexity: str) -> int:
     """
     Mengembalikan batas pesan berdasarkan kompleksitas percakapan.
@@ -1428,7 +1435,7 @@ async def initialize_session(chat_id: int, feature: str = 'chat') -> None:
         # Hapus cache analisis gambar sebelumnya
         redis_client.delete(f"session:{chat_id}:last_image_analysis")
 
-async def update_session(chat_id: int, message: Dict[str, str], feature: str = 'chat') -> None:
+async def update_session(chat_id: int, message: Dict[str, str], feature: str = 'chat', is_reply: bool = False) -> None:
     """
     Update session dengan fitur terpisah untuk berbagai jenis interaksi.
     Features: 'chat', 'image', 'location', 'voice'
@@ -1437,6 +1444,10 @@ async def update_session(chat_id: int, message: Dict[str, str], feature: str = '
     session_key = f"session:{chat_id}:{feature}"
     counter_key = f"session:{chat_id}:counter"
     complexity_key = f"session:{chat_id}:complexity"
+
+    # Tambahkan metadata reply jika ini adalah reply message
+    if is_reply:
+        message['is_reply'] = True
     
     # Ambil sesi yang ada atau buat baru
     session_json = redis_client.get(session_key)
@@ -1548,7 +1559,12 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1, is_reply: bool = False) -> bool:
+    # Jika ini adalah reply, otomatis anggap topik sama
+    if is_reply:
+        logger.info("Reply message terdeteksi, menganggap topik sama")
+        return True
+
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1571,11 +1587,16 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
-async def should_reset_context(chat_id: int, message: str, feature: str = 'chat') -> bool:
+async def should_reset_context(chat_id: int, message: str, feature: str = 'chat', is_reply: bool = False) -> bool:
     """
     Memeriksa apakah konteks perlu direset berdasarkan fitur spesifik
     """
     try:
+        # Jangan reset jika ini adalah reply
+        if is_reply:
+            logger.info(f"Reply message terdeteksi, tidak reset konteks untuk chat_id {chat_id}")
+            return False
+
         # Get session data
         session_key = f"session:{chat_id}:{feature}"
         session_json = redis_client.get(session_key)
@@ -1669,6 +1690,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
+    # Deteksi reply
+    is_reply = bool(update.message.reply_to_message)
+
     # Sanitasi input teks
     sanitized_text = sanitize_input(message_text)
 
@@ -1696,17 +1720,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         replied_message = update.message.reply_to_message.text
         sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
-    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
-    if not is_reply and await should_reset_context(chat_id, sanitized_text):
+    # Reset konteks jika diperlukan dengan parameter is_reply
+    if await should_reset_context(chat_id, sanitized_text, is_reply=is_reply):
         await initialize_session(chat_id)
         session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-    # Tambahkan pesan pengguna ke sesi
+    # Tambahkan pesan pengguna ke sesi dengan flag is_reply
     session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+    await update_session(chat_id, {"role": "user", "content": sanitized_text}, is_reply=is_reply)
 
-    # Proses pesan dengan konteks cerdas
-    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+    # Gunakan context window yang diperbesar untuk reply
+    context_window = get_context_window(session.get('complexity', 'medium'), is_reply)  # Double window untuk reply
     response = await process_with_smart_context(session['messages'][-context_window:])
     
     if response:
