@@ -21,7 +21,7 @@ from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
 from typing import Optional, List, Dict
-from telegram import Update, InputFile, Message
+from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pydub import AudioSegment
 from langdetect import detect
@@ -101,7 +101,7 @@ def sanitize_input(text: str) -> str:
 
 
 
-# Environment variables and configuration
+# Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
@@ -109,14 +109,8 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', GOOGLE_API_KEY)  # Use GOOGLE_API_KEY as fallback
-
-# Configure Gemini once
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
-else:
-    logger.error("GEMINI_API_KEY tidak ditemukan")
+genai.configure(api_key=GOOGLE_API_KEY)
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -124,8 +118,8 @@ SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
-CONVERSATION_TTL = CONVERSATION_TIMEOUT  # TTL untuk sesi Redis sama dengan timeout percakapan
 MAX_CONCURRENT_SESSIONS = 1000
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
@@ -1228,112 +1222,91 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             "\nSilakan coba lagi nanti."
         )
         
-async def build_context_prompt(session: Dict) -> str:
-    """
-    Membangun prompt dengan konteks dari sesi.
-    """
-    context_parts = []
-    
-    # Tambahkan koreksi sebelumnya jika ada
-    if session.get('context', {}).get('corrections'):
-        corrections = session['context']['corrections']
-        if corrections:
-            context_parts.append("Koreksi sebelumnya:")
-            for text, correction in corrections.items():
-                context_parts.append(f"- {text}")
-    
-    # Tambahkan riwayat analisis gambar jika ada
-    if session.get('context', {}).get('image_history'):
-        recent_images = session['context']['image_history'][-3:]  # Ambil 3 analisis terakhir
-        if recent_images:
-            context_parts.append("\nAnalisis gambar sebelumnya:")
-            for img in recent_images:
-                context_parts.append(f"- {img.get('analysis', '')[:100]}...")  # Batasi panjang
-    
-    # Tambahkan informasi kompleksitas percakapan
-    complexity = session.get('complexity', 'simple')
-    context_parts.append(f"\nKompleksitas percakapan: {complexity}")
-    
-    return "\n".join(context_parts) if context_parts else "Tidak ada konteks sebelumnya."
-
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        chat_id = update.message.chat_id
-        chat_type = update.message.chat.type
-        caption = update.message.caption or ""
-        user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+    caption = update.message.caption or ""
 
-        # Check rate limit
-        if not await check_rate_limit(user_id):
-            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-            return
+    # Check rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
 
-        # Check for group mentions
-        if chat_type in ["group", "supergroup"] and f"@{context.bot.username}" not in caption:
+    # Periksa apakah ini di grup
+    if chat_type in ["group", "supergroup"]:
+        if f"@{context.bot.username}" not in caption:
             logger.info("Gambar di grup diabaikan karena tidak ada mention.")
-            return
+            return  # Abaikan jika tidak ada mention di grup
 
-        # Get or initialize session
+    try:
+        # Periksa apakah sesi sudah ada di Redis
         if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
-        session = await get_session(chat_id)
+
+        # Ambil sesi dari Redis
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
+        logger.info(f"Sesi saat ini: {session}")
         
-        # Update statistics
+        # Update statistik
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
 
-        # Show processing message
+        # Kirim pesan "Sedang menganalisa gambar..."
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
 
-        try:
-            # Get and process image
-            photo_file = await update.message.photo[-1].get_file()
+        # Ambil file gambar
+        photo_file = await update.message.photo[-1].get_file()
+
+        # Proses gambar menggunakan BytesIO
+        with BytesIO() as temp_file:
             photo_bytes = await photo_file.download_as_bytearray()
-            
-            with BytesIO(photo_bytes) as image_data:
-                # Build context-aware prompt
-                context_prompt = await build_context_prompt(session)
-                user_prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
-                
-                if user_prompt:
-                    full_prompt = f"{context_prompt}\n\nPertanyaan Pengguna: {user_prompt}\n\nAnalisis gambar dalam Bahasa Indonesia."
-                else:
-                    full_prompt = f"{context_prompt}\n\nBerikan analisis detail gambar dalam Bahasa Indonesia."
+            temp_file.write(photo_bytes)
+            temp_file.seek(0)
 
-                # Process with Gemini
-                response = await process_image_with_gemini(image_data, full_prompt)
-                
-                if response:
-                    # Update image history
-                    session['context']['image_history'].append({
-                        'timestamp': datetime.now().isoformat(),
-                        'prompt': user_prompt,
-                        'analysis': response
-                    })
-                    
-                    # Filter and split response
-                    filtered_response = await filter_text(response)
-                    result_parts = split_message(filtered_response)
-                    
-                    for part in result_parts:
-                        await update.message.reply_text(part)
-                    
-                    # Update session
-                    session_update = {
-                        "role": "assistant",
-                        "content": filtered_response,
-                        "type": "image_analysis"
-                    }
-                    await update_session(chat_id, session_update)
-                else:
-                    await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+            # Siapkan prompt berdasarkan caption
+            prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
-        finally:
-            if processing_msg:
-                await processing_msg.delete()
+            # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
+            if not prompt:
+                prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesiadan termasuk penjelasan yang komprehensif."
+                logger.info(f"Prompt yang digunakan: {prompt}")
+            else:
+                # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
+                prompt += " jawab dalam Bahasa Indonesia."
+
+            # Proses gambar dengan Gemini
+            gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
+
+            if gemini_result:
+                # Filter hasil analisis
+                filtered_result = await filter_text(gemini_result)
+
+                # Pecah hasil analisis jika terlalu panjang
+                result_parts = split_message(filtered_result)
+                for part in result_parts:
+                    await update.message.reply_text(f"Analisa:\n{part}")
+
+                # Simpan hasil analisis ke sesi
+                session['messages'].append({
+                    "role": "user",
+                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
+                })
+                session['messages'].append({
+                    "role": "assistant",
+                    "content": filtered_result
+                })
+                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
+                await update_session(chat_id, {"role": "assistant", "content": filtered_result})
+            else:
+                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
+
+        # Hapus pesan "Sedang menganalisa..."
+        await processing_msg.delete()
 
     except Exception as e:
-        logger.exception("Error dalam proses analisis gambar")
+        # Tangani error
+        logger.exception("Error dalam proses analisis gambar dengan Gemini")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1378,12 +1351,9 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Handle replies
-            if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-                # Ambil seluruh konteks percakapan yang direply
-                replied_context = get_replied_context(update.message.reply_to_message)
-                context_messages = replied_context + session['messages'][-5:]  # Gabungkan dengan 5 pesan terakhir
-                session['messages'] = context_messages  # Update session dengan konteks gabungan
+            # Tambahkan konteks dari pesan yang direply jika ada
+            if replied_message:
+                sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
             # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
@@ -1411,126 +1381,45 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
-    """
-    Inisialisasi session baru dengan struktur lengkap.
-    Memastikan semua field yang diperlukan tersedia dan proper error handling.
-    Args:
-        chat_id: ID chat dari pengguna
-    Raises:
-        ValueError: Jika validasi field gagal
-        RedisError: Jika ada masalah dengan Redis
-    """
-    try:
-        if not redis_client:
-            raise redis.RedisError("Redis client tidak tersedia")
-
-        session = {
-            'messages': [],
-            'context': {
-                'corrections': {},
-                'image_history': [],
-                'last_interaction': datetime.now().isoformat()
-            },
-            'settings': {
-                'complexity': 'medium',
-                'preferred_language': 'id'
-            },
-            'message_counter': 0,
-            'last_update': datetime.now().timestamp(),
-            'conversation_id': str(uuid.uuid4()),
-            'complexity': 'simple'
-        }
-
-        # Validasi struktur session
-        required_fields = ['messages', 'context', 'settings', 'message_counter']
-        required_context_fields = ['corrections', 'image_history', 'last_interaction']
-        
-        if not all(field in session for field in required_fields):
-            error_msg = "Gagal inisialisasi session: missing required fields"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-            
-        if not all(field in session['context'] for field in required_context_fields):
-            error_msg = "Gagal inisialisasi session: missing required context fields"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        # Simpan ke Redis dengan proper error handling
-        try:
-            redis_client.setex(
-                f"session:{chat_id}",
-                CONVERSATION_TTL,
-                json.dumps(session)
-            )
-            logger.info(f"Sesi berhasil diinisialisasi untuk chat_id {chat_id}")
-        except redis.RedisError as re:
-            logger.error(f"Redis error saat menyimpan session: {str(re)}")
-            raise
-
-    except redis.RedisError as e:
-        logger.error(f"Redis error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
-        raise
-    except ValueError as e:
-        logger.error(f"Validasi error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Error tidak terduga saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
-        raise
+    session = {
+        'messages': [],  # Riwayat pesan
+        'message_counter': 0,  # Counter pesan
+        'last_update': datetime.now().timestamp(),
+        'conversation_id': str(uuid.uuid4()),
+        'complexity': 'simple'  # Kompleksitas percakapan
+    }
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    """
-    Update session dengan memastikan struktur data tetap konsisten.
-    Args:
-        chat_id: ID chat dari pengguna
-        message: Pesan baru untuk ditambahkan ke session
-    """
-    try:
-        # Get existing session or create new one
-        session_json = redis_client.get(f"session:{chat_id}")
-        if session_json:
-            session = json.loads(session_json)
-        else:
-            await initialize_session(chat_id)
-            session = json.loads(redis_client.get(f"session:{chat_id}"))
+    session_json = redis_client.get(f"session:{chat_id}")
+    if session_json:
+        session = json.loads(session_json)
+    else:
+        # Jika sesi tidak ada, inisialisasi sesi baru
+        session = {
+            'messages': [],  # Riwayat pesan
+            'message_counter': 0,  # Counter pesan
+            'last_update': datetime.now().timestamp(),
+            'complexity': 'simple'  # Kompleksitas percakapan
+        }
 
-        # Ensure required structure exists
-        if 'context' not in session:
-            session['context'] = {
-                'corrections': {},
-                'image_history': [],
-                'last_interaction': datetime.now().isoformat()
-            }
-        if 'message_counter' not in session:
-            session['message_counter'] = 0
+    # Pastikan kunci 'message_counter' ada
+    if 'message_counter' not in session:
+        session['message_counter'] = 0
 
-        # Handle message counters and complexity
-        previous_complexity = session.get('complexity', 'simple')
-        new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-        session['complexity'] = new_complexity
+    # Simpan kompleksitas sebelumnya
+    previous_complexity = session.get('complexity', 'simple')
 
-        if new_complexity == "simple" and previous_complexity == "medium":
-            logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-            session['message_counter'] = 0
+    # Tentukan kompleksitas baru
+    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
+    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
-        session['message_counter'] += 1
-        session['messages'].append(message)
-        session['last_update'] = datetime.now().timestamp()
-
-        # Save updated session
-        redis_client.set(f"session:{chat_id}", json.dumps(session))
-        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-
-        logger.info(f"Session berhasil diupdate untuk chat_id {chat_id}")
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Error decoding session JSON untuk chat_id {chat_id}: {str(e)}")
-        await initialize_session(chat_id)
-    except redis.RedisError as e:
-        logger.error(f"Redis error saat update session untuk chat_id {chat_id}: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Error tidak terduga saat update session untuk chat_id {chat_id}: {str(e)}")
-        raise
+    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
+    if new_complexity == "simple" and previous_complexity == "medium":
+        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
+        session['message_counter'] = 0  # Reset counter pesan
 
     # Update counter pesan
     session['message_counter'] += 1
@@ -1562,13 +1451,21 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             logger.warning("Gemini timeout, beralih ke Mistral.")
         
         # Jika Gemini gagal, coba Mistral
+        try:
+            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
+            if response:
+                logger.info("Menggunakan respons dari Mistral.")
+                return response
+        except asyncio.TimeoutError:
+            logger.error("Mistral timeout.")
+        
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
     
-def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 7) -> List[str]:
+def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
     
@@ -1590,93 +1487,36 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 7) ->
     # Hitung frekuensi kata
     word_counts = Counter(stemmed_words)
     
-    # Hitung bigrams
-    bigrams = zip(words, words[1:])
-    bigram_counts = Counter([" ".join(bigram) for bigram in bigrams])
-    
-    # Gabungkan single word dan bigram
-    combined_counts = word_counts + bigram_counts
-    
     # Ambil kata kunci yang paling sering muncul
-    relevant_keywords = [item[0] for item in combined_counts.most_common(top_n)]
+    relevant_keywords = [word for word, count in word_counts.most_common(top_n)]
     
     # Log untuk debugging
     logger.info(f"Extracted relevant keywords: {relevant_keywords}")
     
     return relevant_keywords
 
-async def get_replied_context(replied_message: Message) -> List[Dict]:
-    # Cari sesi dari pesan yang direply
-    try:
-        session = redis_client.get(f"session:{replied_message.chat.id}")
-        if session:
-            return json.loads(session).get('messages', [])
-        return []
-    except Exception as e:
-        logger.error(f"Error getting replied context: {e}")
-        return []
-
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 3) -> bool:
-    # Ekstrak kata kunci relevan dari seluruh konteks percakapan
-    relevant_keywords = extract_relevant_keywords(context_messages[-10:])  # Ambil 10 pesan terakhir
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
+    # Ekstrak kata kunci relevan dari konteks percakapan
+    relevant_keywords = extract_relevant_keywords(context_messages)
     
     # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
-    last_message_keywords = extract_relevant_keywords([{"content": last_message}])
-    current_message_keywords = extract_relevant_keywords([{"content": current_message}])
+    last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
+    current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
 
-    # Temukan kata kunci yang sama antara konteks dan pesan saat ini
-    common_with_context = set(relevant_keywords) & set(current_message_keywords)
-    common_between_messages = set(last_message_keywords) & set(current_message_keywords)
+    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
+    common_keywords = set(last_keywords) & set(current_keywords)
     
     # Log untuk debugging
-    logger.info(f"Context keywords: {relevant_keywords}")
-    logger.info(f"Last message keywords: {last_message_keywords}")
-    logger.info(f"Current message keywords: {current_message_keywords}")
-    logger.info(f"Common keywords with context: {common_with_context}")
-    logger.info(f"Common keywords between messages: {common_between_messages}")
+    logger.info(f"Last keywords: {last_keywords}")
+    logger.info(f"Current keywords: {current_keywords}")
+    logger.info(f"Common keywords: {common_keywords}")
     
-    # Kembalikan True jika ada cukup kata kunci yang cocok dengan konteks atau pesan sebelumnya
-    return len(common_with_context) >= threshold or len(common_between_messages) >= threshold
+    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
+    return len(common_keywords) >= threshold
 
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
-
-async def get_session(chat_id: int) -> Dict:
-    """
-    Mengambil session dari Redis untuk chat_id tertentu.
-    Jika session tidak ada atau tidak lengkap, inisialisasi session baru.
-    """
-    try:
-        session_json = redis_client.get(f"session:{chat_id}")
-        if session_json:
-            session = json.loads(session_json)
-            # Verifikasi struktur session
-            if not all(key in session for key in ['messages', 'context', 'settings', 'message_counter']):
-                logger.info(f"Session struktur tidak lengkap untuk chat_id {chat_id}, menginisialisasi ulang")
-                await initialize_session(chat_id)
-                return json.loads(redis_client.get(f"session:{chat_id}"))
-            
-            # Pastikan struktur dalam context lengkap
-            if 'context' not in session:
-                session['context'] = {}
-            if 'corrections' not in session['context']:
-                session['context']['corrections'] = {}
-            if 'image_history' not in session['context']:
-                session['context']['image_history'] = []
-            if 'last_interaction' not in session['context']:
-                session['context']['last_interaction'] = datetime.now().isoformat()
-            
-            # Update session jika ada perubahan
-            redis_client.set(f"session:{chat_id}", json.dumps(session))
-            return session
-        else:
-            await initialize_session(chat_id)
-            return json.loads(redis_client.get(f"session:{chat_id}"))
-    except Exception as e:
-        logger.error(f"Error getting session for chat_id {chat_id}: {str(e)}")
-        await initialize_session(chat_id)
-        return json.loads(redis_client.get(f"session:{chat_id}"))
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
@@ -1721,17 +1561,12 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Kurangi sensitivity untuk kata kunci reset
-        reset_keywords = ['reset', 'clear', 'mulai baru']
-
-        # Evaluasi perubahan topik dengan lebih ketat
+        # Cek apakah topik percakapan berubah
         if session['messages']:
-            if len(session['messages']) > 3:  # Cek hanya setelah ada beberapa pesan
-                last_message = session['messages'][-1]['content']
-                # Naikkan threshold perubahan topik dengan context window yang lebih besar
-                if not is_same_topic(last_message, message, session['messages'][-3:]):
-                    logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik signifikan")
-                    return True
+            last_message = session['messages'][-1]['content']
+            if not is_same_topic(last_message, message, session['messages']):
+                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
+                return True
 
         logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
@@ -1751,93 +1586,65 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
 
 
-async def detect_correction(text: str) -> Tuple[bool, Optional[str]]:
-    """
-    Mendeteksi apakah pesan merupakan koreksi dari pengguna.
-    Returns:
-        Tuple[bool, Optional[str]]: (is_correction, correction_text)
-    """
-    correction_keywords = ['koreksi', 'perbaiki', 'salah', 'benar', 'seharusnya', 'maksudnya']
-    text_lower = text.lower()
-    
-    is_correction = any(keyword in text_lower for keyword in correction_keywords)
-    if is_correction:
-        # Ekstrak teks koreksi setelah keyword
-        for keyword in correction_keywords:
-            if keyword in text_lower:
-                correction_text = text[text_lower.find(keyword) + len(keyword):].strip()
-                if correction_text:
-                    return True, correction_text
-    return False, None
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    try:
-        if not message_text:
-            message_text = update.message.text or ""
+    if not message_text:
+        message_text = update.message.text or ""
 
-        # Sanitasi input teks
-        sanitized_text = sanitize_input(message_text)
+    # Sanitasi input teks
+    sanitized_text = sanitize_input(message_text)
 
-        # Periksa rate limit
-        user_id = update.message.from_user.id
-        if not await check_rate_limit(user_id):
-            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-            return
+    # Periksa rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
 
-        # Get or initialize session
-        chat_id = update.message.chat_id
-        if not redis_client.exists(f"session:{chat_id}"):
-            await initialize_session(chat_id)
-        session = await get_session(chat_id)
+    # Ambil atau inisialisasi sesi
+    chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+    is_reply = bool(update.message.reply_to_message)
+    replied_message = None
 
-        # Check for corrections
-        is_correction, correction_text = await detect_correction(sanitized_text)
-        if is_correction and correction_text:
-            session['context']['corrections'][correction_text] = {
-                'timestamp': datetime.now().isoformat(),
-                'original_text': message_text
-            }
-            await update_session(chat_id, session)
-            await update.message.reply_text(f"✅ Saya telah mencatat koreksi: {correction_text}")
-            return
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    else:
+        session = json.loads(session_json)
 
-        # Handle replies
-        is_reply = bool(update.message.reply_to_message)
-        if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-            replied_context = await get_replied_context(update.message.reply_to_message)
-            context_messages = replied_context + session['messages'][-5:]
-            session['messages'] = context_messages
+    # Handle replies khusus untuk private chat
+    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+        replied_message = update.message.reply_to_message.text
+        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
-        # Build context-aware prompt
-        context_prompt = await build_context_prompt(session)
-        full_prompt = f"{context_prompt}\n\nPesan Pengguna: {sanitized_text}"
+    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
+    if not is_reply and await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-        # Process with smart context
-        context_window = 20 if is_reply else 10
-        response = await process_with_smart_context(session['messages'][-context_window:])
+    # Tambahkan pesan pengguna ke sesi
+    session['messages'].append({"role": "user", "content": sanitized_text})
+    await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-        if response:
-            # Filter and process response
-            filtered_response = await filter_text(response)
-            response_parts = split_message(filtered_response)
+    # Proses pesan dengan konteks cerdas
+    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+    response = await process_with_smart_context(session['messages'][-context_window:])
+    
+    if response:
+        # Filter respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)
 
-            # Update session with new messages
-            session_update = {
-                "role": "assistant",
-                "content": filtered_response,
-                "timestamp": datetime.now().isoformat()
-            }
-            await update_session(chat_id, session_update)
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-            # Send response parts
-            for part in response_parts:
-                await update.message.reply_text(part)
-        else:
-            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-
-    except Exception as e:
-        logger.exception("Error dalam handle_text")
-        await update.message.reply_text("Terjadi kesalahan dalam memproses pesan Anda.")
+        # Kirim respons ke pengguna
+        response_parts = split_message(filtered_response)
+        for part in response_parts:
+            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
         
 def main():
     if not check_required_settings():
