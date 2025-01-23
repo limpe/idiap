@@ -1767,25 +1767,32 @@ async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TY
         user_id = update.message.from_user.id
         user_msg = update.message.text
         
-        # Ambil lokasi dengan pengecekan format
+        # Ambil dan validasi lokasi
         location = redis_client.get(f"user:{user_id}:location")
-        if not location or ',' not in location:
+        if not location:
+            await update.message.reply_text(
+                "📍 Lokasi Anda belum tersedia. Silakan kirim lokasi Anda terlebih dahulu."
+            )
+            return
+        
+        if ',' not in location:
             logger.error(f"Format lokasi tidak valid: {location}")
-            await update.message.reply_text("📍 Lokasi tidak valid. Silakan kirim ulang lokasi Anda.")
+            await update.message.reply_text("❌ Format lokasi tidak valid. Silakan kirim ulang lokasi Anda.")
             return
 
         # Logging untuk debugging
         logger.info(f"Memproses permintaan: {user_msg} dengan lokasi: {location}")
         
-        # Perbaikan prompt Gemini
-        prompt = f"""Format respons HARUS: jenis|parameter
+        # Prompt Gemini yang lebih spesifik
+        prompt = f"""
+TUGAS: Ekstrak jenis permintaan dan parameter dari pertanyaan pengguna.
+Format respons HARUS: jenis|parameter
+
 Contoh:
-- "Restoran terdekat" → tempat|restoran
-- "Rute ke Monas" → rute|Monas
+- "Restoran seafood terdekat" → tempat|restoran seafood
 - "ATM terdekat" → tempat|atm
 
-Pertanyaan pengguna: {user_msg}
-Lokasi saat ini: {location}
+Pertanyaan: {user_msg}
 """
         try:
             gemini_response = gemini_model.generate_content(prompt)
@@ -1869,103 +1876,25 @@ Lokasi saat ini: {location}
         logger.exception(f"Error fatal di handle_location_query: {str(e)}")
         await update.message.reply_text("🔥 Terjadi kesalahan sistem. Silakan coba lagi nanti.")
 
-async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle lokasi dan pertanyaan navigasi dari pengguna"""
-    try:
-        # Pastikan Google Maps API Key tersedia
-        if not GOOGLE_MAPS_API_KEY:
-            await update.message.reply_text("❌ Layanan lokasi belum aktif. Mohon hubungi admin.")
-            return
-
-        user_id = update.message.from_user.id
-        user_msg = update.message.text
-        
-        # Ambil lokasi yang disimpan
-        location = redis_client.get(f"user:{user_id}:location")
-        if not location:
-            await update.message.reply_text("Silakan kirim lokasi Anda terlebih dahulu atau ketik lokasi awalnya.")
-            return
-
-        # Proses dengan Gemini untuk ekstraksi parameter
-        prompt = f"""
-ANALISIS PERMINTAAN LOKASI
-Pertanyaan pengguna: {user_msg}
-Lokasi tersimpan: {location}
-
-TUGAS:
-1. Identifikasi jenis permintaan (tempat/rute)
-2. Ekstrak parameter utama
-3. Gunakan format: jenis|parameter
-
-CONTOH:
-- "Restoran terdekat" → tempat|restoran
-- "Rute ke Monas" → rute|Monas
-- "ATM terdekat" → tempat|atm
-"""
-        
-        gemini_response = gemini_model.generate_content(prompt)
-        response_text = gemini_response.text.strip().lower()
-        
-        if "|" not in response_text:
-            await update.message.reply_text("Maaf, saya tidak mengerti pertanyaan Anda tentang lokasi.")
-            return
-            
-        request_type, param = response_text.split("|")
-        
-        if request_type == "tempat":
-            # Cari tempat terdekat
-            places = await search_places(location, param)
-            if places:
-                response = "📍 Hasil pencarian:\n" + "\n".join(
-                    [f"- {place['name']} ({place.get('rating', '?')}⭐) - {place['vicinity']}"
-                     for place in places]
-                )
-                await update.message.reply_text(response)
-                
-                # Kirim peta statis
-                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?center={location}&zoom=15&size=600x300&markers=color:red%7C{location}&key={GOOGLE_MAPS_API_KEY}"
-                await update.message.reply_photo(static_map_url)
-            else:
-                await update.message.reply_text("Tidak ditemukan tempat yang sesuai.")
-                
-        elif request_type == "rute":
-            # Dapatkan petunjuk arah
-            directions = await get_directions(location, param)
-            if directions:
-                first_route = directions[0]['legs'][0]
-                distance = first_route['distance']['text']
-                duration = first_route['duration']['text']
-                steps = "\n".join(
-                    [f"{i+1}. {step['html_instructions']}"
-                     for i, step in enumerate(first_route['steps'][:5])]  # Ambil 5 langkah pertama
-                )
-                
-                await update.message.reply_text(
-                    f"🗺️ Rute ke {param}:\n"
-                    f"Jarak: {distance}\n"
-                    f"Durasi: {duration}\n\n"
-                    f"Petunjuk:\n{steps}"
-                )
-                
-                # Kirim peta rute
-                static_map_url = f"https://maps.googleapis.com/maps/api/staticmap?path=enc:{directions[0]['overview_polyline']['points']}&size=600x300&key={GOOGLE_MAPS_API_KEY}"
-                await update.message.reply_photo(static_map_url)
-            else:
-                await update.message.reply_text("Gagal mendapatkan petunjuk arah.")
-                
-    except Exception as e:
-        logger.error(f"Location query error: {e}")
-        await update.message.reply_text("Terjadi kesalahan saat memproses permintaan lokasi.")
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk lokasi pengguna"""
+    """Handler untuk menyimpan lokasi pengguna"""
     try:
         user_location = update.message.location
         lat, lng = user_location.latitude, user_location.longitude
         
-        # Simpan lokasi ke Redis
+        # Validasi koordinat
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            logger.error(f"Koordinat tidak valid: lat={lat}, lng={lng}")
+            await update.message.reply_text("❌ Koordinat lokasi tidak valid. Silakan coba lagi.")
+            return
+
+        # Simpan lokasi ke Redis dengan TTL 24 jam
         user_id = update.message.from_user.id
-        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}")
+        location_str = f"{lat},{lng}"
+        redis_client.set(f"user:{user_id}:location", location_str, ex=86400)  # TTL 24 jam
+        
+        logger.info(f"Lokasi tersimpan untuk user {user_id}: {location_str}")
         
         await update.message.reply_text(
             "📍 Lokasi Anda berhasil disimpan!\n"
