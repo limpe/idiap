@@ -1227,6 +1227,34 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             "\nSilakan coba lagi nanti."
         )
         
+async def build_context_prompt(session: Dict) -> str:
+    """
+    Membangun prompt dengan konteks dari sesi.
+    """
+    context_parts = []
+    
+    # Tambahkan koreksi sebelumnya jika ada
+    if session.get('context', {}).get('corrections'):
+        corrections = session['context']['corrections']
+        if corrections:
+            context_parts.append("Koreksi sebelumnya:")
+            for text, correction in corrections.items():
+                context_parts.append(f"- {text}")
+    
+    # Tambahkan riwayat analisis gambar jika ada
+    if session.get('context', {}).get('image_history'):
+        recent_images = session['context']['image_history'][-3:]  # Ambil 3 analisis terakhir
+        if recent_images:
+            context_parts.append("\nAnalisis gambar sebelumnya:")
+            for img in recent_images:
+                context_parts.append(f"- {img.get('analysis', '')[:100]}...")  # Batasi panjang
+    
+    # Tambahkan informasi kompleksitas percakapan
+    complexity = session.get('complexity', 'simple')
+    context_parts.append(f"\nKompleksitas percakapan: {complexity}")
+    
+    return "\n".join(context_parts) if context_parts else "Tidak ada konteks sebelumnya."
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_id = update.message.chat_id
@@ -1629,6 +1657,25 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
 
+
+async def detect_correction(text: str) -> Tuple[bool, Optional[str]]:
+    """
+    Mendeteksi apakah pesan merupakan koreksi dari pengguna.
+    Returns:
+        Tuple[bool, Optional[str]]: (is_correction, correction_text)
+    """
+    correction_keywords = ['koreksi', 'perbaiki', 'salah', 'benar', 'seharusnya', 'maksudnya']
+    text_lower = text.lower()
+    
+    is_correction = any(keyword in text_lower for keyword in correction_keywords)
+    if is_correction:
+        # Ekstrak teks koreksi setelah keyword
+        for keyword in correction_keywords:
+            if keyword in text_lower:
+                correction_text = text[text_lower.find(keyword) + len(keyword):].strip()
+                if correction_text:
+                    return True, correction_text
+    return False, None
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     try:
