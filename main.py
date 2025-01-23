@@ -1756,7 +1756,13 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Gagal menyimpan lokasi. Silakan coba lagi.")
 
 async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle lokasi dan pertanyaan navigasi dari pengguna"""
     try:
+        # Pastikan Google Maps API Key tersedia
+        if not GOOGLE_MAPS_API_KEY:
+            await update.message.reply_text("❌ Layanan lokasi belum aktif. Mohon hubungi admin.")
+            return
+
         user_id = update.message.from_user.id
         user_msg = update.message.text
         
@@ -1768,19 +1774,20 @@ async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Proses dengan Gemini untuk ekstraksi parameter
         prompt = f"""
-        User bertanya: {user_msg}
-        Lokasi saat ini: {location}
+ANALISIS PERMINTAAN LOKASI
+Pertanyaan pengguna: {user_msg}
+Lokasi tersimpan: {location}
 
-        Tugas:
-        1. Identifikasi jenis permintaan (tempat/rute)
-        2. Ekstrak parameter utama
+TUGAS:
+1. Identifikasi jenis permintaan (tempat/rute)
+2. Ekstrak parameter utama
+3. Gunakan format: jenis|parameter
 
-        Format respons HARUS: jenis|parameter
-
-        Contoh:
-        - "Restoran terdekat" → tempat|restoran
-        - "Rute ke Monas" → rute|Monas
-        """
+CONTOH:
+- "Restoran terdekat" → tempat|restoran
+- "Rute ke Monas" → rute|Monas
+- "ATM terdekat" → tempat|atm
+"""
         
         gemini_response = gemini_model.generate_content(prompt)
         response_text = gemini_response.text.strip().lower()
@@ -1837,7 +1844,13 @@ async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Terjadi kesalahan saat memproses permintaan lokasi.")
 
 async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle lokasi dan pertanyaan navigasi dari pengguna"""
     try:
+        # Pastikan Google Maps API Key tersedia
+        if not GOOGLE_MAPS_API_KEY:
+            await update.message.reply_text("❌ Layanan lokasi belum aktif. Mohon hubungi admin.")
+            return
+
         user_id = update.message.from_user.id
         user_msg = update.message.text
         
@@ -1849,14 +1862,20 @@ async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Proses dengan Gemini untuk ekstraksi parameter
         prompt = f"""
-        User bertanya: {user_msg}
-        Lokasi saat ini: {location}
-        Tugas:
-        1. Identifikasi jenis permintaan (tempat, rute, info)
-        2. Ekstrak parameter utama (jenis tempat, tujuan, dll)
-        Format respons: jenis|parameter
-        Contoh: tempat|restoran atau rute|Monas
-        """
+ANALISIS PERMINTAAN LOKASI
+Pertanyaan pengguna: {user_msg}
+Lokasi tersimpan: {location}
+
+TUGAS:
+1. Identifikasi jenis permintaan (tempat/rute)
+2. Ekstrak parameter utama
+3. Gunakan format: jenis|parameter
+
+CONTOH:
+- "Restoran terdekat" → tempat|restoran
+- "Rute ke Monas" → rute|Monas
+- "ATM terdekat" → tempat|atm
+"""
         
         gemini_response = gemini_model.generate_content(prompt)
         response_text = gemini_response.text.strip().lower()
