@@ -1505,12 +1505,16 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 7) ->
     
     return relevant_keywords
 
-def get_replied_context(replied_message: Message) -> List[Dict]:
+async def get_replied_context(replied_message: Message) -> List[Dict]:
     # Cari sesi dari pesan yang direply
-    session = redis_client.get(f"session:{replied_message.chat.id}")
-    if session:
-        return json.loads(session).get('messages', [])
-    return []
+    try:
+        session = redis_client.get(f"session:{replied_message.chat.id}")
+        if session:
+            return json.loads(session).get('messages', [])
+        return []
+    except Exception as e:
+        logger.error(f"Error getting replied context: {e}")
+        return []
 
 def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 3) -> bool:
     # Ekstrak kata kunci relevan dari seluruh konteks percakapan
