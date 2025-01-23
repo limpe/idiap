@@ -1354,7 +1354,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Handle replies
             if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
                 # Ambil seluruh konteks percakapan yang direply
-                replied_context = await get_replied_context(update.message.reply_to_message)
+                replied_context = get_replied_context(update.message.reply_to_message)
                 context_messages = replied_context + session['messages'][-5:]  # Gabungkan dengan 5 pesan terakhir
                 session['messages'] = context_messages  # Update session dengan konteks gabungan
 
