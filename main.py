@@ -21,7 +21,7 @@ from deep_translator import GoogleTranslator
 from keywords import complex_keywords
 from collections import Counter
 from typing import Optional, List, Dict
-from telegram import Update, InputFile
+from telegram import Update, InputFile, Message
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pydub import AudioSegment
 from langdetect import detect
@@ -1507,7 +1507,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 7) ->
 
 def get_replied_context(replied_message: Message) -> List[Dict]:
     # Cari sesi dari pesan yang direply
-    session = redis_client.get(f"session:{replied_message.chat_id}")
+    session = redis_client.get(f"session:{replied_message.chat.id}")
     if session:
         return json.loads(session).get('messages', [])
     return []
