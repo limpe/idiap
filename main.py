@@ -101,7 +101,7 @@ def sanitize_input(text: str) -> str:
 
 
 
-# Environment variables
+# Environment variables and configuration
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
@@ -109,8 +109,14 @@ TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', GOOGLE_API_KEY)  # Use GOOGLE_API_KEY as fallback
+
+# Configure Gemini once
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+else:
+    logger.error("GEMINI_API_KEY tidak ditemukan")
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -119,7 +125,6 @@ MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
@@ -1534,6 +1539,23 @@ def is_same_topic(last_message: str, current_message: str, context_messages: Lis
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
+
+async def get_session(chat_id: int) -> Dict:
+    """
+    Mengambil session dari Redis untuk chat_id tertentu.
+    Jika session tidak ada, inisialisasi session baru.
+    """
+    try:
+        session_json = redis_client.get(f"session:{chat_id}")
+        if session_json:
+            return json.loads(session_json)
+        else:
+            await initialize_session(chat_id)
+            return json.loads(redis_client.get(f"session:{chat_id}"))
+    except Exception as e:
+        logger.error(f"Error getting session for chat_id {chat_id}: {str(e)}")
+        await initialize_session(chat_id)
+        return json.loads(redis_client.get(f"session:{chat_id}"))
 
 async def should_reset_context(chat_id: int, message: str) -> bool:
     try:
