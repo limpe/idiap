@@ -1694,6 +1694,37 @@ def main():
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
         
+async def search_places(location: str, query: str) -> list:
+    """Cari tempat menggunakan Google Places API"""
+    try:
+        lat, lng = map(float, location.split(","))
+        places_result = gmaps.places_nearby(
+            location=(lat, lng),
+            radius=5000,  # 5km
+            keyword=query,
+            language="id",
+            type="restaurant|atm|cafe"  # Sesuaikan dengan kebutuhan
+        )
+        return places_result.get("results", [])[:5]  # Ambil 5 hasil pertama
+    except Exception as e:
+        logger.error(f"Google Places API error: {e}")
+        return []
+
+async def get_directions(origin: str, destination: str) -> list:
+    """Dapatkan petunjuk arah menggunakan Google Directions API"""
+    try:
+        directions_result = gmaps.directions(
+            origin=origin,
+            destination=destination,
+            mode="driving",  # atau "walking", "transit", dll.
+            language="id",
+            alternatives=True
+        )
+        return directions_result
+    except Exception as e:
+        logger.error(f"Google Directions API error: {e}")
+        return []
+
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk lokasi pengguna"""
     try:
@@ -1702,7 +1733,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Simpan lokasi ke Redis
         user_id = update.message.from_user.id
-        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}")
+        redis_client.set(f"user:{user_id}:location", f"{lat},{lng}", ex=86400)  # TTL 24 jam
         
         await update.message.reply_text(
             "📍 Lokasi Anda berhasil disimpan!\n"
@@ -1730,11 +1761,16 @@ async def handle_location_query(update: Update, context: ContextTypes.DEFAULT_TY
         prompt = f"""
         User bertanya: {user_msg}
         Lokasi saat ini: {location}
+
         Tugas:
-        1. Identifikasi jenis permintaan (tempat, rute, info)
-        2. Ekstrak parameter utama (jenis tempat, tujuan, dll)
-        Format respons: jenis|parameter
-        Contoh: tempat|restoran atau rute|Monas
+        1. Identifikasi jenis permintaan (tempat/rute)
+        2. Ekstrak parameter utama
+
+        Format respons HARUS: jenis|parameter
+
+        Contoh:
+        - "Restoran terdekat" → tempat|restoran
+        - "Rute ke Monas" → rute|Monas
         """
         
         gemini_response = gemini_model.generate_content(prompt)
