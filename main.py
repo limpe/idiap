@@ -1410,53 +1410,100 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
-    session = {
-        'messages': [],
-        'context': {
-            'corrections': {},
-            'image_history': [],
-            'last_interaction': datetime.now().isoformat()
-        },
-        'settings': {
-            'complexity': 'medium',
-            'preferred_language': 'id'
-        },
-        'message_counter': 0,
-        'last_update': datetime.now().timestamp(),
-        'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'
-    }
-    redis_client.setex(f"session:{chat_id}", CONVERSATION_TTL, json.dumps(session))
-    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
+    """
+    Inisialisasi session baru dengan struktur lengkap.
+    Memastikan semua field yang diperlukan tersedia.
+    """
+    try:
+        session = {
+            'messages': [],
+            'context': {
+                'corrections': {},
+                'image_history': [],
+                'last_interaction': datetime.now().isoformat()
+            },
+            'settings': {
+                'complexity': 'medium',
+                'preferred_language': 'id'
+            },
+            'message_counter': 0,
+            'last_update': datetime.now().timestamp(),
+            'conversation_id': str(uuid.uuid4()),
+            'complexity': 'simple'
+        }
+        # Tambahkan validasi untuk memastikan semua field required tersedia
+        required_fields = ['messages', 'context', 'settings', 'message_counter']
+        required_context_fields = ['corrections', 'image_history', 'last_interaction']
+        
+        if not all(field in session for field in required_fields):
+            logger.error(f"Gagal inisialisasi session: missing required fields")
+            raise ValueError("Session initialization failed: missing required fields")
+            
+        if not all(field in session['context'] for field in required_context_fields):
+            logger.error(f"Gagal inisialisasi session: missing required context fields")
+            raise ValueError("Session initialization failed: missing required context fields")
+            
+        redis_client.setex(f"session:{chat_id}", CONVERSATION_TTL, json.dumps(session))
+        logger.info(f"Sesi berhasil diinisialisasi untuk chat_id {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error saat inisialisasi session untuk chat_id {chat_id}: {str(e)}")
+        raise
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    session_json = redis_client.get(f"session:{chat_id}")
-    if session_json:
-        session = json.loads(session_json)
-    else:
-        # Jika sesi tidak ada, inisialisasi sesi baru
-        session = {
-            'messages': [],  # Riwayat pesan
-            'message_counter': 0,  # Counter pesan
-            'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'  # Kompleksitas percakapan
-        }
+    """
+    Update session dengan memastikan struktur data tetap konsisten.
+    Args:
+        chat_id: ID chat dari pengguna
+        message: Pesan baru untuk ditambahkan ke session
+    """
+    try:
+        # Get existing session or create new one
+        session_json = redis_client.get(f"session:{chat_id}")
+        if session_json:
+            session = json.loads(session_json)
+        else:
+            await initialize_session(chat_id)
+            session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-    # Pastikan kunci 'message_counter' ada
-    if 'message_counter' not in session:
-        session['message_counter'] = 0
+        # Ensure required structure exists
+        if 'context' not in session:
+            session['context'] = {
+                'corrections': {},
+                'image_history': [],
+                'last_interaction': datetime.now().isoformat()
+            }
+        if 'message_counter' not in session:
+            session['message_counter'] = 0
 
-    # Simpan kompleksitas sebelumnya
-    previous_complexity = session.get('complexity', 'simple')
+        # Handle message counters and complexity
+        previous_complexity = session.get('complexity', 'simple')
+        new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
+        session['complexity'] = new_complexity
 
-    # Tentukan kompleksitas baru
-    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+        if new_complexity == "simple" and previous_complexity == "medium":
+            logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
+            session['message_counter'] = 0
 
-    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
-    if new_complexity == "simple" and previous_complexity == "medium":
-        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-        session['message_counter'] = 0  # Reset counter pesan
+        session['message_counter'] += 1
+        session['messages'].append(message)
+        session['last_update'] = datetime.now().timestamp()
+
+        # Save updated session
+        redis_client.set(f"session:{chat_id}", json.dumps(session))
+        redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+
+        logger.info(f"Session berhasil diupdate untuk chat_id {chat_id}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding session JSON untuk chat_id {chat_id}: {str(e)}")
+        await initialize_session(chat_id)
+    except redis.RedisError as e:
+        logger.error(f"Redis error saat update session untuk chat_id {chat_id}: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error tidak terduga saat update session untuk chat_id {chat_id}: {str(e)}")
+        raise
 
     # Update counter pesan
     session['message_counter'] += 1
@@ -1571,12 +1618,31 @@ def is_related_to_context(current_message: str, context_messages: List[Dict[str,
 async def get_session(chat_id: int) -> Dict:
     """
     Mengambil session dari Redis untuk chat_id tertentu.
-    Jika session tidak ada, inisialisasi session baru.
+    Jika session tidak ada atau tidak lengkap, inisialisasi session baru.
     """
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if session_json:
-            return json.loads(session_json)
+            session = json.loads(session_json)
+            # Verifikasi struktur session
+            if not all(key in session for key in ['messages', 'context', 'settings', 'message_counter']):
+                logger.info(f"Session struktur tidak lengkap untuk chat_id {chat_id}, menginisialisasi ulang")
+                await initialize_session(chat_id)
+                return json.loads(redis_client.get(f"session:{chat_id}"))
+            
+            # Pastikan struktur dalam context lengkap
+            if 'context' not in session:
+                session['context'] = {}
+            if 'corrections' not in session['context']:
+                session['context']['corrections'] = {}
+            if 'image_history' not in session['context']:
+                session['context']['image_history'] = []
+            if 'last_interaction' not in session['context']:
+                session['context']['last_interaction'] = datetime.now().isoformat()
+            
+            # Update session jika ada perubahan
+            redis_client.set(f"session:{chat_id}", json.dumps(session))
+            return session
         else:
             await initialize_session(chat_id)
             return json.loads(redis_client.get(f"session:{chat_id}"))
