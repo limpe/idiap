@@ -1223,90 +1223,83 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
-    caption = update.message.caption or ""
-
-    # Check rate limit
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
-
-    # Periksa apakah ini di grup
-    if chat_type in ["group", "supergroup"]:
-        if f"@{context.bot.username}" not in caption:
-            logger.info("Gambar di grup diabaikan karena tidak ada mention.")
-            return  # Abaikan jika tidak ada mention di grup
-
     try:
-        # Periksa apakah sesi sudah ada di Redis
+        chat_id = update.message.chat_id
+        chat_type = update.message.chat.type
+        caption = update.message.caption or ""
+        user_id = update.message.from_user.id
+
+        # Check rate limit
+        if not await check_rate_limit(user_id):
+            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+            return
+
+        # Check for group mentions
+        if chat_type in ["group", "supergroup"] and f"@{context.bot.username}" not in caption:
+            logger.info("Gambar di grup diabaikan karena tidak ada mention.")
+            return
+
+        # Get or initialize session
         if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
-
-        # Ambil sesi dari Redis
-        session = json.loads(redis_client.get(f"session:{chat_id}"))
-        logger.info(f"Sesi saat ini: {session}")
+        session = await get_session(chat_id)
         
-        # Update statistik
+        # Update statistics
         bot_statistics["total_messages"] += 1
         bot_statistics["photo_messages"] += 1
 
-        # Kirim pesan "Sedang menganalisa gambar..."
+        # Show processing message
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
 
-        # Ambil file gambar
-        photo_file = await update.message.photo[-1].get_file()
-
-        # Proses gambar menggunakan BytesIO
-        with BytesIO() as temp_file:
+        try:
+            # Get and process image
+            photo_file = await update.message.photo[-1].get_file()
             photo_bytes = await photo_file.download_as_bytearray()
-            temp_file.write(photo_bytes)
-            temp_file.seek(0)
+            
+            with BytesIO(photo_bytes) as image_data:
+                # Build context-aware prompt
+                context_prompt = await build_context_prompt(session)
+                user_prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
+                
+                if user_prompt:
+                    full_prompt = f"{context_prompt}\n\nPertanyaan Pengguna: {user_prompt}\n\nAnalisis gambar dalam Bahasa Indonesia."
+                else:
+                    full_prompt = f"{context_prompt}\n\nBerikan analisis detail gambar dalam Bahasa Indonesia."
 
-            # Siapkan prompt berdasarkan caption
-            prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
+                # Process with Gemini
+                response = await process_image_with_gemini(image_data, full_prompt)
+                
+                if response:
+                    # Update image history
+                    session['context']['image_history'].append({
+                        'timestamp': datetime.now().isoformat(),
+                        'prompt': user_prompt,
+                        'analysis': response
+                    })
+                    
+                    # Filter and split response
+                    filtered_response = await filter_text(response)
+                    result_parts = split_message(filtered_response)
+                    
+                    for part in result_parts:
+                        await update.message.reply_text(part)
+                    
+                    # Update session
+                    session_update = {
+                        "role": "assistant",
+                        "content": filtered_response,
+                        "type": "image_analysis"
+                    }
+                    await update_session(chat_id, session_update)
+                else:
+                    await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
-            # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
-            if not prompt:
-                prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesiadan termasuk penjelasan yang komprehensif."
-                logger.info(f"Prompt yang digunakan: {prompt}")
-            else:
-                # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
-                prompt += " jawab dalam Bahasa Indonesia."
-
-            # Proses gambar dengan Gemini
-            gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
-
-            if gemini_result:
-                # Filter hasil analisis
-                filtered_result = await filter_text(gemini_result)
-
-                # Pecah hasil analisis jika terlalu panjang
-                result_parts = split_message(filtered_result)
-                for part in result_parts:
-                    await update.message.reply_text(f"Analisa:\n{part}")
-
-                # Simpan hasil analisis ke sesi
-                session['messages'].append({
-                    "role": "user",
-                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
-                })
-                session['messages'].append({
-                    "role": "assistant",
-                    "content": filtered_result
-                })
-                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
-                await update_session(chat_id, {"role": "assistant", "content": filtered_result})
-            else:
-                await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
-
-        # Hapus pesan "Sedang menganalisa..."
-        await processing_msg.delete()
+        finally:
+            if processing_msg:
+                await processing_msg.delete()
 
     except Exception as e:
-        # Tangani error
-        logger.exception("Error dalam proses analisis gambar dengan Gemini")
+        logger.exception("Error dalam proses analisis gambar")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1385,14 +1378,22 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],  # Riwayat pesan
-        'message_counter': 0,  # Counter pesan
+        'messages': [],
+        'context': {
+            'corrections': {},
+            'image_history': [],
+            'last_interaction': datetime.now().isoformat()
+        },
+        'settings': {
+            'complexity': 'medium',
+            'preferred_language': 'id'
+        },
+        'message_counter': 0,
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'  # Kompleksitas percakapan
+        'complexity': 'simple'
     }
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    redis_client.setex(f"session:{chat_id}", CONVERSATION_TTL, json.dumps(session))
     logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
@@ -1454,14 +1455,6 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             logger.warning("Gemini timeout, beralih ke Mistral.")
         
         # Jika Gemini gagal, coba Mistral
-        try:
-            response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
-            if response:
-                logger.info("Menggunakan respons dari Mistral.")
-                return response
-        except asyncio.TimeoutError:
-            logger.error("Mistral timeout.")
-        
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
@@ -1616,66 +1609,73 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    if not message_text:
-        message_text = update.message.text or ""
+    try:
+        if not message_text:
+            message_text = update.message.text or ""
 
-    # Sanitasi input teks
-    sanitized_text = sanitize_input(message_text)
+        # Sanitasi input teks
+        sanitized_text = sanitize_input(message_text)
 
-    # Periksa rate limit
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
+        # Periksa rate limit
+        user_id = update.message.from_user.id
+        if not await check_rate_limit(user_id):
+            await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+            return
 
-    # Ambil atau inisialisasi sesi
-    chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
-    is_reply = bool(update.message.reply_to_message)
-    replied_message = None
+        # Get or initialize session
+        chat_id = update.message.chat_id
+        if not redis_client.exists(f"session:{chat_id}"):
+            await initialize_session(chat_id)
+        session = await get_session(chat_id)
 
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-    else:
-        session = json.loads(session_json)
+        # Check for corrections
+        is_correction, correction_text = await detect_correction(sanitized_text)
+        if is_correction and correction_text:
+            session['context']['corrections'][correction_text] = {
+                'timestamp': datetime.now().isoformat(),
+                'original_text': message_text
+            }
+            await update_session(chat_id, session)
+            await update.message.reply_text(f"✅ Saya telah mencatat koreksi: {correction_text}")
+            return
 
-    # Handle replies untuk semua jenis chat
-    if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-        # Ambil seluruh konteks percakapan yang direply
-        replied_context = await get_replied_context(update.message.reply_to_message)
-        context_messages = replied_context + session['messages'][-5:]  # Gabungkan dengan 5 pesan terakhir
-        session['messages'] = context_messages  # Update session dengan konteks gabungan
+        # Handle replies
+        is_reply = bool(update.message.reply_to_message)
+        if is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+            replied_context = await get_replied_context(update.message.reply_to_message)
+            context_messages = replied_context + session['messages'][-5:]
+            session['messages'] = context_messages
 
-    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
-    if not is_reply and await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)
-        session = json.loads(redis_client.get(f"session:{chat_id}"))
+        # Build context-aware prompt
+        context_prompt = await build_context_prompt(session)
+        full_prompt = f"{context_prompt}\n\nPesan Pengguna: {sanitized_text}"
 
-    # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+        # Process with smart context
+        context_window = 20 if is_reply else 10
+        response = await process_with_smart_context(session['messages'][-context_window:])
 
-    # Proses pesan dengan konteks cerdas
-    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
-    response = await process_with_smart_context(session['messages'][-context_window:])
-    
-    if response:
-        # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
+        if response:
+            # Filter and process response
+            filtered_response = await filter_text(response)
+            response_parts = split_message(filtered_response)
 
-        # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+            # Update session with new messages
+            session_update = {
+                "role": "assistant",
+                "content": filtered_response,
+                "timestamp": datetime.now().isoformat()
+            }
+            await update_session(chat_id, session_update)
 
-        # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)
-        for part in response_parts:
-            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
-            await update.message.reply_text(part)
-    else:
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+            # Send response parts
+            for part in response_parts:
+                await update.message.reply_text(part)
+        else:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+
+    except Exception as e:
+        logger.exception("Error dalam handle_text")
+        await update.message.reply_text("Terjadi kesalahan dalam memproses pesan Anda.")
         
 def main():
     if not check_required_settings():
