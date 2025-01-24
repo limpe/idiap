@@ -1322,10 +1322,11 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def initialize_session(chat_id: int) -> None:
     session = {
         'messages': json.dumps([]), # Riwayat pesan, disimpan sebagai JSON string
-        'message_counter': 0,
+        'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'
+        'complexity': 'simple',  # Kompleksitas percakapan
+        'last_image_base64': None # Representasi base64 dari gambar terakhir
     }
     redis_client.hmset(f"session:{chat_id}", session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
