@@ -740,42 +740,34 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             logger.error("Empty message list received.")
             return "Tidak ada pesan yang dapat diproses."
 
-        # Pastikan semua pesan dalam format yang benar untuk Gemini API
         formatted_messages = []
+        system_prompt = """[Instruksi Sistem] Anda adalah PAIDI, asisten AI yang selalu berkomunikasi dalam Bahasa Indonesia yang baik, benar, dan natural.
+Berikan respons yang sopan, informatif, dan mudah dipahami.
+Gunakan bahasa yang formal tapi tetap ramah."""
+
+        # Tambahkan system prompt sebagai pesan pertama
+        formatted_messages.append({"role": "user", "parts": [{"text": system_prompt}]})
+
         for msg in messages:
-            if 'parts' not in msg:
-                # Konversi pesan lama ke format baru
-                formatted_msg = {
-                    'role': msg.get('role', 'user'),
-                    'parts': [{'text': msg.get('content', '')}]
-                }
-                formatted_messages.append(formatted_msg)
-            else:
-                formatted_messages.append(msg)
+            # Hanya izinkan role 'user' atau 'model'
+            if msg['role'] not in ['user', 'model']:
+                logger.warning(f"Skipping message dengan role tidak valid: {msg['role']}")
+                continue
 
-        system_prompt = """Anda adalah PAIDI, asisten AI yang SELALU:
-1. Berkomunikasi dalam Bahasa Indonesia yang baik dan benar
-2. Memberikan respons yang sopan, natural dan mudah dipahami
-3. Menggunakan bahasa yang formal tapi tetap ramah
-4. Menghindari penggunaan istilah bahasa Inggris kecuali istilah teknis
-5. Menjawab pertanyaan secara lengkap dan informatif"""
+            # Format pesan untuk Gemini API
+            formatted_msg = {
+                'role': msg['role'],
+                'parts': [{'text': msg.get('content', '')}]
+            }
+            formatted_messages.append(formatted_msg)
 
-        # Mulai chat dengan Gemini
+
+        # Mulai chat dengan Gemini (gunakan semua pesan yang telah diformat, termasuk system prompt)
         chat = gemini_model.start_chat(history=formatted_messages[:-1])
-        
-        # Tambahkan system prompt ke pesan terakhir
-        last_message = formatted_messages[-1]
-        enhanced_message = f"{system_prompt}\n\n{last_message['parts'][0]['text']}"
-        
-        # Kirim pesan
-        response = chat.send_message(enhanced_message)
-        if response is None:
-            logger.error("Gemini returned None.")
-            return "Maaf, terjadi kesalahan saat memproses permintaan Anda."
 
-        # Filter dan return respons
-        filtered_response = response.text.replace("AI:", "").replace("Assistant:", "").strip()
-        return filtered_response
+        # Kirim pesan terakhir (pesan pengguna)
+        response = chat.send_message(formatted_messages[-1]['parts'][0]['text'])
+        return response.text
 
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
@@ -1448,21 +1440,21 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
-    # Inisialisasi sesi dengan pesan sistem awal dalam format Gemini API
+    # Inisialisasi sesi dengan pesan awal dalam format Gemini API, menggunakan role 'model'
     initial_message = {
-        'role': 'system',
+        'role': 'model', # Menggunakan role 'model' untuk pesan inisialisasi
         'parts': [{
             'text': 'Saya adalah PAIDI, asisten AI yang berkomunikasi dalam Bahasa Indonesia yang baik dan benar.'
         }]
     }
-    
+
     session = {
-        'messages': json.dumps([initial_message]),  # Riwayat pesan dengan format yang benar
-        'message_counter': 0,  # Counter pesan
+        'messages': json.dumps([initial_message]),  # Riwayat pesan, dimulai dengan pesan sistem
+        'message_counter': 0,
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple',  # Kompleksitas percakapan
-        'last_image_base64': ''  # Representasi base64 dari gambar terakhir
+        'complexity': 'simple',
+        'last_image_base64': ''
     }
     redis_client.hmset(f"session:{chat_id}", session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
