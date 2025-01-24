@@ -271,7 +271,6 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
         except Exception as e:
             logger.error(f"Error tak terduga saat mengambil data VWAP: {e}")
             return None
-    return None
 
 
 
@@ -471,45 +470,32 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await processing_msg.delete()
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
-    # Ambil semua pesan pengguna
-    user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
-    user_text = " ".join(user_messages).lower()  # Gabungkan semua pesan pengguna menjadi satu teks
+    """
+    Menentukan kompleksitas percakapan berdasarkan jumlah pesan dalam sesi.
+    """
+    message_counter = session.get('message_counter', 0)
 
-    # Cek apakah ada kata kunci kompleks di pesan terbaru
-    latest_message = user_messages[-1] if user_messages else ""
-    has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
-
-    # Logging untuk debugging
-    logger.info(f"Pesan terbaru: {latest_message}")
-    logger.info(f"Apakah mengandung kata kunci kompleks? {has_complex_keywords}")
-
-    # Logika penurunan dan kenaikan kompleksitas
     if previous_complexity == "complex":
-        if not has_complex_keywords:
-            logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
+        if message_counter <= MAX_CONVERSATION_MESSAGES_MEDIUM:
+            logger.info(f"Kompleksitas turun dari complex ke medium karena jumlah pesan <= MAX_CONVERSATION_MESSAGES_MEDIUM.")
+            return "medium"
         else:
-            logger.info(f"Kompleksitas tetap complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Tetap complex jika ada kata kunci kompleks
-
+            return "complex"
     elif previous_complexity == "medium":
-        if not has_complex_keywords:
-            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks
+        if message_counter <= MAX_CONVERSATION_MESSAGES_SIMPLE:
+            logger.info(f"Kompleksitas turun dari medium ke simple karena jumlah pesan <= MAX_CONVERSATION_MESSAGES_SIMPLE.")
+            return "simple"
+        elif message_counter <= MAX_CONVERSATION_MESSAGES_MEDIUM:
+            return "medium"
         else:
-            logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
-            return "medium"  # Tetap medium jika ada kata kunci kompleks
-
+            logger.info(f"Kompleksitas naik dari medium ke complex karena jumlah pesan > MAX_CONVERSATION_MESSAGES_MEDIUM.")
+            return "complex"
     else:  # previous_complexity == "simple"
-        if has_complex_keywords:
-            logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Naik langsung ke complex jika ada kata kunci kompleks
-        elif session.get('message_counter', 0) > 3:  # Naik ke medium jika jumlah pesan > 3
-            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
-            return "medium"  # Naik ke medium jika pesan > 3
+        if message_counter > MAX_CONVERSATION_MESSAGES_SIMPLE:
+            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > MAX_CONVERSATION_MESSAGES_SIMPLE.")
+            return "medium"
         else:
-            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 3.")
-            return "simple"  # Tetap simple jika tidak ada perubahan
+            return "simple"
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1335,27 +1321,35 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],  # Riwayat pesan
-        'message_counter': 0,  # Counter pesan
+        'messages': json.dumps([]), # Riwayat pesan, disimpan sebagai JSON string
+        'message_counter': 0,
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'  # Kompleksitas percakapan
+        'complexity': 'simple'
     }
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.hmset(f"session:{chat_id}", session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
+    logger.info(f"Sesi diinisialisasi sebagai Hash di Redis untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    session_json = redis_client.get(f"session:{chat_id}")
-    if session_json:
-        session = json.loads(session_json)
+    session_hash = redis_client.hgetall(f"session:{chat_id}")
+    if session_hash:
+        # Sesi ditemukan, ambil nilai dan konversi tipe data yang sesuai
+        session = {
+            'messages': json.loads(session_hash.get('messages', '[]')), # Deserialisasi string JSON ke list
+            'message_counter': int(session_hash.get('message_counter', 0)),
+            'last_update': float(session_hash.get('last_update', 0)),
+            'conversation_id': session_hash.get('conversation_id'),
+            'complexity': session_hash.get('complexity', 'simple')
+        }
     else:
         # Jika sesi tidak ada, inisialisasi sesi baru
         session = {
-            'messages': [],  # Riwayat pesan
-            'message_counter': 0,  # Counter pesan
+            'messages': [],
+            'message_counter': 0,
             'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'  # Kompleksitas percakapan
+            'conversation_id': str(uuid.uuid4()),
+            'complexity': 'simple'
         }
 
     # Pastikan kunci 'message_counter' ada
@@ -1367,26 +1361,35 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
     # Tentukan kompleksitas baru
     new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+    session['complexity'] = new_complexity
 
-    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
+    # Reset message counter hanya saat transisi dari medium ke simple
     if new_complexity == "simple" and previous_complexity == "medium":
-        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-        session['message_counter'] = 0  # Reset counter pesan
+        logger.info(f"Transisi dari medium ke simple, reset message counter untuk chat_id {chat_id}.")
+        session['message_counter'] = 0
 
-    # Update counter pesan
+    # Update message counter
     session['message_counter'] += 1
 
-    # Catat perubahan kompleksitas jika ada
+    # Log perubahan kompleksitas
     if previous_complexity != new_complexity:
         logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-    # Tambahkan pesan ke sesi
+    # Tambahkan pesan ke riwayat pesan
     session['messages'].append(message)
     session['last_update'] = datetime.now().timestamp()
 
-    # Simpan sesi ke Redis
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    # Serialize messages menjadi JSON string sebelum disimpan
+    session['messages'] = json.dumps(session['messages'])
+
+    # Simpan sesi yang diupdate ke Redis sebagai Hash
+    redis_client.hmset(f"session:{chat_id}", {
+        'messages': session['messages'],
+        'message_counter': session['message_counter'],
+        'last_update': session['last_update'],
+        'conversation_id': session['conversation_id'],
+        'complexity': session['complexity']
+    })
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 
@@ -1549,7 +1552,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     # Periksa rate limit
     user_id = update.message.from_user.id
     if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa detik.")
         return
 
     # Ambil atau inisialisasi sesi
