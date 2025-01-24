@@ -1797,12 +1797,13 @@ def main():
         application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
         application.add_handler(CommandHandler("flush_redis_sessions", flush_redis_sessions))
         application.add_handler(CommandHandler("flushsessions", flush_redis_sessions)) # Tambahkan alias command /flushsessions
-        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
+        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_text))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
+            (filters.TEXT | filters.CAPTION) &
+            (filters.Entity("mention") | filters.REPLY) &
+            filters.ChatType.GROUPS,
             handle_mention
         ))
 
@@ -1823,33 +1824,34 @@ def main():
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
         raise
-        
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    current_time = datetime.now()
-
-    # Rate limit check
-    should_process = True
-    last_message_time = redis_client.get(f"last_message_time_{user_id}")
-    if last_message_time:
-        last_message_time = datetime.fromtimestamp(float(last_message_time))
-        if current_time - last_message_time < timedelta(seconds=5):
-            await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-            should_process = False
-
-    if should_process:
-        redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-
-    # Handle different message types with error handling
-    try:
-        if update.message.text:
+        async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            # user_id = update.message.from_user.id
+            # current_time = datetime.now()
+            #
+            # # Rate limit check
+            # should_process = True
+            # last_message_time = redis_client.get(f"last_message_time_{user_id}")
+            # if last_message_time:
+            #     last_message_time = datetime.fromtimestamp(float(last_message_time))
+            #     if current_time - last_message_time < timedelta(seconds=5):
+            #         await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
+            #         should_process = False
+            #
+            # if should_process:
+            #     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+            #
+            # # Handle different message types with error handling
+            # try:
+            #     if update.message.text:
+            #         await handle_text(update, context)
+            #     elif update.message.voice:
+            #         await handle_voice(update, context)
+            #     elif update.message.photo:
+            #         await handle_photo(update, context)
+            # except Exception as e:
+            #     logger.exception(f"Error handling message: {str(e)}")
+            #     await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
             await handle_text(update, context)
-        elif update.message.voice:
-            await handle_voice(update, context)
-        elif update.message.photo:
-            await handle_photo(update, context)
-    except Exception as e:
-        logger.exception(f"Error handling message: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
