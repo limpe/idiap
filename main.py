@@ -117,12 +117,12 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
+CONVERSATION_TIMEOUT = 86400  # 24 jam untuk mempertahankan konteks lebih lama
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-MAX_CONVERSATION_MESSAGES_SIMPLE = 10
-MAX_CONVERSATION_MESSAGES_MEDIUM = 50
-MAX_CONVERSATION_MESSAGES_COMPLEX = 100
+MAX_CONVERSATION_MESSAGES_SIMPLE = 25  # Meningkatkan batas untuk mode simple
+MAX_CONVERSATION_MESSAGES_MEDIUM = 75  # Meningkatkan batas untuk mode medium
+MAX_CONVERSATION_MESSAGES_COMPLEX = 150  # Meningkatkan batas untuk mode complex
 MAX_REQUESTS_PER_MINUTE = 15
 client = Together()
 factory = StemmerFactory()
