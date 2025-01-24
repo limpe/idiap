@@ -740,27 +740,34 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             logger.error("Empty message list received.")
             return "Tidak ada pesan yang dapat diproses."
 
-        last_message = messages[-1]
-        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
-
-        logger.info(f"Processing user message: {user_message}")
+        # Pastikan semua pesan dalam format yang benar untuk Gemini API
+        formatted_messages = []
+        for msg in messages:
+            if 'parts' not in msg:
+                # Konversi pesan lama ke format baru
+                formatted_msg = {
+                    'role': msg.get('role', 'user'),
+                    'parts': [{'text': msg.get('content', '')}]
+                }
+                formatted_messages.append(formatted_msg)
+            else:
+                formatted_messages.append(msg)
 
         system_prompt = """Anda adalah PAIDI, asisten AI yang SELALU:
 1. Berkomunikasi dalam Bahasa Indonesia yang baik dan benar
 2. Memberikan respons yang sopan, natural dan mudah dipahami
 3. Menggunakan bahasa yang formal tapi tetap ramah
 4. Menghindari penggunaan istilah bahasa Inggris kecuali istilah teknis
-5. Menjawab pertanyaan secara lengkap dan informatif
+5. Menjawab pertanyaan secara lengkap dan informatif"""
 
-Berikut pertanyaan atau pesan dari pengguna. Berikan respons HANYA dalam Bahasa Indonesia:"""
-
-        # Format pesan dengan instruksi bahasa Indonesia yang kuat
-        enhanced_message = f"{system_prompt}\n\n{user_message}"
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=formatted_messages[:-1])
         
-        # Mulai chat dengan Gemini dan sertakan history percakapan
-        chat = gemini_model.start_chat(history=messages[:-1]) # Exclude the last message
+        # Tambahkan system prompt ke pesan terakhir
+        last_message = formatted_messages[-1]
+        enhanced_message = f"{system_prompt}\n\n{last_message['parts'][0]['text']}"
         
-        # Proses pesan
+        # Kirim pesan
         response = chat.send_message(enhanced_message)
         if response is None:
             logger.error("Gemini returned None.")
@@ -1034,6 +1041,7 @@ async def send_voice_response(update: Update, text: str):
             os.remove(temp_file.name)
         
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    processing_msg = None
     try:
         chat_id = update.message.chat_id
 
@@ -1056,49 +1064,63 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Kirim pesan "Sedang memproses pesan suara Anda..."
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
 
-        try:
-            # Proses pesan suara menjadi teks
-            text = await process_voice_to_text(update)
-            if text:
-                # Pecah teks hasil transkripsi jika terlalu panjang
-                text_parts = split_message(text)
-                for part in text_parts:
-                    await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{part}")
+        # Proses pesan suara menjadi teks
+        text = await process_voice_to_text(update)
+        if not text:
+            await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
+            return
 
-                # Ambil sesi dari Redis
-                session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi sebagai Hash
+        # Pecah teks hasil transkripsi jika terlalu panjang
+        text_parts = split_message(text)
+        for part in text_parts:
+            await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{part}")
 
-                # Tambahkan pesan pengguna ke sesi
-                session['messages'] = json.loads(session.get('messages'))
-                session['messages'].append({"role": "user", "content": text})
-                await update_session(chat_id, {"role": "user", "content": text})
+        # Ambil sesi dari Redis
+        session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi sebagai Hash
+        
+        # Tambahkan pesan pengguna ke sesi dalam format Gemini API
+        session['messages'] = json.loads(session.get('messages'))
+        user_message = {
+            "role": "user",
+            "parts": [{"text": text}]
+        }
+        session['messages'].append(user_message)
+        await update_session(chat_id, user_message)
 
-                # Proses pesan dengan Gemini
-                response = await process_with_gemini(session['messages'])
+        # Proses pesan dengan Gemini
+        response = await process_with_gemini(session['messages'])
+        if not response:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+            return
 
-                if response:
-                    # Tambahkan respons asisten ke sesi
-                    session['messages'].append({"role": "model", "content": response})
-                    await update_session(chat_id, {"role": "assistant", "content": response})
+        # Tambahkan respons asisten ke sesi dalam format Gemini API
+        assistant_message = {
+            "role": "model",
+            "parts": [{"text": response}]
+        }
+        session['messages'].append(assistant_message)
+        await update_session(chat_id, assistant_message)
 
-                    # Filter dan kirim respons
-                    filtered_response = await filter_text(response)
-                    response_parts = split_message(filtered_response)
-                    for part in response_parts:
-                        await update.message.reply_text(part)
-                    await send_voice_response(update, filtered_response)
-            else:
-                await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
-
-        finally:
-            # Hapus pesan "Sedang memproses..."
-            await processing_msg.delete()
+        # Filter dan kirim respons
+        filtered_response = await filter_text(response)
+        response_parts = split_message(filtered_response)
+        for part in response_parts:
+            await update.message.reply_text(part)
+        await send_voice_response(update, filtered_response)
 
     except Exception as e:
         # Tangani error
         bot_statistics["errors"] += 1
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
+
+    finally:
+        # Hapus pesan "Sedang memproses..."
+        if processing_msg:
+            try:
+                await processing_msg.delete()
+            except Exception:
+                logger.warning("Gagal menghapus pesan processing")
 
 async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
     """Upload image to ImgFoto.host and return the URL"""
@@ -1324,18 +1346,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for part in result_parts:
                     await update.message.reply_text(f"Analisa:\n{part}")
 
-                # Simpan hasil analisis ke sesi
+                # Simpan hasil analisis ke sesi dengan format Gemini API
                 session['messages'] = json.loads(session.get('messages'))
-                session['messages'].append({
+                
+                # Format pesan user dengan format Gemini API
+                user_message = {
                     "role": "user",
-                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
-                })
-                session['messages'].append({
+                    "parts": [{"text": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")}]
+                }
+                session['messages'].append(user_message)
+                await update_session(chat_id, user_message)
+                
+                # Format pesan asisten dengan format Gemini API
+                assistant_message = {
                     "role": "model",
-                    "content": filtered_result
-                })
-                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
-                await update_session(chat_id, {"role": "assistant", "content": filtered_result})
+                    "parts": [{"text": filtered_result}]
+                }
+                session['messages'].append(assistant_message)
+                session['last_image_analysis'] = filtered_result
+                await update_session(chat_id, assistant_message)
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
@@ -1386,10 +1415,14 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
-            # Tambahkan pesan pengguna ke sesi
+            # Format dan tambahkan pesan pengguna ke sesi dengan format Gemini API
             session['messages'] = json.loads(session.get('messages'))
-            session['messages'].append({"role": "user", "content": sanitized_text})
-            await update_session(chat_id, {"role": "user", "content": sanitized_text})
+            user_message = {
+                "role": "user",
+                "parts": [{"text": sanitized_text}]
+            }
+            session['messages'].append(user_message)
+            await update_session(chat_id, user_message)
 
             # Proses pesan dengan konteks cerdas
             response = await process_with_smart_context(session['messages'][-10:])  # Ambil 10 pesan terakhir
@@ -1398,9 +1431,13 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Filter hasil respons
                 filtered_response = await filter_text(response)
 
-                # Tambahkan respons asisten ke sesi
-                session['messages'].append({"role": "assistant", "content": filtered_response})
-                await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+                # Format dan tambahkan respons asisten dengan format Gemini API
+                assistant_message = {
+                    "role": "model",
+                    "parts": [{"text": filtered_response}]
+                }
+                session['messages'].append(assistant_message)
+                await update_session(chat_id, assistant_message)
 
                 # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
@@ -1411,13 +1448,21 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
+    # Inisialisasi sesi dengan pesan sistem awal dalam format Gemini API
+    initial_message = {
+        'role': 'system',
+        'parts': [{
+            'text': 'Saya adalah PAIDI, asisten AI yang berkomunikasi dalam Bahasa Indonesia yang baik dan benar.'
+        }]
+    }
+    
     session = {
-        'messages': json.dumps([]), # Riwayat pesan, disimpan sebagai JSON string
+        'messages': json.dumps([initial_message]),  # Riwayat pesan dengan format yang benar
         'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
         'complexity': 'simple',  # Kompleksitas percakapan
-        'last_image_base64': '' # Representasi base64 dari gambar terakhir, diubah menjadi string kosong
+        'last_image_base64': ''  # Representasi base64 dari gambar terakhir
     }
     redis_client.hmset(f"session:{chat_id}", session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
@@ -1693,21 +1738,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             'last_image_base64': session_hash.get('last_image_base64')
         }
 
+    # Format pesan dalam format Gemini API
+    user_message = {
+        "role": "user",
+        "parts": [{"text": sanitized_text}]
+    }
+    
     # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+    session['messages'].append(user_message)
+    await update_session(chat_id, user_message)
 
     # Proses pesan dengan Gemini
     response = await process_with_gemini(session['messages'])
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)  # Panggil filter_text di sini
-        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
+        filtered_response = await filter_text(response)
+
+        # Format respons asisten dalam format Gemini API
+        assistant_message = {
+            "role": "model",
+            "parts": [{"text": filtered_response}]
+        }
 
         # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "model", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+        session['messages'].append(assistant_message)
+        await update_session(chat_id, assistant_message)
 
         # Kirim respons ke pengguna
         response_parts = split_message(filtered_response)  # Gunakan filtered_response
