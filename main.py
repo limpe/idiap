@@ -1658,8 +1658,19 @@ def main():
             handle_mention
         ))
 
-        # Run bot
-        application.run_polling()
+        # Add error handler
+        async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            logger.error(f"Update {update} caused error: {context.error}")
+            if update and update.effective_message:
+                await update.effective_message.reply_text(
+                    "Maaf, terjadi kesalahan internal. Silakan coba lagi nanti."
+                )
+        
+        application.add_error_handler(error_handler)
+
+        # Run bot with error handling
+        logger.info("Bot starting...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}")
@@ -1669,22 +1680,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
+    # Rate limit check
+    should_process = True
     last_message_time = redis_client.get(f"last_message_time_{user_id}")
     if last_message_time:
         last_message_time = datetime.fromtimestamp(float(last_message_time))
         if current_time - last_message_time < timedelta(seconds=5):
             await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-        return
+            should_process = False
 
-    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+    if should_process:
+        redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
 
-    # Handle different message types
-    if update.message.text:
-        await handle_text(update, context)
-    elif update.message.voice:
-        await handle_voice(update, context)
-    elif update.message.photo:
-        await handle_photo(update, context)
+    # Handle different message types with error handling
+    try:
+        if update.message.text:
+            await handle_text(update, context)
+        elif update.message.voice:
+            await handle_voice(update, context)
+        elif update.message.photo:
+            await handle_photo(update, context)
+    except Exception as e:
+        logger.exception(f"Error handling message: {str(e)}")
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
@@ -1739,4 +1757,4 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stats_message)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
