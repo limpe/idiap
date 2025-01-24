@@ -1394,6 +1394,36 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
+    session_key = f"session:{chat_id}"
+    if redis_client.exists(session_key):
+        data_type = redis_client.type(session_key)
+        if data_type.decode('utf-8') == "string":
+            # Migrasi dari string JSON lama ke Hash
+            old_session_json = redis_client.get(session_key)
+            if old_session_json:
+                try:
+                    old_session = json.loads(old_session_json)
+                    # Konversi struktur data lama ke baru jika perlu
+                    migrated_session = {
+                        'messages': json.dumps(old_session.get('messages', [])), # Pastikan messages di-encode ke JSON string
+                        'message_counter': old_session.get('message_counter', 0),
+                        'last_update': old_session.get('last_update', datetime.now().timestamp()),
+                        'conversation_id': old_session.get('conversation_id', str(uuid.uuid4())),
+                        'complexity': old_session.get('complexity', 'simple')
+                    }
+                    redis_client.hset(session_key, mapping=migrated_session)
+                    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
+                    logger.info(f"Sesi untuk chat_id {chat_id} migrated ke Hash format.")
+                    return  # Sesi sudah diinisialisasi atau dimigrasi
+                except json.JSONDecodeError:
+                    logger.error(f"Gagal decode JSON sesi lama untuk chat_id {chat_id}, membuat sesi baru.")
+            else:
+                logger.warning(f"Sesi lama kosong untuk chat_id {chat_id}, membuat sesi baru.")
+        elif data_type.decode('utf-8') == "hash":
+            logger.info(f"Sesi untuk chat_id {chat_id} sudah dalam format Hash.")
+            return  # Sesi sudah dalam format Hash, tidak perlu inisialisasi ulang
+
+    # Inisialisasi sesi baru sebagai Hash jika tidak ada sesi lama atau migrasi gagal
     session = {
         'messages': json.dumps([]),  # Riwayat pesan, disimpan sebagai JSON string
         'message_counter': 0,  # Counter pesan
@@ -1401,9 +1431,9 @@ async def initialize_session(chat_id: int) -> None:
         'conversation_id': str(uuid.uuid4()),
         'complexity': 'simple'  # Kompleksitas percakapan
     }
-    redis_client.hset(f"session:{chat_id}", mapping=session)
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
+    redis_client.hset(session_key, mapping=session)
+    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi baru dibuat untuk chat_id {chat_id} dalam format Hash.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     try:
