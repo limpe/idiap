@@ -749,23 +749,29 @@ Gunakan bahasa yang formal tapi tetap ramah."""
         formatted_messages.append({"role": "user", "parts": [{"text": system_prompt}]})
 
         for msg in messages:
-            # Hanya izinkan role 'user' atau 'model'
             if msg['role'] not in ['user', 'model']:
                 logger.warning(f"Skipping message dengan role tidak valid: {msg['role']}")
                 continue
 
-            # Format pesan untuk Gemini API
+            # Pastikan konten tidak kosong
+            content = msg.get('content', '').strip()
+            if not content:
+                logger.warning("Pesan kosong ditemukan, diabaikan.")
+                continue  # Lewati pesan kosong
+
             formatted_msg = {
                 'role': msg['role'],
-                'parts': [{'text': msg.get('content', '')}]
+                'parts': [{'text': content}]
             }
             formatted_messages.append(formatted_msg)
 
+        # Validasi pesan terakhir sebelum diproses
+        if not formatted_messages or not formatted_messages[-1]['parts'][0]['text'].strip():
+            logger.error("Tidak ada konten valid untuk diproses Gemini.")
+            return None
 
-        # Mulai chat dengan Gemini (gunakan semua pesan yang telah diformat, termasuk system prompt)
+        # Mulai chat dengan Gemini
         chat = gemini_model.start_chat(history=formatted_messages[:-1])
-
-        # Kirim pesan terakhir (pesan pengguna)
         response = chat.send_message(formatted_messages[-1]['parts'][0]['text'])
         return response.text
 
