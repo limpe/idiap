@@ -1791,25 +1791,46 @@ def main():
         raise
         
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    current_time = datetime.now()
-
-    last_message_time = redis_client.get(f"last_message_time_{user_id}")
-    if last_message_time:
-        last_message_time = datetime.fromtimestamp(float(last_message_time))
-        if current_time - last_message_time < timedelta(seconds=5):
-            await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
+    try:
+        # Pastikan update.message tidak None
+        if not update.message:
+            logger.error("Received update with None message")
             return
 
-    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+        # Pastikan from_user tidak None
+        if not update.message.from_user:
+            logger.error("Received message without from_user")
+            return
 
-    # Handle different message types
-    if update.message.text:
-        await handle_text(update, context)
-    elif update.message.voice:
-        await handle_voice(update, context)
-    elif update.message.photo:
-        await handle_photo(update, context)
+        user_id = update.message.from_user.id
+        current_time = datetime.now()
+
+        if redis_client and redis_available:
+            last_message_time = redis_client.get(f"last_message_time_{user_id}")
+            if last_message_time:
+                last_message_time = datetime.fromtimestamp(float(last_message_time))
+                if current_time - last_message_time < timedelta(seconds=5):
+                    await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
+                    return
+
+            redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+
+        # Handle different message types
+        if update.message.text:
+            await handle_text(update, context)
+        elif update.message.voice:
+            await handle_voice(update, context)
+        elif update.message.photo:
+            await handle_photo(update, context)
+        else:
+            logger.warning(f"Received unsupported message type from user {user_id}")
+
+    except Exception as e:
+        logger.error(f"Error in handle_message: {str(e)}")
+        try:
+            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
+        except:
+            logger.error("Failed to send error message to user")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
