@@ -757,8 +757,8 @@ Berikut pertanyaan atau pesan dari pengguna. Berikan respons HANYA dalam Bahasa 
         # Format pesan dengan instruksi bahasa Indonesia yang kuat
         enhanced_message = f"{system_prompt}\n\n{user_message}"
         
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat()
+        # Mulai chat dengan Gemini dan sertakan history percakapan
+        chat = gemini_model.start_chat(history=messages[:-1]) # Exclude the last message
         
         # Proses pesan
         response = chat.send_message(enhanced_message)
