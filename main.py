@@ -715,58 +715,44 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         complexity = await determine_conversation_complexity(messages, session)
         logger.info(f"Conversation complexity: {complexity}")
 
-        # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
-            if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dan sopan dalam Bahasa Indonesia."}]}
-            elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
-            elif complexity == "complex":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
+        # Instruksi sistem berdasarkan kompleksitas (sekarang ditambahkan sebagai pesan pengguna pertama)
+        instruction_message = ""
+        if complexity == "simple":
+            instruction_message = "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."
+        elif complexity == "medium":
+            instruction_message = "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."
+        elif complexity == "complex":
+            instruction_message = "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."
+        else:
+            instruction_message = "Berikan respons singkat dan relevan dalam Bahasa Indonesia."
+
+        gemini_messages = []
+        
+        # Tambahkan instruksi sistem sebagai pesan pengguna pertama
+        gemini_messages.append({"role": "user", "parts": [{"text": instruction_message}]})
+
+        # Format dan filter pesan untuk Gemini, hanya role 'user' dan 'model' yang valid
+        for msg in messages:
+            if msg['role'] in ['user', 'assistant']:  # Filter role yang tidak valid, assistant diganti model
+                gemini_messages.append({
+                    "role": "user" if msg['role'] == 'user' else 'model', # assistant diganti model
+                    "parts": [{"text": msg.get('content')}]
+                })
+
+        try:
+            # Gunakan generate_content dengan daftar pesan yang sudah diformat
+            response = gemini_model.generate_content(contents=gemini_messages)
+            if response is None:
+                logger.error("Gemini returned None.")
+                return "Terjadi kesalahan saat memproses permintaan."
+            return response.text
+        except Exception as e:
+            if "400 Please use a valid role" in str(e):
+                logger.error("Invalid role format detected in Gemini messages", e)
+                return "Maaf, terjadi kesalahan konfigurasi sistem pada format role pesan."
             else:
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
-            messages.insert(0, system_message)
-
-        # Format pesan untuk Gemini
-        gemini_messages = [
-            {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
-            for msg in messages
-        ]
-
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
-        last_message = messages[-1]
-        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
-
-        logger.info(f"Processing user message: {user_message}")
-
-        # Jika pesan mengandung kata kunci pencarian, lakukan pencarian Google
-        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
-            search_results = await search_google(user_message)
-            if search_results:
-                search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
-                    [f"- [{result['title']}]({result['link']})" for result in search_results]
-                    if isinstance(search_results[0], dict) else search_results
-                ) if search_results else ""
-                user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)
-                if response is None:
-                    logger.error("Gemini returned None after Google search context.")
-                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
-                logger.info(f"Gemini response with Google context: {response.text}")
-                return response.text
-            else:
-                logger.warning(f"No relevant sources found for: {user_message}")
-                return "Tidak ada sumber yang relevan ditemukan di Google."
-
-        # Proses pesan pengguna dengan Gemini
-        response = chat.send_message(user_message)
-        if response is None:
-            logger.error("Gemini returned None.")
-            return "Terjadi kesalahan saat memproses permintaan."
-
-        # Kembalikan respons Gemini
-        return response.text
+                logger.exception("Error processing Gemini request")
+                return "Terjadi kesalahan dalam memproses permintaan Anda."
 
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
@@ -1562,7 +1548,7 @@ async def get_adaptive_history(chat_id: int, n: int = 20):
         print(f"Error getting adaptive history: {e}")
         return []
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
