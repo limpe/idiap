@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import logging
 import tempfile
@@ -68,7 +69,7 @@ except Exception as e:
     logger.error(f"Error tak terduga saat inisiasi Redis: {e}")
     redis_client = None
     redis_available = False
-
+    
 def check_required_settings():
     missing_vars = []
     required_vars = {
@@ -271,7 +272,6 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
         except Exception as e:
             logger.error(f"Error tak terduga saat mengambil data VWAP: {e}")
             return None
-    return None
 
 
 
@@ -746,7 +746,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
                             },
                             {
                                 "type": "image_url",
-                                "image_url": f"data:image/jpeg;base64,{base64_image}"
+                                "image_url": f"data:image/jpeg;base64,{base_image}"
                             }
                         ]
                     }
@@ -978,9 +978,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{part}")
 
                 # Ambil sesi dari Redis
-                session = json.loads(redis_client.get(f"session:{chat_id}"))
+                session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi sebagai Hash
 
                 # Tambahkan pesan pengguna ke sesi
+                session['messages'] = json.loads(session.get('messages'))
                 session['messages'].append({"role": "user", "content": text})
                 await update_session(chat_id, {"role": "user", "content": text})
 
@@ -1193,7 +1194,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await initialize_session(chat_id)
 
         # Ambil sesi dari Redis
-        session = json.loads(redis_client.get(f"session:{chat_id}"))
+        session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi sebagai Hash
         logger.info(f"Sesi saat ini: {session}")
         
         # Update statistik
@@ -1236,6 +1237,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"Analisa:\n{part}")
 
                 # Simpan hasil analisis ke sesi
+                session['messages'] = json.loads(session.get('messages'))
                 session['messages'].append({
                     "role": "user",
                     "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
@@ -1290,13 +1292,14 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await initialize_session(chat_id)
 
             # Ambil sesi dari Redis
-            session = json.loads(redis_client.get(f"session:{chat_id}"))
+            session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi sebagai Hash
 
             # Reset konteks jika diperlukan
             if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
 
             # Tambahkan pesan pengguna ke sesi
+            session['messages'] = json.loads(session.get('messages'))
             session['messages'].append({"role": "user", "content": sanitized_text})
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
@@ -1342,7 +1345,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             'last_update': float(session_hash.get('last_update', 0)),
             'conversation_id': session_hash.get('conversation_id'),
             'complexity': session_hash.get('complexity', 'simple'),
-            'last_image_base64': session_hash.get('last_image_base64')
+            'user_name': session_hash.get('user_name') or "", # Default ke string kosong jika None
+            'last_image_base64': session_hash.get('last_image_base64') or "" # Default ke string kosong jika None
         }
     else:
         # Jika sesi tidak ada, inisialisasi sesi baru
@@ -1352,7 +1356,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             'last_update': datetime.now().timestamp(),
             'conversation_id': str(uuid.uuid4()),
             'complexity': 'simple',
-            'last_image_base64': None
+            'last_image_base64': '' # Initialize to empty string here as well
         }
 
     # Pastikan kunci 'message_counter' ada
@@ -1380,19 +1384,12 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
     # Tambahkan pesan ke riwayat pesan
     session['messages'].append(message)
-    # Ekstrak nama pengguna dari pesan jika ada
-    user_name = session.get('user_name')
-    if message['role'] == 'user':
-        name_match = re.search(r"nama saya(?: adalah)?\s*([\w\s]+)", message['content'], re.IGNORECASE)
-        if name_match:
-            user_name = name_match.group(1).strip()
-            session['user_name'] = user_name  # Simpan nama pengguna di sesi
-            logger.info(f"Nama pengguna terdeteksi: {user_name}")
-
     session['last_update'] = datetime.now().timestamp()
 
     # Serialize messages menjadi JSON string sebelum disimpan
     session['messages'] = json.dumps(session['messages'])
+
+    user_name = session.get('user_name') or "" # Default ke string kosong jika None
 
     # Simpan sesi yang diupdate ke Redis sebagai Hash
     redis_client.hset(f"session:{chat_id}", mapping={ # Menggunakan hset dengan argumen mapping
@@ -1401,6 +1398,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         'last_update': session['last_update'],
         'conversation_id': session['conversation_id'],
         'complexity': session['complexity'],
+        'last_image_base64': session['last_image_base64'],
         'user_name': user_name # Simpan nama pengguna di Redis Hash
     })
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
@@ -1676,7 +1674,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_message_time = datetime.fromtimestamp(float(last_message_time))
         if current_time - last_message_time < timedelta(seconds=5):
             await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-            return
+        return
 
     redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
 
