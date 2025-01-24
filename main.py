@@ -1470,8 +1470,14 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     if previous_complexity != new_complexity:
         logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-    # Tambahkan pesan ke riwayat pesan
-    session['messages'].append(message)
+    # Format pesan sesuai struktur Content Gemini API
+    gemini_content_message = {
+        'role': message['role'],
+        'parts': [{'text': message['content']}]
+    }
+
+    # Tambahkan pesan ke riwayat pesan dalam format Gemini API
+    session['messages'].append(gemini_content_message)
     session['last_update'] = datetime.now().timestamp()
 
     # Serialize messages menjadi JSON string sebelum disimpan
