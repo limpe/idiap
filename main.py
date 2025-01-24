@@ -1518,7 +1518,7 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     # Format pesan sesuai struktur Content Gemini API
     gemini_content_message = {
         'role': message['role'],
-        'parts': [{'text': message['content']}]
+        'parts': message['parts']
     }
 
     # Tambahkan pesan ke riwayat pesan dalam format Gemini API
