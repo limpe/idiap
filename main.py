@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import os
 import logging
 import tempfile
@@ -1327,7 +1326,7 @@ async def initialize_session(chat_id: int) -> None:
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
         'complexity': 'simple',  # Kompleksitas percakapan
-        'last_image_base64': None # Representasi base64 dari gambar terakhir
+        'last_image_base64': '' # Representasi base64 dari gambar terakhir, diubah menjadi string kosong
     }
     redis_client.hmset(f"session:{chat_id}", session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
