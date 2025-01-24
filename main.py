@@ -718,9 +718,9 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Tambahkan instruksi sistem berdasarkan kompleksitas
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dan Relevan mudah dibaca dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
