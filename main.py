@@ -718,7 +718,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Tambahkan instruksi sistem berdasarkan kompleksitas
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dan sopan dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
@@ -1436,7 +1436,6 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
-
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Coba Gemini terlebih dahulu
@@ -1495,7 +1494,75 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
+def cosine_similarity(emb1, emb2):
+    """Placeholder untuk fungsi cosine_similarity."""
+    return 0.8 # Contoh similarity
+
+async def generate_embedding(text):
+    """Placeholder untuk fungsi generate_embedding."""
+    return [0.1, 0.2, 0.3] # Contoh embedding
+
+async def get_adaptive_history(chat_id: int, n: int = 20):
+    """Mengambil riwayat adaptif berdasarkan skor waktu dan similaritas embedding."""
+    try:
+        if redis_client:
+            key = f"conversation:{chat_id}"
+            now = datetime.now()
+            scores_key = f"conversation:{chat_id}:scores"
+            
+            # 1. Ambil topic embedding dari metadata sesi
+            current_embedding_str = await redis_client.hget(f"session:{chat_id}:metadata", "topic_embedding")
+            current_embedding = json.loads(current_embedding_str) if current_embedding_str else None
+
+            if not current_embedding:
+                return [] # Tidak ada topic embedding, kembalikan riwayat kosong
+
+            # 2. Ambil pesan dari stream
+            messages = await redis_client.xrevrange(key, count=100, max="+", min="-")
+            if not messages:
+                return []
+
+            scored_messages = []
+            for msg_id, msg_data in messages:
+                msg_content = msg_data.get(b'content', b'').decode()
+                if not msg_content:
+                    continue
+
+                # 3. Generate embedding untuk setiap pesan
+                msg_embedding = await generate_embedding(msg_content)
+                if not msg_embedding:
+                    continue
+
+                # 4. Hitung cosine similarity
+                similarity_score = cosine_similarity(msg_embedding, current_embedding)
+
+                # 5. Hitung skor berbasis waktu (opsional, bisa diganti hanya dengan similarity_score)
+                timestamp_str = msg_data.get(b'timestamp', b'').decode()
+                time_score = 0
+                if timestamp_str:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    age = now - timestamp
+                    time_score = 1 / (age.total_seconds() / 3600 + 1)
+
+                # 6. Gabungkan skor (atau gunakan hanya similarity_score)
+                combined_score = similarity_score # Bisa juga: combined_score = 0.5 * similarity_score + 0.5 * time_score
+
+
+                scored_messages.append({'id': msg_id.decode(), 'msg_data': msg_data, 'score': combined_score})
+
+
+            # Urutkan pesan berdasarkan skor gabungan
+            scored_messages.sort(key=lambda x: x['score'], reverse=True)
+
+            # 7. Ambil N pesan dengan skor tertinggi
+            history = [msg['msg_data'] for msg in scored_messages[:n]] # Ambil hanya msg_data
+            return history
+        return []
+    except Exception as e:
+        print(f"Error getting adaptive history: {e}")
+        return []
+
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1523,6 +1590,7 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
+        
             return True
 
         session = json.loads(session_json)
