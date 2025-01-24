@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import logging
 import tempfile
@@ -1577,12 +1578,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    session_hash = redis_client.hgetall(f"session:{chat_id}") # Coba ambil sebagai Hash
+    if not session_hash:
+        await initialize_session(chat_id) # Inisialisasi sesi baru sebagai Hash
+        session = redis_client.hgetall(f"session:{chat_id}") # Ambil sesi yang baru diinisialisasi
     else:
-        session = json.loads(session_json)
+        # Sesi ditemukan, ambil nilai dan konversi tipe data yang sesuai
+        session = {
+            'messages': json.loads(session_hash.get('messages', '[]')),
+            'message_counter': int(session_hash.get('message_counter', 0)),
+            'last_update': float(session_hash.get('last_update', 0)),
+            'conversation_id': session_hash.get('conversation_id'),
+            'complexity': session_hash.get('complexity', 'simple'),
+            'last_image_base64': session_hash.get('last_image_base64')
+        }
 
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
