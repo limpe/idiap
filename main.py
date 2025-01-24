@@ -1395,13 +1395,13 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def initialize_session(chat_id: int) -> None:
     session = {
-        'messages': [],  # Riwayat pesan
+        'messages': json.dumps([]),  # Riwayat pesan, disimpan sebagai JSON string
         'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
         'complexity': 'simple'  # Kompleksitas percakapan
     }
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.hset(f"session:{chat_id}", mapping=session)
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
     logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
@@ -1410,11 +1410,17 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         if redis_client and redis_available:
             pipe = redis_client.pipeline()
             pipe.multi()
-            
+
             try:
-                session_json = redis_client.get(f"session:{chat_id}")
-                if session_json:
-                    session = json.loads(session_json)
+                session_data = redis_client.hgetall(f"session:{chat_id}")
+                if session_data:
+                    # Load messages dari JSON string
+                    session = {
+                        'messages': json.loads(session_data.get('messages', '[]')),
+                        'message_counter': int(session_data.get('message_counter', 0)),
+                        'last_update': float(session_data.get('last_update', 0.0)),
+                        'complexity': session_data.get('complexity', 'simple')
+                    }
                 else:
                     session = {
                         'messages': [],
@@ -1439,11 +1445,20 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
                 if previous_complexity != new_complexity:
                     logger.info(f"Perubahan kompleksitas: {previous_complexity} -> {new_complexity}")
 
-                session['messages'].append(message)
+                # Ambil pesan messages dari session dan parse dari JSON
+                messages_list = json.loads(session.get('messages'))
+                messages_list.append(message) # Tambahkan pesan baru ke list
+                session['messages'] = messages_list # Update session messages dengan list yang baru
                 session['last_update'] = datetime.now().timestamp()
 
-                # Batch Redis operations
-                pipe.set(f"session:{chat_id}", json.dumps(session))
+                # Update Redis hash
+                session_for_redis = {
+                    "messages": json.dumps(session['messages']), # Serialize kembali ke JSON sebelum disimpan
+                    "message_counter": str(session['message_counter']),
+                    "last_update": str(session['last_update']),
+                    "complexity": session['complexity']
+                }
+                pipe.hset(f"session:{chat_id}", mapping=session_for_redis)
                 pipe.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
                 await pipe.execute()
 
@@ -1475,6 +1490,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
     try:
         # Coba Gemini terlebih dahulu
         try:
+            # Gunakan semua pesan dalam riwayat percakapan
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
                 logger.info("Menggunakan respons dari Gemini.")
@@ -1483,7 +1499,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             logger.error(f"Gemini RECITATION error: {e}")
         except asyncio.TimeoutError:
             logger.warning("Gemini timeout, beralih ke Mistral.")
-        
+
         # Jika Gemini gagal, coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
@@ -1492,13 +1508,13 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
                 return response
         except asyncio.TimeoutError:
             logger.error("Mistral timeout.")
-        
+
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
-    
+
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
