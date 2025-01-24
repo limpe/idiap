@@ -111,7 +111,48 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
+# Inisialisasi model Gemini dengan konfigurasi khusus
+generation_config = {
+    "temperature": 0.7,
+    "top_p": 1,
+    "top_k": 1,
+    "max_output_tokens": 2048,
+}
+
+safety_settings = [
+    {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+]
+
+gemini_model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash-thinking-exp-01-21",
+    generation_config=generation_config,
+    safety_settings=safety_settings
+)
+
+# Tambahkan prompt template default untuk memastikan respons dalam Bahasa Indonesia
+DEFAULT_PROMPT_TEMPLATE = """Anda adalah PAIDI, asisten AI yang selalu berkomunikasi dalam Bahasa Indonesia yang baik, benar, dan natural.
+Berikan respons yang sopan, informatif, dan mudah dipahami.
+Gunakan bahasa yang formal tapi tetap ramah.
+
+Pertanyaan atau pesan dari pengguna:
+{message}
+
+Berikan respons dalam Bahasa Indonesia:"""
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -704,17 +745,30 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
 
         logger.info(f"Processing user message: {user_message}")
 
-        # Mulai chat dengan Gemini tanpa history
-        chat = gemini_model.start_chat()
+        system_prompt = """Anda adalah PAIDI, asisten AI yang SELALU:
+1. Berkomunikasi dalam Bahasa Indonesia yang baik dan benar
+2. Memberikan respons yang sopan, natural dan mudah dipahami
+3. Menggunakan bahasa yang formal tapi tetap ramah
+4. Menghindari penggunaan istilah bahasa Inggris kecuali istilah teknis
+5. Menjawab pertanyaan secara lengkap dan informatif
 
-        # Proses pesan pengguna dengan Gemini
-        response = chat.send_message(user_message)
+Berikut pertanyaan atau pesan dari pengguna. Berikan respons HANYA dalam Bahasa Indonesia:"""
+
+        # Format pesan dengan instruksi bahasa Indonesia yang kuat
+        enhanced_message = f"{system_prompt}\n\n{user_message}"
+        
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat()
+        
+        # Proses pesan
+        response = chat.send_message(enhanced_message)
         if response is None:
             logger.error("Gemini returned None.")
-            return "Terjadi kesalahan saat memproses permintaan."
+            return "Maaf, terjadi kesalahan saat memproses permintaan Anda."
 
-        # Kembalikan respons Gemini
-        return response.text
+        # Filter dan return respons
+        filtered_response = response.text.replace("AI:", "").replace("Assistant:", "").strip()
+        return filtered_response
 
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
@@ -882,10 +936,44 @@ def get_max_conversation_messages(complexity: str) -> int:
         return MAX_CONVERSATION_MESSAGES_MEDIUM  # Default
 
 async def filter_text(text: str) -> str:
-    """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    #logger.info(f"Original text before filtering: {text}")  # Log teks sebelum difilter
-    filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
-    #logger.info(f"Filtered text after filtering: {filtered_text}")  # Log teks setelah difilter
+    """Filter untuk membersihkan dan memastikan respons dalam Bahasa Indonesia"""
+    # Hapus karakter yang tidak diinginkan
+    filtered_text = text.replace("*", "").replace("#", "")
+    
+    # Ganti identifier AI dengan PAIDI
+    replacements = {
+        "Mistral AI": "PAIDI",
+        "oleh Google": "PAIDI",
+        "Mistral": "PAIDI",
+        "AI Assistant": "PAIDI",
+        "Assistant": "PAIDI",
+        "AI:": "",
+        "Bot:": "",
+        "Tentu, ": "",
+        "Tentu saja, ": "",
+        "Here's": "Berikut",
+        "I am": "Saya",
+        "I will": "Saya akan",
+        "I can": "Saya bisa",
+        "Yes,": "Ya,",
+        "No,": "Tidak,",
+        "Sorry,": "Maaf,",
+        "Please": "Mohon",
+        "Thank you": "Terima kasih"
+    }
+    
+    for old, new in replacements.items():
+        filtered_text = filtered_text.replace(old, new)
+    
+    # Deteksi bahasa menggunakan langdetect
+    try:
+        if detect(filtered_text) != 'id':
+            logger.warning("Respons terdeteksi bukan dalam Bahasa Indonesia, mencoba terjemahkan...")
+            translator = GoogleTranslator(source='auto', target='id')
+            filtered_text = translator.translate(filtered_text)
+    except:
+        logger.error("Gagal mendeteksi atau menerjemahkan bahasa")
+        
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
