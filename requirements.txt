@@ -21,4 +21,3 @@ langdetect
 scikit-learn
 twelvedata
 pandas
-googlemaps==4.10.0
