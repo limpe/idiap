@@ -724,11 +724,11 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Tambahkan instruksi sistem berdasarkan kompleksitas
         if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "model", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
+                system_message = {"role": "model", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
+                system_message = {"role": "model", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
             messages.insert(0, system_message)
@@ -1047,7 +1047,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 if response:
                     # Tambahkan respons asisten ke sesi
-                    session['messages'].append({"role": "assistant", "content": response})
+                    session['messages'].append({"role": "model", "content": response})
                     await update_session(chat_id, {"role": "assistant", "content": response})
 
                     # Filter dan kirim respons
@@ -1299,7 +1299,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
                 })
                 session['messages'].append({
-                    "role": "assistant",
+                    "role": "model",
                     "content": filtered_result
                 })
                 session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
@@ -1618,7 +1618,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
         #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
         # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
+        session['messages'].append({"role": "model", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
