@@ -1547,7 +1547,7 @@ async def get_adaptive_history(chat_id: int, n: int = 20):
         print(f"Error getting adaptive history: {e}")
         return []
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 2) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
