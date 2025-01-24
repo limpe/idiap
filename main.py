@@ -117,12 +117,12 @@ CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-CONVERSATION_TIMEOUT = 86400  # 24 jam untuk mempertahankan konteks lebih lama
+CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-MAX_CONVERSATION_MESSAGES_SIMPLE = 25  # Meningkatkan batas untuk mode simple
-MAX_CONVERSATION_MESSAGES_MEDIUM = 75  # Meningkatkan batas untuk mode medium
-MAX_CONVERSATION_MESSAGES_COMPLEX = 150  # Meningkatkan batas untuk mode complex
+MAX_CONVERSATION_MESSAGES_SIMPLE = 10
+MAX_CONVERSATION_MESSAGES_MEDIUM = 50
+MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 15
 client = Together()
 factory = StemmerFactory()
@@ -354,16 +354,21 @@ def format_technical_indicators(stock_data: Dict) -> str:
     macd = stock_data.get('macd')
     vwap = stock_data.get('vwap')
 
+    def escape_curly_braces(text):
+        if isinstance(text, str):
+            return text.replace("{", "{{").replace("}", "}}")
+        return text
+
     indicators = (
         f"1. **Bollinger Bands (BBANDS):**\n"
-        f"   - Upper Band: {bbands.get('upper_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
-        f"   - Middle Band: {bbands.get('middle_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
-        f"   - Lower Band: {bbands.get('lower_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n\n"
+        f"   - Upper Band: {escape_curly_braces(bbands.get('upper_band', 'Tidak tersedia')) if bbands else 'Tidak tersedia'}\n"
+        f"   - Middle Band: {escape_curly_braces(bbands.get('middle_band', 'Tidak tersedia')) if bbands else 'Tidak tersedia'}\n"
+        f"   - Lower Band: {escape_curly_braces(bbands.get('lower_band', 'Tidak tersedia')) if bbands else 'Tidak tersedia'}\n\n"
         f"2. **Moving Average Convergence Divergence (MACD):**\n"
-        f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
-        f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
+        f"   - MACD: {escape_curly_braces(macd.get('macd', 'Tidak tersedia')) if macd else 'Tidak tersedia'}\n"
+        f"   - Signal: {escape_curly_braces(macd.get('signal', 'Tidak tersedia')) if macd else 'Tidak tersedia'}\n"
+        f"   - Histogram: {escape_curly_braces(macd.get('histogram', 'Tidak tersedia')) if macd else 'Tidak tersedia'}\n\n"
+        f"3. **Volume Weighted Average Price (VWAP):** {escape_curly_braces(vwap.get('vwap', 'Tidak tersedia')) if vwap else 'Tidak tersedia'}\n"
     )
 
     return historical_data + indicators
@@ -423,15 +428,16 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Buat prompt untuk Gemini
         prompt = (
-            f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
+            f"Anda adalah seorang trader forex profesional dengan pemahaman mendalam tentang analisis teknikal dan fundamental. Anda ahli dalam manajemen risiko, psikologi trading, dan memiliki strategi yang terbukti menghasilkan profit secara konsisten. Anda juga memahami berbagai indikator, pola grafik, dan memiliki pengalaman dalam menggunakan berbagai platform trading seperti MetaTrader, TradingView, dan lainnya. Anda selalu mengikuti perkembangan pasar global dan mampu beradaptasi dengan kondisi yang berubah-ubah\n\n"
+             "Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
+             "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
              "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
              "1. **Tren Harga:**\n"
              "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek dan panjang?\n"
-            "   - Apakah Market Structure tren bullish atau bearish ?\n"
              "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
               "2. **Indikator Teknis:**\n"
               "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
-             "   - MACD untuk mengidentifikasi momentum tren.\n"
+             "   - Tinjau sinyal konvergensi/divergensi MACD untuk mengidentifikasi momentum tren.\n"
              "   - Evaluasi penggunaan VWAP untuk menentukan nilai harga yang wajar.\n\n"
              "3. **Saran:**\n"
              "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
@@ -716,11 +722,11 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         logger.info(f"Conversation complexity: {complexity}")
 
         # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
             if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas dan Relevan mudah dibaca dalam Bahasa Indonesia."}]}
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
             elif complexity == "complex":
                 system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
@@ -1313,8 +1319,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
     message_text = update.message.text or update.message.caption or ""
-    is_reply = bool(update.message.reply_to_message)
-    replied_message = None
 
     # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
@@ -1325,20 +1329,20 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_text = message_text.replace(f'@{context.bot.username}', '').strip()
             should_process = True
 
-        # Cek reply dan ambil konteks pesan yang direply
-        elif is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+        # Cek reply
+        elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
             should_process = True
-            replied_message = update.message.reply_to_message.text
-            
+
         if should_process and message_text:
             # Sanitasi input teks
             sanitized_text = sanitize_input(message_text)
 
             # Cek apakah pesan mengandung perintah /gambar atau /image
             if sanitized_text.lower().startswith(('/gambar', '/image')):
-                await handle_generate_image(update, context)
+                await handle_generate_image(update, context)  # Panggil handler untuk /gambar
                 return
 
+            # Lanjutkan pemrosesan pesan biasa
             # Periksa apakah sesi sudah ada di Redis
             if not redis_client.exists(f"session:{chat_id}"):
                 await initialize_session(chat_id)
@@ -1346,22 +1350,16 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
-            if not is_reply and await should_reset_context(chat_id, sanitized_text):
+            # Reset konteks jika diperlukan
+            if await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
-                session = json.loads(redis_client.get(f"session:{chat_id}"))
-
-            # Tambahkan konteks dari pesan yang direply jika ada
-            if replied_message:
-                sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
             # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-            # Proses pesan dengan konteks cerdas, dengan menyertakan lebih banyak konteks untuk reply
-            context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
-            response = await process_with_smart_context(session['messages'][-context_window:])
+            # Proses pesan dengan konteks cerdas
+            response = await process_with_smart_context(session['messages'][-10:])  # Ambil 10 pesan terakhir
 
             if response:
                 # Filter hasil respons
@@ -1374,7 +1372,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
                 for part in response_parts:
-                    # Reply ke pesan pengguna untuk mempertahankan thread percakapan
                     await update.message.reply_text(part)
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
@@ -1417,11 +1414,9 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
     session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
     # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
-    # dan TIDAK mereset seluruh sesi percakapan
     if new_complexity == "simple" and previous_complexity == "medium":
-        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id} tanpa mereset sesi.")
-        session['message_counter'] = 0  # Reset hanya counter pesan
-        # Tidak menghapus riwayat pesan atau informasi sesi lainnya
+        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
+        session['message_counter'] = 0  # Reset counter pesan
 
     # Update counter pesan
     session['message_counter'] += 1
@@ -1497,7 +1492,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1603,10 +1598,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
 
     # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
-    is_reply = bool(update.message.reply_to_message)
-    replied_message = None
-
     session_json = redis_client.get(f"session:{chat_id}")
     if not session_json:
         await initialize_session(chat_id)
@@ -1614,36 +1605,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Handle replies khusus untuk private chat
-    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-        replied_message = update.message.reply_to_message.text
-        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
-
-    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
-    if not is_reply and await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)
-        session = json.loads(redis_client.get(f"session:{chat_id}"))
-
     # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Proses pesan dengan konteks cerdas
-    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
-    response = await process_with_smart_context(session['messages'][-context_window:])
+    # Proses pesan dengan Gemini
+    response = await process_with_gemini(session['messages'])
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
+        filtered_response = await filter_text(response)  # Panggil filter_text di sini
+        #logger.info(f"Response after filtering: {filtered_response}")  # Log respons setelah difilter
 
         # Tambahkan respons asisten ke sesi
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
         # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)
+        response_parts = split_message(filtered_response)  # Gunakan filtered_response
         for part in response_parts:
-            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
             await update.message.reply_text(part)
     else:
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
