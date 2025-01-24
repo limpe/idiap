@@ -713,57 +713,13 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             logger.error("Empty message list received.")
             return "Tidak ada pesan yang dapat diproses."
 
-        # Jika session tidak diberikan, buat session default
-        if session is None:
-            session = {'message_counter': 0}
-
-        # Tentukan kompleksitas percakapan dengan menyertakan session
-        complexity = await determine_conversation_complexity(messages, session)
-        logger.info(f"Conversation complexity: {complexity}")
-
-        # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons") for msg in messages):
-            if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
-            elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca tetapi tidak terlalu panjang dalam Bahasa Indonesia."}]}
-            elif complexity == "complex":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
-            else:
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
-            messages.insert(0, system_message)
-
-        # Format pesan untuk Gemini
-        gemini_messages = [
-            {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
-            for msg in messages
-        ]
-
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
         last_message = messages[-1]
         user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
 
         logger.info(f"Processing user message: {user_message}")
 
-        # Jika pesan mengandung kata kunci pencarian, lakukan pencarian Google
-        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
-            search_results = await search_google(user_message)
-            if search_results:
-                search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
-                    [f"- [{result['title']}]({result['link']})" for result in search_results]
-                    if isinstance(search_results[0], dict) else search_results
-                ) if search_results else ""
-                user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)
-                if response is None:
-                    logger.error("Gemini returned None after Google search context.")
-                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
-                logger.info(f"Gemini response with Google context: {response.text}")
-                return response.text
-            else:
-                logger.warning(f"No relevant sources found for: {user_message}")
-                return "Tidak ada sumber yang relevan ditemukan di Google."
+        # Mulai chat dengan Gemini tanpa history
+        chat = gemini_model.start_chat()
 
         # Proses pesan pengguna dengan Gemini
         response = chat.send_message(user_message)
