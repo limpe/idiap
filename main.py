@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import os
 import logging
 import tempfile
@@ -1381,19 +1380,28 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
 
     # Tambahkan pesan ke riwayat pesan
     session['messages'].append(message)
+    # Ekstrak nama pengguna dari pesan jika ada
+    user_name = session.get('user_name')
+    if message['role'] == 'user':
+        name_match = re.search(r"nama saya(?: adalah)?\s*([\w\s]+)", message['content'], re.IGNORECASE)
+        if name_match:
+            user_name = name_match.group(1).strip()
+            session['user_name'] = user_name  # Simpan nama pengguna di sesi
+            logger.info(f"Nama pengguna terdeteksi: {user_name}")
+
     session['last_update'] = datetime.now().timestamp()
 
     # Serialize messages menjadi JSON string sebelum disimpan
     session['messages'] = json.dumps(session['messages'])
 
     # Simpan sesi yang diupdate ke Redis sebagai Hash
-    redis_client.hmset(f"session:{chat_id}", {
+    redis_client.hset(f"session:{chat_id}", mapping={ # Menggunakan hset dengan argumen mapping
         'messages': session['messages'],
         'message_counter': session['message_counter'],
         'last_update': session['last_update'],
         'conversation_id': session['conversation_id'],
         'complexity': session['complexity'],
-        'last_image_base64': session['last_image_base64']
+        'user_name': user_name # Simpan nama pengguna di Redis Hash
     })
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
