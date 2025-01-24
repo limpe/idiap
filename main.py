@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import logging
 import tempfile
@@ -271,6 +272,7 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
         except Exception as e:
             logger.error(f"Error tak terduga saat mengambil data VWAP: {e}")
             return None
+    return None
 
 
 
@@ -387,7 +389,6 @@ def format_historical_data(historical_data: List[Dict]) -> str:
             f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
         )
     return formatted_data
-
 
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1341,7 +1342,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             'message_counter': int(session_hash.get('message_counter', 0)),
             'last_update': float(session_hash.get('last_update', 0)),
             'conversation_id': session_hash.get('conversation_id'),
-            'complexity': session_hash.get('complexity', 'simple')
+            'complexity': session_hash.get('complexity', 'simple'),
+            'last_image_base64': session_hash.get('last_image_base64')
         }
     else:
         # Jika sesi tidak ada, inisialisasi sesi baru
@@ -1350,7 +1352,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
             'message_counter': 0,
             'last_update': datetime.now().timestamp(),
             'conversation_id': str(uuid.uuid4()),
-            'complexity': 'simple'
+            'complexity': 'simple',
+            'last_image_base64': None
         }
 
     # Pastikan kunci 'message_counter' ada
@@ -1389,7 +1392,8 @@ async def update_session(chat_id: int, message: Dict[str, str]) -> None:
         'message_counter': session['message_counter'],
         'last_update': session['last_update'],
         'conversation_id': session['conversation_id'],
-        'complexity': session['complexity']
+        'complexity': session['complexity'],
+        'last_image_base64': session['last_image_base64']
     })
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
@@ -1531,6 +1535,22 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
 
+async def flush_redis_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /flush_redis_sessions. Menghapus semua sesi Redis."""
+    try:
+        # Hapus semua kunci yang cocok dengan pola "session:*"
+        keys_to_delete = redis_client.keys("session:*")
+        if keys_to_delete:
+            redis_client.delete(*keys_to_delete)
+            await update.message.reply_text(f"Semua sesi Redis ({len(keys_to_delete)} sesi) telah dihapus.")
+            logger.info(f"Semua sesi Redis ({len(keys_to_delete)} sesi) telah dihapus.")
+        else:
+            await update.message.reply_text("Tidak ada sesi Redis aktif untuk dihapus.")
+            logger.info("Tidak ada sesi Redis aktif untuk dihapus.")
+    except Exception as e:
+        logger.error(f"Gagal menghapus sesi Redis: {str(e)}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat menghapus sesi Redis.")
+
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
     chat_id = update.message.chat_id
@@ -1613,6 +1633,8 @@ def main():
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("gambar", handle_generate_image))
         application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
+        application.add_handler(CommandHandler("flush_redis_sessions", flush_redis_sessions))
+        application.add_handler(CommandHandler("flushsessions", flush_redis_sessions)) # Tambahkan alias command /flushsessions
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
