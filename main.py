@@ -429,7 +429,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         # Buat prompt untuk Gemini
         prompt = (
             f"Anda adalah seorang trader forex profesional dengan pemahaman mendalam tentang analisis teknikal dan fundamental. Anda ahli dalam manajemen risiko, psikologi trading, dan memiliki strategi yang terbukti menghasilkan profit secara konsisten. Anda juga memahami berbagai indikator, pola grafik, dan memiliki pengalaman dalam menggunakan berbagai platform trading seperti MetaTrader, TradingView, dan lainnya. Anda selalu mengikuti perkembangan pasar global dan mampu beradaptasi dengan kondisi yang berubah-ubah\n\n"
-             "Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
+             f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
              "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
              "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
              "1. **Tren Harga:**\n"
