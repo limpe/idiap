@@ -53,13 +53,40 @@ logger = logging.getLogger(__name__)
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 200 * 1024 * 1024  # 200MB
 
-# Konfigurasi Redis
+# Konfigurasi Redis dengan Connection Pool dan Optimasi
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
 try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = redis.from_url(
+        REDIS_URL,
+        decode_responses=True,
+        socket_timeout=5,          # Timeout lebih agresif
+        socket_keepalive=True,
+        retry_on_timeout=True,
+        health_check_interval=30,  # Periksa koneksi tiap 30 detik
+        max_connections=100,       # Sesuai dengan worker bot
+        connection_pool=redis.ConnectionPool(
+            max_connections=100,
+            timeout=10,
+            retry=redis.Retry(3, 2)  # 3x retry dengan delay 2 detik
+        )
+    )
     redis_client.ping()
     redis_available = True
     logger.info(f"Koneksi Redis berhasil ke: {REDIS_URL}")
+
+    # Mulai health check Redis secara berkala
+    async def redis_health_check():
+        while True:
+            try:
+                await asyncio.to_thread(redis_client.ping)
+                logger.info("Redis health check: OK")
+            except Exception as e:
+                logger.error(f"Redis health check failed: {e}")
+            await asyncio.sleep(300)  # Setiap 5 menit
+
+    # Mulai health check dalam task terpisah
+    asyncio.create_task(redis_health_check())
+
 except redis.exceptions.ConnectionError as e:
     logger.error(f"Gagal terhubung ke Redis di {REDIS_URL}: {e}")
     redis_client = None
@@ -465,45 +492,46 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await processing_msg.delete()
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
+    # Tambahkan analisis sentimen sederhana
+    positive_keywords = ['bagus', 'mantap', 'terima kasih', 'keren']
+    negative_keywords = ['jelek', 'cok', 'jancok', 'error', 'bug']
+    
     # Ambil semua pesan pengguna
     user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
     user_text = " ".join(user_messages).lower()  # Gabungkan semua pesan pengguna menjadi satu teks
-
-    # Cek apakah ada kata kunci kompleks di pesan terbaru
+    
+    # Hitung skor sentimen
+    sentiment_score = sum(1 for word in positive_keywords if word in user_text.lower()) - \
+                     sum(1 for word in negative_keywords if word in user_text.lower())
+    
+    # Cek kata kunci kompleks di pesan terbaru
     latest_message = user_messages[-1] if user_messages else ""
     has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
-
+    
     # Logging untuk debugging
     logger.info(f"Pesan terbaru: {latest_message}")
-    logger.info(f"Apakah mengandung kata kunci kompleks? {has_complex_keywords}")
+    logger.info(f"Skor sentimen: {sentiment_score}")
+    logger.info(f"Kata kunci kompleks: {has_complex_keywords}")
 
-    # Logika penurunan dan kenaikan kompleksitas
-    if previous_complexity == "complex":
-        if not has_complex_keywords:
-            logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
-        else:
-            logger.info(f"Kompleksitas tetap complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Tetap complex jika ada kata kunci kompleks
-
-    elif previous_complexity == "medium":
-        if not has_complex_keywords:
-            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks
-        else:
-            logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
-            return "medium"  # Tetap medium jika ada kata kunci kompleks
-
-    else:  # previous_complexity == "simple"
-        if has_complex_keywords:
-            logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Naik langsung ke complex jika ada kata kunci kompleks
-        elif session.get('message_counter', 0) > 3:  # Naik ke medium jika jumlah pesan > 3
-            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
-            return "medium"  # Naik ke medium jika pesan > 3
-        else:
-            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 3.")
-            return "simple"  # Tetap simple jika tidak ada perubahan
+    # Logika kompleksitas yang lebih sophisticated
+    if has_complex_keywords or sentiment_score < -2:
+        logger.info(f"Kompleksitas complex karena kata kunci kompleks atau sentimen sangat negatif")
+        return "complex"
+    elif len(messages) > 8 or session.get('message_counter', 0) > 5 or sentiment_score < -1:
+        logger.info(f"Kompleksitas medium karena jumlah pesan tinggi atau sentimen negatif")
+        return "medium"
+    elif previous_complexity == "complex" and not has_complex_keywords and sentiment_score >= 0:
+        logger.info(f"Menurunkan kompleksitas dari complex ke medium karena tidak ada indikator kompleksitas")
+        return "medium"
+    elif previous_complexity == "medium" and sentiment_score >= 1 and len(messages) <= 5:
+        logger.info(f"Menurunkan kompleksitas dari medium ke simple karena sentimen positif dan percakapan pendek")
+        return "simple"
+    elif previous_complexity == "simple" and (has_complex_keywords or sentiment_score < -1):
+        logger.info(f"Menaikkan kompleksitas dari simple ke medium karena ada indikator kompleksitas")
+        return "medium"
+    
+    logger.info(f"Mempertahankan kompleksitas {previous_complexity}")
+    return previous_complexity
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1378,48 +1406,70 @@ async def initialize_session(chat_id: int) -> None:
     logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    session_json = redis_client.get(f"session:{chat_id}")
-    if session_json:
-        session = json.loads(session_json)
-    else:
-        # Jika sesi tidak ada, inisialisasi sesi baru
-        session = {
-            'messages': [],  # Riwayat pesan
-            'message_counter': 0,  # Counter pesan
-            'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'  # Kompleksitas percakapan
-        }
+    try:
+        if redis_client and redis_available:
+            pipe = redis_client.pipeline()
+            pipe.multi()
+            
+            try:
+                session_json = redis_client.get(f"session:{chat_id}")
+                if session_json:
+                    session = json.loads(session_json)
+                else:
+                    session = {
+                        'messages': [],
+                        'message_counter': 0,
+                        'last_update': datetime.now().timestamp(),
+                        'complexity': 'simple'
+                    }
 
-    # Pastikan kunci 'message_counter' ada
-    if 'message_counter' not in session:
-        session['message_counter'] = 0
+                if 'message_counter' not in session:
+                    session['message_counter'] = 0
 
-    # Simpan kompleksitas sebelumnya
-    previous_complexity = session.get('complexity', 'simple')
+                previous_complexity = session.get('complexity', 'simple')
+                new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
+                session['complexity'] = new_complexity
 
-    # Tentukan kompleksitas baru
-    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+                if new_complexity == "simple" and previous_complexity == "medium":
+                    logger.info(f"Transisi dari medium ke simple, reset counter untuk chat_id {chat_id}")
+                    session['message_counter'] = 0
+                else:
+                    session['message_counter'] += 1
 
-    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
-    if new_complexity == "simple" and previous_complexity == "medium":
-        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-        session['message_counter'] = 0  # Reset counter pesan
+                if previous_complexity != new_complexity:
+                    logger.info(f"Perubahan kompleksitas: {previous_complexity} -> {new_complexity}")
 
-    # Update counter pesan
-    session['message_counter'] += 1
+                session['messages'].append(message)
+                session['last_update'] = datetime.now().timestamp()
 
-    # Catat perubahan kompleksitas jika ada
-    if previous_complexity != new_complexity:
-        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
+                # Batch Redis operations
+                pipe.set(f"session:{chat_id}", json.dumps(session))
+                pipe.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+                await pipe.execute()
 
-    # Tambahkan pesan ke sesi
-    session['messages'].append(message)
-    session['last_update'] = datetime.now().timestamp()
+            except redis.RedisError as e:
+                logger.error(f"Redis error dalam pipeline: {e}")
+                # Fallback ke penyimpanan lokal
+                backup_path = f'session_backup_{chat_id}.json'
+                with open(backup_path, 'w') as f:
+                    json.dump(session, f)
+                logger.info(f"Session backup tersimpan di: {backup_path}")
 
-    # Simpan sesi ke Redis
-    redis_client.set(f"session:{chat_id}", json.dumps(session))
-    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    except Exception as e:
+        logger.error(f"Error dalam update_session: {e}")
+        # Fallback ke penyimpanan lokal jika terjadi error
+        try:
+            backup_path = f'session_backup_{chat_id}.json'
+            with open(backup_path, 'w') as f:
+                json.dump({
+                    'messages': [message],
+                    'message_counter': 1,
+                    'last_update': datetime.now().timestamp(),
+                    'complexity': 'simple'
+                }, f)
+            logger.info(f"Session backup baru tersimpan di: {backup_path}")
+        except Exception as backup_error:
+            logger.error(f"Gagal membuat backup: {backup_error}")
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
