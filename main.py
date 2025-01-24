@@ -731,13 +731,12 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Tambahkan instruksi sistem sebagai pesan pengguna pertama
         gemini_messages.append({"role": "user", "parts": [{"text": instruction_message}]})
 
-        # Format dan filter pesan untuk Gemini, hanya role 'user' dan 'model' yang valid
+        # Format dan filter pesan untuk Gemini
         for msg in messages:
-            if msg['role'] in ['user', 'assistant']:  # Filter role yang tidak valid, assistant diganti model
-                gemini_messages.append({
-                    "role": "user" if msg['role'] == 'user' else 'model', # assistant diganti model
-                    "parts": [{"text": msg.get('content')}]
-                })
+            if msg['role'] == 'user':
+                gemini_messages.append({"role": "user", "parts": [{"text": msg.get('content')}]})
+            elif msg['role'] == 'assistant':
+                gemini_messages.append({"role": "model", "parts": [{"text": msg.get('content')}]})
 
         try:
             # Gunakan generate_content dengan daftar pesan yang sudah diformat
@@ -1681,7 +1680,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+    context_window = 30 if is_reply else 20  # Perluas window konteks untuk reply
     response = await process_with_smart_context(session['messages'][-context_window:])
     
     if response:
