@@ -1,69 +1,3 @@
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    if not message_text:
-        message_text = update.message.text or ""
-
-    # Sanitasi input teks
-    sanitized_text = sanitize_input(message_text)
-
-    # Periksa rate limit
-    user_id = update.message.from_user.id
-    if not await check_rate_limit(user_id):
-        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
-        return
-
-    # Ambil atau inisialisasi sesi
-    chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
-    is_reply = bool(update.message.reply_to_message)
-    replied_message = None
-
-    session_json = redis_client.get(f"session:{chat_id}")
-    if not session_json:
-        await initialize_session(chat_id)
-        session = {'messages': [], 'last_update': datetime.now().timestamp()}
-    else:
-        session_data = redis_client.hgetall(f"session:{chat_id}")
-        session = {
-            'messages': json.loads(session_data.get('messages', '[]')),
-            'message_counter': int(session_data.get('message_counter', 0)),
-            'last_update': float(session_data.get('last_update', 0.0)),
-            'complexity': session_data.get('complexity', 'simple')
-        }
-
-    # Handle replies khusus untuk private chat
-    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
-        replied_message = update.message.reply_to_message.text
-        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
-
-    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
-    if not is_reply and await should_reset_context(chat_id, sanitized_text):
-        await initialize_session(chat_id)
-        session = redis_client.hgetall(f"session:{chat_id}")
-        session['messages'] = json.loads(session.get('messages'))
-
-    # Tambahkan pesan pengguna ke sesi
-    session['messages'].append({"role": "user", "content": sanitized_text})
-    await update_session(chat_id, {"role": "user", "content": sanitized_text})
-
-    # Proses pesan dengan konteks cerdas
-    context_window = 30 if is_reply else 20  # Perluas window konteks untuk reply
-    response = await process_with_smart_context(session['messages'][-context_window:])
-    
-    if response:
-        # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
-
-        # Tambahkan respons asisten ke sesi
-        session['messages'].append({"role": "assistant", "content": filtered_response})
-        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-
-        # Kirim respons ke pengguna
-        response_parts = split_message(filtered_response)
-        for part in response_parts:
-            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
-            await update.message.reply_text(part)
-    else:
-        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
 import os
 import logging
 import tempfile
@@ -119,40 +53,13 @@ logger = logging.getLogger(__name__)
 # Konstanta untuk batasan ukuran file
 MAX_AUDIO_SIZE = 200 * 1024 * 1024  # 200MB
 
-# Konfigurasi Redis dengan Connection Pool dan Optimasi
+# Konfigurasi Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Gunakan nilai default jika tidak ada di environment
 try:
-    redis_client = redis.from_url(
-        REDIS_URL,
-        decode_responses=True,
-        socket_timeout=5,          # Timeout lebih agresif
-        socket_keepalive=True,
-        retry_on_timeout=True,
-        health_check_interval=30,  # Periksa koneksi tiap 30 detik
-        max_connections=100,       # Sesuai dengan worker bot
-        connection_pool=redis.ConnectionPool(
-            max_connections=100,
-            timeout=10,
-            retry=redis.Retry(3, 2)  # 3x retry dengan delay 2 detik
-        )
-    )
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()
     redis_available = True
     logger.info(f"Koneksi Redis berhasil ke: {REDIS_URL}")
-
-    # Mulai health check Redis secara berkala
-    async def redis_health_check():
-        while True:
-            try:
-                await asyncio.to_thread(redis_client.ping)
-                logger.info("Redis health check: OK")
-            except Exception as e:
-                logger.error(f"Redis health check failed: {e}")
-            await asyncio.sleep(300)  # Setiap 5 menit
-
-    # Mulai health check dalam task terpisah
-    asyncio.create_task(redis_health_check())
-
 except redis.exceptions.ConnectionError as e:
     logger.error(f"Gagal terhubung ke Redis di {REDIS_URL}: {e}")
     redis_client = None
@@ -203,14 +110,14 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
+gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
 SPEECH_RECOGNITION_TIMEOUT = 30  # Timeout untuk speech recognition dalam detik
 MAX_RETRIES = 5  # Jumlah maksimal percobaan untuk API calls
 RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
-CONVERSATION_TIMEOUT = 3600  # 3600 detik = 1 jam
+CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 MAX_CONVERSATION_MESSAGES_SIMPLE = 10
@@ -367,6 +274,7 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     return None
 
 
+
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
     if start_date is None:
@@ -393,15 +301,12 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 logger.info(f"Data saham: {data}")  # Log respons API
                 return data  # Kembalikan semua data historis
             return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request error fetching stock data (attempt {attempt + 1}): {str(e)}")
+        except Exception as e:
+            logger.error(f"Error fetching stock data (attempt {attempt + 1}): {str(e)}")
             if attempt < MAX_RETRIES - 1:
                 await asyncio.sleep(RETRY_DELAY)
             else:
                 return None
-        except Exception as e:
-            logger.error(f"Unexpected error fetching stock data (attempt {attempt + 1}): {str(e)}")
-            return None
     return None
 
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
@@ -560,46 +465,45 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await processing_msg.delete()
     
 async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
-    # Tambahkan analisis sentimen sederhana
-    positive_keywords = ['bagus', 'mantap', 'terima kasih', 'keren']
-    negative_keywords = ['jelek', 'cok', 'jancok', 'error', 'bug']
-    
     # Ambil semua pesan pengguna
     user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
     user_text = " ".join(user_messages).lower()  # Gabungkan semua pesan pengguna menjadi satu teks
-    
-    # Hitung skor sentimen
-    sentiment_score = sum(1 for word in positive_keywords if word in user_text.lower()) - \
-                     sum(1 for word in negative_keywords if word in user_text.lower())
-    
-    # Cek kata kunci kompleks di pesan terbaru
+
+    # Cek apakah ada kata kunci kompleks di pesan terbaru
     latest_message = user_messages[-1] if user_messages else ""
     has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
-    
+
     # Logging untuk debugging
     logger.info(f"Pesan terbaru: {latest_message}")
-    logger.info(f"Skor sentimen: {sentiment_score}")
-    logger.info(f"Kata kunci kompleks: {has_complex_keywords}")
+    logger.info(f"Apakah mengandung kata kunci kompleks? {has_complex_keywords}")
 
-    # Logika kompleksitas yang lebih sophisticated
-    if has_complex_keywords or sentiment_score < -2:
-        logger.info(f"Kompleksitas complex karena kata kunci kompleks atau sentimen sangat negatif")
-        return "complex"
-    elif len(messages) > 8 or session.get('message_counter', 0) > 5 or sentiment_score < -1:
-        logger.info(f"Kompleksitas medium karena jumlah pesan tinggi atau sentimen negatif")
-        return "medium"
-    elif previous_complexity == "complex" and not has_complex_keywords and sentiment_score >= 0:
-        logger.info(f"Menurunkan kompleksitas dari complex ke medium karena tidak ada indikator kompleksitas")
-        return "medium"
-    elif previous_complexity == "medium" and sentiment_score >= 1 and len(messages) <= 5:
-        logger.info(f"Menurunkan kompleksitas dari medium ke simple karena sentimen positif dan percakapan pendek")
-        return "simple"
-    elif previous_complexity == "simple" and (has_complex_keywords or sentiment_score < -1):
-        logger.info(f"Menaikkan kompleksitas dari simple ke medium karena ada indikator kompleksitas")
-        return "medium"
-    
-    logger.info(f"Mempertahankan kompleksitas {previous_complexity}")
-    return previous_complexity
+    # Logika penurunan dan kenaikan kompleksitas
+    if previous_complexity == "complex":
+        if not has_complex_keywords:
+            logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
+            return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
+        else:
+            logger.info(f"Kompleksitas tetap complex karena pesan terbaru mengandung kata kunci kompleks.")
+            return "complex"  # Tetap complex jika ada kata kunci kompleks
+
+    elif previous_complexity == "medium":
+        if not has_complex_keywords:
+            logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks.")
+            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks
+        else:
+            logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
+            return "medium"  # Tetap medium jika ada kata kunci kompleks
+
+    else:  # previous_complexity == "simple"
+        if has_complex_keywords:
+            logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
+            return "complex"  # Naik langsung ke complex jika ada kata kunci kompleks
+        elif session.get('message_counter', 0) > 3:  # Naik ke medium jika jumlah pesan > 3
+            logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
+            return "medium"  # Naik ke medium jika pesan > 3
+        else:
+            logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 3.")
+            return "simple"  # Tetap simple jika tidak ada perubahan
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -762,7 +666,7 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
     try:
         # Inisialisasi model Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
         # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
@@ -811,43 +715,58 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         complexity = await determine_conversation_complexity(messages, session)
         logger.info(f"Conversation complexity: {complexity}")
 
-        # Instruksi sistem berdasarkan kompleksitas (sekarang ditambahkan sebagai pesan pengguna pertama)
-        instruction_message = ""
-        if complexity == "simple":
-            instruction_message = "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."
-        elif complexity == "medium":
-            instruction_message = "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."
-        elif complexity == "complex":
-            instruction_message = "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."
-        else:
-            instruction_message = "Berikan respons singkat dan relevan dalam Bahasa Indonesia."
-
-        gemini_messages = []
-        
-        # Tambahkan instruksi sistem sebagai pesan pengguna pertama
-        gemini_messages.append({"role": "user", "parts": [{"text": instruction_message}]})
-
-        # Format dan filter pesan untuk Gemini
-        for msg in messages:
-            if msg['role'] == 'user':
-                gemini_messages.append({"role": "user", "parts": [{"text": msg.get('content')}]})
-            elif msg['role'] == 'assistant':
-                gemini_messages.append({"role": "model", "parts": [{"text": msg.get('content')}]})
-
-        try:
-            # Gunakan generate_content dengan daftar pesan yang sudah diformat
-            response = gemini_model.generate_content(contents=gemini_messages)
-            if response is None:
-                logger.error("Gemini returned None.")
-                return "Terjadi kesalahan saat memproses permintaan."
-            return response.text
-        except Exception as e:
-            if "400 Please use a valid role" in str(e):
-                logger.error("Invalid role format detected in Gemini messages", e)
-                return "Maaf, terjadi kesalahan konfigurasi sistem pada format role pesan."
+        # Tambahkan instruksi sistem berdasarkan kompleksitas
+        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
+            if complexity == "simple":
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
+            elif complexity == "medium":
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
+            elif complexity == "complex":
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
             else:
-                logger.exception("Error processing Gemini request")
-                return "Terjadi kesalahan dalam memproses permintaan Anda."
+                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
+            messages.insert(0, system_message)
+
+        # Format pesan untuk Gemini
+        gemini_messages = [
+            {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
+            for msg in messages
+        ]
+
+        # Mulai chat dengan Gemini
+        chat = gemini_model.start_chat(history=gemini_messages)
+        last_message = messages[-1]
+        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
+
+        logger.info(f"Processing user message: {user_message}")
+
+        # Jika pesan mengandung kata kunci pencarian, lakukan pencarian Google
+        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
+            search_results = await search_google(user_message)
+            if search_results:
+                search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
+                    [f"- [{result['title']}]({result['link']})" for result in search_results]
+                    if isinstance(search_results[0], dict) else search_results
+                ) if search_results else ""
+                user_message_with_context = user_message + search_context
+                response = chat.send_message(user_message_with_context)
+                if response is None:
+                    logger.error("Gemini returned None after Google search context.")
+                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
+                logger.info(f"Gemini response with Google context: {response.text}")
+                return response.text
+            else:
+                logger.warning(f"No relevant sources found for: {user_message}")
+                return "Tidak ada sumber yang relevan ditemukan di Google."
+
+        # Proses pesan pengguna dengan Gemini
+        response = chat.send_message(user_message)
+        if response is None:
+            logger.error("Gemini returned None.")
+            return "Terjadi kesalahan saat memproses permintaan."
+
+        # Kembalikan respons Gemini
+        return response.text
 
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
@@ -1012,7 +931,7 @@ def get_max_conversation_messages(complexity: str) -> int:
     elif complexity == "complex":
         return MAX_CONVERSATION_MESSAGES_COMPLEX
     else:
-        return MAX_CONVERSATION_MESSAGES_medium  # Default
+        return MAX_CONVERSATION_MESSAGES_MEDIUM  # Default
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
@@ -1462,139 +1381,66 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
 
 async def initialize_session(chat_id: int) -> None:
-    session_key = f"session:{chat_id}"
-    if redis_client.exists(session_key):
-        data_type = redis_client.type(session_key)
-        if data_type is not None and isinstance(data_type, bytes) and data_type.decode('utf-8') == "string":
-            # Migrasi dari string JSON lama ke Hash
-            old_session_json = redis_client.get(session_key)
-            if old_session_json:
-                try:
-                    old_session = json.loads(old_session_json)
-                    # Konversi struktur data lama ke baru jika perlu
-                    migrated_session = {
-                        'messages': json.dumps(old_session.get('messages', [])), # Pastikan messages di-encode ke JSON string
-                        'message_counter': old_session.get('message_counter', 0),
-                        'last_update': old_session.get('last_update', datetime.now().timestamp()),
-                        'conversation_id': old_session.get('conversation_id', str(uuid.uuid4())),
-                        'complexity': old_session.get('complexity', 'simple')
-                    }
-                    if not isinstance(migrated_session['messages'], str):
-                        migrated_session['messages'] = json.dumps([])
-                    redis_client.hset(session_key, mapping=migrated_session)
-                    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
-                    logger.info(f"Sesi untuk chat_id {chat_id} migrated ke Hash format.")
-                    return  # Sesi sudah diinisialisasi atau dimigrasi
-                except json.JSONDecodeError:
-                    logger.error(f"Gagal decode JSON sesi lama untuk chat_id {chat_id}, membuat sesi baru.")
-            else:
-                logger.warning(f"Sesi lama kosong untuk chat_id {chat_id}, membuat sesi baru.")
-        elif data_type is not None and isinstance(data_type, bytes) and data_type.decode('utf-8') == "hash":
-            logger.info(f"Sesi untuk chat_id {chat_id} sudah dalam format Hash.")
-            return  # Sesi sudah dalam format Hash, tidak perlu inisialisasi ulang
-        elif data_type is not None:
-            logger.warning(f"Tipe data sesi tidak dikenal: {data_type.decode('utf-8')}. Inisialisasi sesi baru.")
-        else:
-            logger.info(f"Tidak ada sesi lama ditemukan untuk chat_id {chat_id}. Inisialisasi sesi baru.")
-
-    # Inisialisasi sesi baru sebagai Hash jika tidak ada sesi lama atau migrasi gagal
     session = {
-        'messages': json.dumps([]),  # Riwayat pesan, disimpan sebagai JSON string
+        'messages': [],  # Riwayat pesan
         'message_counter': 0,  # Counter pesan
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
         'complexity': 'simple'  # Kompleksitas percakapan
     }
-    redis_client.hset(session_key, mapping=session)
-    redis_client.expire(session_key, CONVERSATION_TIMEOUT)
-    logger.info(f"Sesi baru dibuat untuk chat_id {chat_id} dalam format Hash.")
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
+    logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
-    try:
-        if redis_client and redis_available:
-            pipe = redis_client.pipeline()
-            pipe.multi()
+    session_json = redis_client.get(f"session:{chat_id}")
+    if session_json:
+        session = json.loads(session_json)
+    else:
+        # Jika sesi tidak ada, inisialisasi sesi baru
+        session = {
+            'messages': [],  # Riwayat pesan
+            'message_counter': 0,  # Counter pesan
+            'last_update': datetime.now().timestamp(),
+            'complexity': 'simple'  # Kompleksitas percakapan
+        }
 
-            try:
-                session_data = redis_client.hgetall(f"session:{chat_id}")
-                if session_data:
-                    # Load messages dari JSON string
-                    session = {
-                        'messages': json.loads(session_data.get('messages', '[]')),
-                        'message_counter': int(session_data.get('message_counter', 0)),
-                        'last_update': float(session_data.get('last_update', 0.0)),
-                        'complexity': session_data.get('complexity', 'simple')
-                    }
-                else:
-                    session = {
-                        'messages': [],
-                        'message_counter': 0,
-                        'last_update': datetime.now().timestamp(),
-                        'complexity': 'simple'
-                    }
+    # Pastikan kunci 'message_counter' ada
+    if 'message_counter' not in session:
+        session['message_counter'] = 0
 
-                if 'message_counter' not in session:
-                    session['message_counter'] = 0
+    # Simpan kompleksitas sebelumnya
+    previous_complexity = session.get('complexity', 'simple')
 
-                previous_complexity = session.get('complexity', 'simple')
-                new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-                session['complexity'] = new_complexity
+    # Tentukan kompleksitas baru
+    new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
+    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
 
-                if new_complexity == "simple" and previous_complexity == "medium":
-                    logger.info(f"Transisi dari medium ke simple, reset counter untuk chat_id {chat_id}")
-                    session['message_counter'] = 0
-                else:
-                    session['message_counter'] += 1
+    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
+    if new_complexity == "simple" and previous_complexity == "medium":
+        logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
+        session['message_counter'] = 0  # Reset counter pesan
 
-                if previous_complexity != new_complexity:
-                    logger.info(f"Perubahan kompleksitas: {previous_complexity} -> {new_complexity}")
+    # Update counter pesan
+    session['message_counter'] += 1
 
-                # Ambil pesan messages dari session dan parse dari JSON
-                messages_list = json.loads(session.get('messages'))
-                messages_list.append(message) # Tambahkan pesan baru ke list
-                session['messages'] = messages_list # Update session messages dengan list yang baru
-                session['last_update'] = datetime.now().timestamp()
+    # Catat perubahan kompleksitas jika ada
+    if previous_complexity != new_complexity:
+        logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-                # Update Redis hash
-                session_for_redis = {
-                    "messages": json.dumps(session['messages']), # Serialize kembali ke JSON sebelum disimpan
-                    "message_counter": str(session['message_counter']),
-                    "last_update": str(session['last_update']),
-                    "complexity": session['complexity']
-                }
-                pipe.hset(f"session:{chat_id}", mapping=session_for_redis)
-                pipe.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
-                await pipe.execute()
+    # Tambahkan pesan ke sesi
+    session['messages'].append(message)
+    session['last_update'] = datetime.now().timestamp()
 
-            except redis.RedisError as e:
-                logger.error(f"Redis error dalam pipeline: {e}")
-                # Fallback ke penyimpanan lokal
-                backup_path = f'session_backup_{chat_id}.json'
-                with open(backup_path, 'w') as f:
-                    json.dump(session, f)
-                logger.info(f"Session backup tersimpan di: {backup_path}")
+    # Simpan sesi ke Redis
+    redis_client.set(f"session:{chat_id}", json.dumps(session))
+    redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
-    except Exception as e:
-        logger.error(f"Error dalam update_session: {e}")
-        # Fallback ke penyimpanan lokal jika terjadi error
-        try:
-            backup_path = f'session_backup_{chat_id}.json'
-            with open(backup_path, 'w') as f:
-                json.dump({
-                    'messages': [message],
-                    'message_counter': 1,
-                    'last_update': datetime.now().timestamp(),
-                    'complexity': 'simple'
-                }, f)
-            logger.info(f"Session backup baru tersimpan di: {backup_path}")
-        except Exception as backup_error:
-            logger.error(f"Gagal membuat backup: {backup_error}")
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
     try:
         # Coba Gemini terlebih dahulu
         try:
-            # Gunakan semua pesan dalam riwayat percakapan
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
             if response:
                 logger.info("Menggunakan respons dari Gemini.")
@@ -1603,7 +1449,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             logger.error(f"Gemini RECITATION error: {e}")
         except asyncio.TimeoutError:
             logger.warning("Gemini timeout, beralih ke Mistral.")
-
+        
         # Jika Gemini gagal, coba Mistral
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
@@ -1612,13 +1458,13 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
                 return response
         except asyncio.TimeoutError:
             logger.error("Mistral timeout.")
-
+        
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
-
+    
 def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
@@ -1649,75 +1495,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def cosine_similarity(emb1, emb2):
-    """Placeholder untuk fungsi cosine_similarity."""
-    return 0.8 # Contoh similarity
-
-async def generate_embedding(text):
-    """Placeholder untuk fungsi generate_embedding."""
-    return [0.1, 0.2, 0.3] # Contoh embedding
-
-async def get_adaptive_history(chat_id: int, n: int = 20):
-    """Mengambil riwayat adaptif berdasarkan skor waktu dan similaritas embedding."""
-    try:
-        if redis_client:
-            key = f"conversation:{chat_id}"
-            now = datetime.now()
-            scores_key = f"conversation:{chat_id}:scores"
-            
-            # 1. Ambil topic embedding dari metadata sesi
-            current_embedding_str = await redis_client.hget(f"session:{chat_id}:metadata", "topic_embedding")
-            current_embedding = json.loads(current_embedding_str) if current_embedding_str else None
-
-            if not current_embedding:
-                return [] # Tidak ada topic embedding, kembalikan riwayat kosong
-
-            # 2. Ambil pesan dari stream
-            messages = await redis_client.xrevrange(key, count=100, max="+", min="-")
-            if not messages:
-                return []
-
-            scored_messages = []
-            for msg_id, msg_data in messages:
-                msg_content = msg_data.get(b'content', b'').decode()
-                if not msg_content:
-                    continue
-
-                # 3. Generate embedding untuk setiap pesan
-                msg_embedding = await generate_embedding(msg_content)
-                if not msg_embedding:
-                    continue
-
-                # 4. Hitung cosine similarity
-                similarity_score = cosine_similarity(msg_embedding, current_embedding)
-
-                # 5. Hitung skor berbasis waktu (opsional, bisa diganti hanya dengan similarity_score)
-                timestamp_str = msg_data.get(b'timestamp', b'').decode()
-                time_score = 0
-                if timestamp_str:
-                    timestamp = datetime.fromisoformat(timestamp_str)
-                    age = now - timestamp
-                    time_score = 1 / (age.total_seconds() / 3600 + 1)
-
-                # 6. Gabungkan skor (atau gunakan hanya similarity_score)
-                combined_score = similarity_score # Bisa juga: combined_score = 0.5 * similarity_score + 0.5 * time_score
-
-
-                scored_messages.append({'id': msg_id.decode(), 'msg_data': msg_data, 'score': combined_score})
-
-
-            # Urutkan pesan berdasarkan skor gabungan
-            scored_messages.sort(key=lambda x: x['score'], reverse=True)
-
-            # 7. Ambil N pesan dengan skor tertinggi
-            history = [msg['msg_data'] for msg in scored_messages[:n]] # Ambil hanya msg_data
-            return history
-        return []
-    except Exception as e:
-        print(f"Error getting adaptive history: {e}")
-        return []
-
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1745,7 +1523,6 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
             logger.info(f"Tidak ada sesi untuk chat_id {chat_id}, reset konteks.")
-        
             return True
 
         session = json.loads(session_json)
@@ -1850,7 +1627,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
     # Proses pesan dengan konteks cerdas
-    context_window = 30 if is_reply else 20  # Perluas window konteks untuk reply
+    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
     response = await process_with_smart_context(session['messages'][-context_window:])
     
     if response:
@@ -1911,46 +1688,25 @@ def main():
         raise
         
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Pastikan update.message tidak None
-        if not update.message:
-            logger.error("Received update with None message")
+    user_id = update.message.from_user.id
+    current_time = datetime.now()
+
+    last_message_time = redis_client.get(f"last_message_time_{user_id}")
+    if last_message_time:
+        last_message_time = datetime.fromtimestamp(float(last_message_time))
+        if current_time - last_message_time < timedelta(seconds=5):
+            await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
             return
 
-        # Pastikan from_user tidak None
-        if not update.message.from_user:
-            logger.error("Received message without from_user")
-            return
+    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
 
-        user_id = update.message.from_user.id
-        current_time = datetime.now()
-
-        if redis_client and redis_available:
-            last_message_time = redis_client.get(f"last_message_time_{user_id}")
-            if last_message_time:
-                last_message_time = datetime.fromtimestamp(float(last_message_time))
-                if current_time - last_message_time < timedelta(seconds=5):
-                    await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-                    return
-
-            redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
-
-        # Handle different message types
-        if update.message.text:
-            await handle_text(update, context)
-        elif update.message.voice:
-            await handle_voice(update, context)
-        elif update.message.photo:
-            await handle_photo(update, context)
-        else:
-            logger.warning(f"Received unsupported message type from user {user_id}")
-
-    except Exception as e:
-        logger.error(f"Error in handle_message: {str(e)}")
-        try:
-            await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-        except:
-            logger.error("Failed to send error message to user")
+    # Handle different message types
+    if update.message.text:
+        await handle_text(update, context)
+    elif update.message.voice:
+        await handle_voice(update, context)
+    elif update.message.photo:
+        await handle_photo(update, context)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
