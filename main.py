@@ -1,3 +1,69 @@
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    if not message_text:
+        message_text = update.message.text or ""
+
+    # Sanitasi input teks
+    sanitized_text = sanitize_input(message_text)
+
+    # Periksa rate limit
+    user_id = update.message.from_user.id
+    if not await check_rate_limit(user_id):
+        await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
+        return
+
+    # Ambil atau inisialisasi sesi
+    chat_id = update.message.chat_id
+    chat_type = update.message.chat.type
+    is_reply = bool(update.message.reply_to_message)
+    replied_message = None
+
+    session_json = redis_client.get(f"session:{chat_id}")
+    if not session_json:
+        await initialize_session(chat_id)
+        session = {'messages': [], 'last_update': datetime.now().timestamp()}
+    else:
+        session_data = redis_client.hgetall(f"session:{chat_id}")
+        session = {
+            'messages': json.loads(session_data.get('messages', '[]')),
+            'message_counter': int(session_data.get('message_counter', 0)),
+            'last_update': float(session_data.get('last_update', 0.0)),
+            'complexity': session_data.get('complexity', 'simple')
+        }
+
+    # Handle replies khusus untuk private chat
+    if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
+        replied_message = update.message.reply_to_message.text
+        sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
+
+    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
+    if not is_reply and await should_reset_context(chat_id, sanitized_text):
+        await initialize_session(chat_id)
+        session = redis_client.hgetall(f"session:{chat_id}")
+        session['messages'] = json.loads(session.get('messages'))
+
+    # Tambahkan pesan pengguna ke sesi
+    session['messages'].append({"role": "user", "content": sanitized_text})
+    await update_session(chat_id, {"role": "user", "content": sanitized_text})
+
+    # Proses pesan dengan konteks cerdas
+    context_window = 30 if is_reply else 20  # Perluas window konteks untuk reply
+    response = await process_with_smart_context(session['messages'][-context_window:])
+    
+    if response:
+        # Filter respons sebelum dikirim ke pengguna
+        filtered_response = await filter_text(response)
+
+        # Tambahkan respons asisten ke sesi
+        session['messages'].append({"role": "assistant", "content": filtered_response})
+        await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+
+        # Kirim respons ke pengguna
+        response_parts = split_message(filtered_response)
+        for part in response_parts:
+            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
 import os
 import logging
 import tempfile
@@ -301,7 +367,6 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     return None
 
 
-
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
     if start_date is None:
@@ -328,12 +393,15 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 logger.info(f"Data saham: {data}")  # Log respons API
                 return data  # Kembalikan semua data historis
             return None
-        except Exception as e:
-            logger.error(f"Error fetching stock data (attempt {attempt + 1}): {str(e)}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error fetching stock data (attempt {attempt + 1}): {str(e)}")
             if attempt < MAX_RETRIES - 1:
                 await asyncio.sleep(RETRY_DELAY)
             else:
                 return None
+        except Exception as e:
+            logger.error(f"Unexpected error fetching stock data (attempt {attempt + 1}): {str(e)}")
+            return None
     return None
 
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
@@ -944,7 +1012,7 @@ def get_max_conversation_messages(complexity: str) -> int:
     elif complexity == "complex":
         return MAX_CONVERSATION_MESSAGES_COMPLEX
     else:
-        return MAX_CONVERSATION_MESSAGES_MEDIUM  # Default
+        return MAX_CONVERSATION_MESSAGES_medium  # Default
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
@@ -1397,7 +1465,7 @@ async def initialize_session(chat_id: int) -> None:
     session_key = f"session:{chat_id}"
     if redis_client.exists(session_key):
         data_type = redis_client.type(session_key)
-        if data_type.decode('utf-8') == "string":
+        if data_type is not None and isinstance(data_type, bytes) and data_type.decode('utf-8') == "string":
             # Migrasi dari string JSON lama ke Hash
             old_session_json = redis_client.get(session_key)
             if old_session_json:
@@ -1411,6 +1479,8 @@ async def initialize_session(chat_id: int) -> None:
                         'conversation_id': old_session.get('conversation_id', str(uuid.uuid4())),
                         'complexity': old_session.get('complexity', 'simple')
                     }
+                    if not isinstance(migrated_session['messages'], str):
+                        migrated_session['messages'] = json.dumps([])
                     redis_client.hset(session_key, mapping=migrated_session)
                     redis_client.expire(session_key, CONVERSATION_TIMEOUT)
                     logger.info(f"Sesi untuk chat_id {chat_id} migrated ke Hash format.")
@@ -1419,9 +1489,13 @@ async def initialize_session(chat_id: int) -> None:
                     logger.error(f"Gagal decode JSON sesi lama untuk chat_id {chat_id}, membuat sesi baru.")
             else:
                 logger.warning(f"Sesi lama kosong untuk chat_id {chat_id}, membuat sesi baru.")
-        elif data_type.decode('utf-8') == "hash":
+        elif data_type is not None and isinstance(data_type, bytes) and data_type.decode('utf-8') == "hash":
             logger.info(f"Sesi untuk chat_id {chat_id} sudah dalam format Hash.")
             return  # Sesi sudah dalam format Hash, tidak perlu inisialisasi ulang
+        elif data_type is not None:
+            logger.warning(f"Tipe data sesi tidak dikenal: {data_type.decode('utf-8')}. Inisialisasi sesi baru.")
+        else:
+            logger.info(f"Tidak ada sesi lama ditemukan untuk chat_id {chat_id}. Inisialisasi sesi baru.")
 
     # Inisialisasi sesi baru sebagai Hash jika tidak ada sesi lama atau migrasi gagal
     session = {
