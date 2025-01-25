@@ -114,11 +114,28 @@ genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
 
 async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
-    chat = gemini_model.start_chat(history=messages)
-    response = None
-    for message in messages:
-        response = chat.send_message(message['content'])
-    return response.text if response else "Maaf, tidak ada respons"
+    try:
+        # Konversi format pesan ke struktur Gemini yang valid
+        history = []
+        for msg in messages:
+            # Sesuai dokumentasi: role harus "user" atau "model"
+            role = "user" if msg["role"] == "user" else "model"
+            history.append({
+                "role": role,
+                "parts": [{"text": msg["content"]}]
+            })
+        
+        # Mulai chat dengan riwayat yang sesuai
+        chat = gemini_model.start_chat(history=history)
+        
+        # Kirim pesan terakhir
+        response = chat.send_message(messages[-1]["content"])
+        
+        return response.text if response else "Maaf, tidak ada respons"
+    
+    except Exception as e:
+        logger.error(f"Error in chat_with_gemini: {str(e)}")
+        return "Terjadi kesalahan saat memproses permintaan"
     return response['content']
 
 # Konstanta konfigurasi
@@ -712,74 +729,42 @@ async def search_google(query: str) -> List[str]:
 
 async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[Dict] = None) -> Optional[str]:
     try:
-        if not messages:
-            logger.error("Empty message list received.")
-            return "Tidak ada pesan yang dapat diproses."
+        # Konversi ke format Gemini yang valid
+        gemini_messages = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            content = msg.get('content', '')
+            gemini_messages.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
 
-        # Jika session tidak diberikan, buat session default
-        if session is None:
-            session = {'message_counter': 0}
+        # Sesuai dokumentasi: system instruction harus di awal
+        if "system" in messages[0]["role"]:
+            system_msg = gemini_messages.pop(0)
+            system_instruction = system_msg["parts"][0]["text"]
+            model = genai.GenerativeModel(
+                "gemini-2.0-flash-thinking-exp-01-21",
+                system_instruction=system_instruction
+            )
+        else:
+            model = gemini_model
 
-        # Tentukan kompleksitas percakapan dengan menyertakan session
-        complexity = await determine_conversation_complexity(messages, session)
-        logger.info(f"Conversation complexity: {complexity}")
-
-        # Tambahkan instruksi sistem berdasarkan kompleksitas
-        if not any(msg.get('parts', [{}])[0].get('text', '').startswith("Berikan respons dalam Bahasa Indonesia.") for msg in messages):
-            if complexity == "simple":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas tidak terlalu panjang dalam Bahasa Indonesia."}]}
-            elif complexity == "medium":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons jelas, mudah dibaca dalam Bahasa Indonesia."}]}
-            elif complexity == "complex":
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons sangat detail, mendalam, dengan contoh jika relevan, dalam Bahasa Indonesia. Sertakan penjelasan komprehensif."}]}
-            else:
-                system_message = {"role": "user", "parts": [{"text": "Berikan respons singkat dan relevan dalam Bahasa Indonesia."}]}
-            messages.insert(0, system_message)
-
-        # Format pesan untuk Gemini
-        gemini_messages = [
-            {"role": msg['role'], "parts": [{"text": msg.get('content') or msg.get('parts', [{}])[0].get('text')}]}
-            for msg in messages
-        ]
-
-        # Mulai chat dengan Gemini
-        chat = gemini_model.start_chat(history=gemini_messages)
-        last_message = messages[-1]
-        user_message = last_message.get('content') or last_message.get('parts', [{}])[0].get('text') or ""
-
-        logger.info(f"Processing user message: {user_message}")
-
-        # Jika pesan mengandung kata kunci pencarian, lakukan pencarian Google
-        if any(keyword in user_message.lower() for keyword in ["sumber youtube", "link", "cari sumber", "sumber informasi", "referensi"]):
-            search_results = await search_google(user_message)
-            if search_results:
-                search_context = "\n\nBerikut adalah beberapa sumber terkait dari pencarian Google:\n" + "\n".join(
-                    [f"- [{result['title']}]({result['link']})" for result in search_results]
-                    if isinstance(search_results[0], dict) else search_results
-                ) if search_results else ""
-                user_message_with_context = user_message + search_context
-                response = chat.send_message(user_message_with_context)
-                if response is None:
-                    logger.error("Gemini returned None after Google search context.")
-                    return "Terjadi kesalahan saat memproses permintaan setelah pencarian."
-                logger.info(f"Gemini response with Google context: {response.text}")
-                return response.text
-            else:
-                logger.warning(f"No relevant sources found for: {user_message}")
-                return "Tidak ada sumber yang relevan ditemukan di Google."
-
-        # Proses pesan pengguna dengan Gemini
-        response = chat.send_message(user_message)
-        if response is None:
-            logger.error("Gemini returned None.")
-            return "Terjadi kesalahan saat memproses permintaan."
-
-        # Kembalikan respons Gemini
+        # Buat sesi chat sesuai dokumentasi
+        chat = model.start_chat(history=gemini_messages)
+        
+        # Proses pesan terakhir
+        response = chat.send_message(gemini_messages[-1]["parts"][0]["text"])
+        
         return response.text
 
+    except generation_types.BlockedPromptException as e:
+        logger.error(f"Prompt diblokir: {str(e)}")
+        return "Pertanyaan Anda mengandung konten yang tidak diizinkan"
+    
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
-        return "Terjadi kesalahan dalam memproses permintaan Anda."
+        return None
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -1700,14 +1685,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     chat_id = update.message.chat_id
 
-    # Prepare messages for Gemini
-    messages = [{"role": "user", "content": user_message}]
+    # Format pesan sesuai dokumentasi Gemini
+    messages = [{
+        "role": "user",  # Valid values: "user" atau "model"
+        "content": user_message,
+        "parts": [{"text": user_message}]  # Struktur wajib
+    }]
 
-    # Get response from Gemini
-    response = await chat_with_gemini(messages)
+    try:
+        response = await chat_with_gemini(messages)
+        await update.message.reply_text(response)
+        
+    except Exception as e:
+        logger.error(f"Error handling message: {str(e)}")
+        await update.message.reply_text("Maaf, terjadi kesalahan internal")
 
-    # Send response back to user
-    await update.message.reply_text(response)
+    # Update rate limiting
+    user_id = update.message.from_user.id
+    current_time = datetime.now()
+    redis_client.setex(f"last_msg:{user_id}", 5, current_time.isoformat())
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
