@@ -115,9 +115,10 @@ gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
 
 async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
     chat = gemini_model.start_chat()
+    response = None
     for message in messages:
-        chat.send_message(message['content'])
-    response = chat.get_response()
+        response = chat.send_message(message['content'])
+    return response.text if response else "Maaf, tidak ada respons"
     return response['content']
 
 # Konstanta konfigurasi
