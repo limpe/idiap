@@ -1696,6 +1696,17 @@ def main():
         raise
         
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    chat_id = update.message.chat_id
+
+    # Prepare messages for Gemini
+    messages = [{"role": "user", "content": user_message}]
+
+    # Get response from Gemini
+    response = await chat_with_gemini(messages)
+
+    # Send response back to user
+    await context.bot.send_message(chat_id=chat_id, text=response)
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
