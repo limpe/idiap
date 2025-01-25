@@ -753,7 +753,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         
         # Send last message
         response = chat.send_message(messages[-1]["content"])
-        return response.text
+        return response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI")
 
     except generation_types.BlockedPromptException as e:
         logger.error(f"Prompt diblokir: {str(e)}")
