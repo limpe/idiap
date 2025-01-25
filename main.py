@@ -117,7 +117,7 @@ async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
     chat = gemini_model.start_chat()
     for message in messages:
         chat.send_message(message['content'])
-    response = chat.receive_message()
+    response = chat.get_last_response()
     return response['content']
 
 # Konstanta konfigurasi
