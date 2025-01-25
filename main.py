@@ -728,33 +728,31 @@ async def search_google(query: str) -> List[str]:
 
 async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[Dict] = None) -> Optional[str]:
     try:
-        # Konversi ke format Gemini yang valid
-        gemini_messages = []
+        # Convert semua history ke format Gemini
+        history = []
         for msg in messages:
-            role = "user" if msg["role"] in ["user", "assistant"] else "model"
-            content = msg.get('content', '')
-            gemini_messages.append({
-                "role": role,
-                "parts": [{"text": content}]
+            history.append({
+                "role": "user" if msg["role"] == "user" else "model",
+                "parts": [{"text": msg["content"]}]
             })
 
-        # Sesuai dokumentasi: system instruction harus di awal
-        if "system" in messages[0]["role"]:
-            system_msg = gemini_messages.pop(0)
-            system_instruction = system_msg["parts"][0]["text"]
-            model = genai.GenerativeModel(
-                "gemini-2.0-flash-thinking-exp-01-21",
-                system_instruction=system_instruction
-            )
-        else:
-            model = gemini_model
-
-        # Buat sesi chat sesuai dokumentasi
-        chat = model.start_chat(history=gemini_messages)
+        # Set system instruction jika ada
+        system_instruction = None
+        if messages and "system" in messages[0]["role"]:
+            system_instruction = messages[0]["content"]
+            history = history[1:]  # Remove system message from history
         
-        # Proses pesan terakhir
-        response = chat.send_message(gemini_messages[-1]["parts"][0]["text"])
+        # Initialize model with system instruction if available
+        model = genai.GenerativeModel(
+            "gemini-1.5-pro-latest",
+            system_instruction=system_instruction
+        ) if system_instruction else gemini_model
         
+        # Start chat with full history except last message
+        chat = model.start_chat(history=history[:-1])
+        
+        # Send last message
+        response = chat.send_message(messages[-1]["content"])
         return response.text
 
     except generation_types.BlockedPromptException as e:
@@ -1620,9 +1618,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Proses pesan dengan konteks cerdas
-    context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
-    response = await process_with_smart_context(session['messages'][-context_window:])
+    # Ambil seluruh riwayat
+    full_history = [
+        {"role": msg["role"], "content": msg["content"]}
+        for msg in session['messages']
+    ]
+    
+    # Proses dengan FULL history
+    response = await process_with_gemini(full_history)
     
     if response:
         # Filter respons sebelum dikirim ke pengguna
