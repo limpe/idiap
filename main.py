@@ -11,6 +11,7 @@ import urllib.parse
 import gtts
 import aiohttp
 import google.generativeai as genai
+import google.generativeai.types as generation_types
 import re
 import bleach
 import requests
@@ -111,6 +112,13 @@ redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
+
+async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
+    chat = gemini_model.start_chat()
+    for message in messages:
+        chat.send_message(message['content'])
+    response = chat.get_response()
+    return response['content']
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
