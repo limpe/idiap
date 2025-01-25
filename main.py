@@ -136,7 +136,6 @@ async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
     except Exception as e:
         logger.error(f"Error in chat_with_gemini: {str(e)}")
         return "Terjadi kesalahan saat memproses permintaan"
-    return response['content']
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -703,8 +702,8 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         # Proses gambar dengan Gemini
         response = model.generate_content([user_prompt, image])
 
-        # Kembalikan teks hasil analisis
-        return response.text
+        # Kembalikan teks hasil analisis yang sudah difilter
+        return response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI")
 
     except Exception as e:
         logger.exception("Error in processing image with Gemini")
@@ -732,7 +731,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         # Konversi ke format Gemini yang valid
         gemini_messages = []
         for msg in messages:
-            role = "user" if msg["role"] == "user" else "model"
+            role = "user" if msg["role"] in ["user", "assistant"] else "model"
             content = msg.get('content', '')
             gemini_messages.append({
                 "role": role,
@@ -1027,16 +1026,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
 
                 # Tambahkan pesan pengguna ke sesi
-                session['messages'].append({"role": "user", "content": text})
-                await update_session(chat_id, {"role": "user", "content": text})
-
-                # Proses pesan dengan Gemini
-                response = await process_with_gemini(session['messages'])
+                processed_messages = []
+                for msg in session['messages']:
+                    role = "user" if msg["role"] in ["user", "assistant"] else "model"
+                    processed_messages.append({"role": role, "content": msg["content"]})
+                
+                response = await process_with_gemini(processed_messages)
 
                 if response:
                     # Tambahkan respons asisten ke sesi
-                    session['messages'].append({"role": "assistant", "content": response})
-                    await update_session(chat_id, {"role": "assistant", "content": response})
+                    session['messages'].append({"role": "model", "content": response})
+                    await update_session(chat_id, {"role": "model", "content": response})
 
                     # Filter dan kirim respons
                     filtered_response = await filter_text(response)
@@ -1700,10 +1700,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error handling message: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan internal")
 
-    # Update rate limiting
-    user_id = update.message.from_user.id
-    current_time = datetime.now()
-    redis_client.setex(f"last_msg:{user_id}", 5, current_time.isoformat())
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
