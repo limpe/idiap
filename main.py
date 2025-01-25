@@ -114,7 +114,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
 
 async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
-    chat = gemini_model.start_chat()
+    chat = gemini_model.start_chat(history=messages)
     response = None
     for message in messages:
         response = chat.send_message(message['content'])
@@ -1707,7 +1707,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = await chat_with_gemini(messages)
 
     # Send response back to user
-    await context.bot.send_message(chat_id=chat_id, text=response)
+    await update.message.reply_text(response)
     user_id = update.message.from_user.id
     current_time = datetime.now()
 
