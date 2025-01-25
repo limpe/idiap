@@ -126,7 +126,12 @@ async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
             })
         
         # Mulai chat dengan riwayat yang sesuai
-        chat = gemini_model.start_chat(history=history)
+        generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "top_k": 40
+        }
+        chat = gemini_model.start_chat(history=history, generation_config=generation_config)
         
         # Kirim pesan terakhir
         response = chat.send_message(messages[-1]["content"])
@@ -1487,7 +1492,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 4) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
