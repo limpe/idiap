@@ -1685,43 +1685,21 @@ def main():
         raise
         
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    chat_id = update.message.chat_id
-
-    # Format pesan sesuai dokumentasi Gemini
-    messages = [{
-        "role": "user",  # Valid values: "user" atau "model"
-        "content": user_message,
-        "parts": [{"text": user_message}]  # Struktur wajib
-    }]
-
-    try:
-        response = await chat_with_gemini(messages)
-        await update.message.reply_text(response)
-        
-    except Exception as e:
-        logger.error(f"Error handling message: {str(e)}")
-        await update.message.reply_text("Maaf, terjadi kesalahan internal")
-
-    user_id = update.message.from_user.id
-    current_time = datetime.now()
-
-    last_message_time = redis_client.get(f"last_message_time_{user_id}")
-    if last_message_time:
-        last_message_time = datetime.fromtimestamp(float(last_message_time))
-        if current_time - last_message_time < timedelta(seconds=5):
-            await update.message.reply_text("Anda mengirim pesan terlalu cepat. Mohon tunggu beberapa detik.")
-            return
-
-    redis_client.set(f"last_message_time_{user_id}", current_time.timestamp())
+    # Update statistik
+    bot_statistics["total_messages"] += 1
 
     # Handle different message types
     if update.message.text:
+        bot_statistics["text_messages"] += 1
         await handle_text(update, context)
     elif update.message.voice:
+        bot_statistics["voice_messages"] += 1
         await handle_voice(update, context)
     elif update.message.photo:
+        bot_statistics["photo_messages"] += 1
         await handle_photo(update, context)
+    else:
+        logger.info("Pesan dengan tipe yang tidak didukung diabaikan.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
