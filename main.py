@@ -744,12 +744,12 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         
         # Initialize model with system instruction if available
         model = genai.GenerativeModel(
-            "gemini-1.5-pro-latest",
+            "gemini-2.0-flash-thinking-exp-01-21",
             system_instruction=system_instruction
         ) if system_instruction else gemini_model
         
-        # Start chat with full history except last message
-        chat = model.start_chat(history=history[:-1])
+        # Start chat with full history
+        chat = model.start_chat(history=history)
         
         # Send last message
         response = chat.send_message(messages[-1]["content"])
