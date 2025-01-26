@@ -298,9 +298,12 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
     
     for attempt in range(MAX_RETRIES):
         try:
-            # Ambil data harga saham
-            loop = asyncio.get_event_loop()
-            ts = await loop.run_in_executor(None, td.time_series,
+            # Membungkus pemanggilan dengan functools.partial untuk menghandle keyword arguments
+            from functools import partial
+            
+            # Fungsi partial untuk td.time_series dengan parameter yang diperlukan
+            time_series_func = partial(
+                td.time_series,
                 symbol=symbol,
                 interval=interval,
                 outputsize=outputsize,
@@ -308,6 +311,11 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 end_date=end_date,
                 timezone="Asia/Bangkok"
             )
+            
+            loop = asyncio.get_event_loop()
+            
+            # Jalankan time_series_func di executor
+            ts = await loop.run_in_executor(None, time_series_func)
             
             # Ambil data historis
             data = await loop.run_in_executor(None, ts.as_json)
@@ -746,7 +754,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         elif complexity == "medium":
             system_instruction = "Berikan respons yang Relevan dan jelas dalam Bahasa Indonesia. Ingat konteks percakapan."
         elif complexity == "complex":
-            system_instruction = "Berikan respons yang sangat rinci dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
+            system_instruction = "Berikan respons dalam bahasa indonesia yang detail dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
 
         # Initialize model with adjusted system instruction if available
         model = genai.GenerativeModel(
