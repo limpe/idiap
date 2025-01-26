@@ -676,7 +676,7 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Error dalam handle_generate_image: {e}")
         await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
 
-async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Optional[str]:
+async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Tuple[Optional[str], Optional[str]]:
     try:
         # Inisialisasi model Gemini
         model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
@@ -687,18 +687,22 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         # Define default prompt
         default_prompt = "Deskripsikan gambar ini sedetail mungkin dalam Bahasa Indonesia. Sebutkan objek yang ada di gambar, warna, bentuk, dan karakteristik penting lainnya. Analisis secara komprehensif."
 
-        # Use default prompt if no prompt is provided, otherwise combine with user prompt
-        user_prompt = default_prompt if prompt is None else f"{default_prompt} Tambahan prompt dari pengguna: {prompt}"
+        # Generate response with default prompt (for history)
+        default_response = await model.generate_content([default_prompt, image])
+        filtered_default_response_text = default_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if default_response.text else None
 
-        # Proses gambar dengan Gemini
-        response = model.generate_content([user_prompt, image])
+        # Use default prompt if no prompt is provided, otherwise combine with user prompt
+        user_prompt = prompt if prompt else default_prompt
+        user_response = await model.generate_content([user_prompt, image])
+        filtered_user_response_text = user_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if user_response.text else None
+
 
         # Kembalikan teks hasil analisis yang sudah difilter
-        return response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI")
+        return filtered_user_response_text, filtered_default_response_text
 
     except Exception as e:
         logger.exception("Error in processing image with Gemini")
-        return "Terjadi kesalahan saat memproses gambar dengan Gemini."
+        return "Terjadi kesalahan saat memproses gambar dengan Gemini.", None
 
 async def search_google(query: str) -> List[str]:
     try:
@@ -1300,23 +1304,38 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Proses gambar dengan Gemini
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
-            if gemini_result:
-                # Filter hasil analisis
-                filtered_result = await filter_text(gemini_result)
+            if gemini_result and isinstance(gemini_result, tuple):
+                filtered_user_response, filtered_default_response = await asyncio.gather(
+                    filter_text(gemini_result[0] or ""),
+                    filter_text(gemini_result[1] or "")
+                )
+                
+                # Gunakan respons pengguna untuk output
+                result_to_send = filtered_user_response if filtered_user_response else filtered_default_response
 
                 # Pecah hasil analisis jika terlalu panjang
-                result_parts = split_message(filtered_result)
+                result_parts = split_message(result_to_send)
                 for part in result_parts:
                     await update.message.reply_text(f"Analisa:\n{part}")
 
-                # Simpan hasil analisis ke sesi
-                session['messages'].append({
-                    "role": "user",
-                    "content": f"[User mengirim gambar]" + (f" dengan pertanyaan: {prompt}" if prompt else "")
-                })
+                # Hanya simpan default prompt ke history jika tidak ada prompt pengguna
+                if not prompt and filtered_default_response:
+                    session['messages'].append({
+                        "role": "assistant",
+                        "content": filtered_default_response
+                    })
+                elif filtered_user_response:  # Simpan user response jika ada
+                    session['messages'].append({
+                        "role": "assistant",
+                        "content": filtered_user_response
+                    })
+                session['last_image_analysis'] = filtered_user_response if filtered_user_response else filtered_default_response  # Simpan hasil analisis terakhir
+                await update_session(chat_id, {"role": "assistant", "content": filtered_user_response if filtered_user_response else filtered_default_response})
+            elif isinstance(gemini_result, str) and gemini_result: # Handle error string
+                await update.message.reply_text(f"Analisa:\n{gemini_result}")
                 session['messages'].append({
                     "role": "assistant",
-                    "content": filtered_result
+                    "content": gemini_result
                 })
                 session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
                 await update_session(chat_id, {"role": "assistant", "content": filtered_result})
@@ -1517,7 +1536,7 @@ async def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int =
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 2) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
