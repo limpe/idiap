@@ -756,9 +756,10 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
 
         # Start chat with full history
         chat = model.start_chat(history=history)
+        loop = asyncio.get_event_loop()
         
-        # Send last message
-        response = chat.send_message(messages[-1]["content"])
+        # Send last message in executor to avoid blocking
+        response = await loop.run_in_executor(None, chat.send_message, messages[-1]["content"])
         return response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI")
 
     except generation_types.BlockedPromptException as e:
