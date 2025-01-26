@@ -16,7 +16,6 @@ import re
 import bleach
 import requests
 
-
 from twelvedata import TDClient
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
@@ -37,7 +36,6 @@ from stopwords import stop_words
 from google.generativeai.types import generation_types
 from googleapiclient.discovery import build
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
-
 
 # Konfigurasi logger
 logging.basicConfig(
@@ -100,8 +98,6 @@ def sanitize_input(text: str) -> str:
     cleaned_text = bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes)
     return cleaned_text
 
-
-
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
@@ -158,13 +154,11 @@ client = Together()
 factory = StemmerFactory()
 stemmer = factory.create_stemmer()
 
-
 # Statistik penggunaan dipindahkan ke Redis
 
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
     pass
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
@@ -178,8 +172,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Kirim saya pesan atau catatan suara untuk memulai!"""
     await update.message.reply_text(welcome_text)
-
-
 
 def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts = []
@@ -296,8 +288,6 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
             return None
     return None
 
-
-
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
     if start_date is None:
@@ -309,7 +299,8 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
     for attempt in range(MAX_RETRIES):
         try:
             # Ambil data harga saham
-            ts = td.time_series(
+            loop = asyncio.get_event_loop()
+            ts = await loop.run_in_executor(None, td.time_series,
                 symbol=symbol,
                 interval=interval,
                 outputsize=outputsize,
@@ -319,7 +310,7 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
             )
             
             # Ambil data historis
-            data = ts.as_json()
+            data = await loop.run_in_executor(None, ts.as_json)
             if data:
                 logger.info(f"Data saham: {data}")  # Log respons API
                 return data  # Kembalikan semua data historis
@@ -406,7 +397,6 @@ def format_historical_data(historical_data: List[Dict]) -> str:
             f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
         )
     return formatted_data
-
 
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -920,7 +910,6 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         logger.exception("Error dalam pemrosesan audio")
         raise
 
-
 # Potong audio besar
 def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str]:
     audio = AudioSegment.from_file(audio_path)
@@ -1045,8 +1034,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Update statistik
-        bot_statistics["total_messages"] += 1
-        bot_statistics["voice_messages"] += 1
+        await update_bot_statistics("voice_messages")
 
         # Tampilkan indikator "recording voice"
         await context.bot.send_chat_action(chat_id=update.message.chat_id, action="record_voice")
@@ -1094,7 +1082,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         # Tangani error
-        bot_statistics["errors"] += 1
+        await update_bot_statistics("errors")
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
 
@@ -1284,8 +1272,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Sesi saat ini: {session}")
         
         # Update statistik
-        bot_statistics["total_messages"] += 1
-        bot_statistics["photo_messages"] += 1
+        await update_bot_statistics("photo_messages")
 
         # Kirim pesan "Sedang menganalisa gambar..."
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
@@ -1500,7 +1487,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
     
-def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
+async def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
     # Gabungkan semua pesan menjadi satu teks
     context_text = " ".join([msg.get('content', '') for msg in messages])
     
@@ -1623,7 +1610,6 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
 
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
     if not message_text:
         message_text = update.message.text or ""
@@ -1689,62 +1675,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
         
-def main():
-    if not check_required_settings():
-        print("Bot tidak bisa dijalankan karena konfigurasi tidak lengkap")
-        return
 
-    try:
-        # Initialize Gemini
-        if GOOGLE_API_KEY:
-            genai.configure(api_key=GOOGLE_API_KEY)
-            logger.info("Gemini initialized successfully with GOOGLE_API_KEY")
-        else:
-            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur tidak akan berfungsi")
-
-        logger.info("Gemini initialization completed.")
-
-        # Initialize application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stats", stats))
-        application.add_handler(CommandHandler("reset", reset_session))
-        application.add_handler(CommandHandler("carigambar", search_image_command))
-        application.add_handler(CommandHandler("ingatkan", set_reminder))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("gambar", handle_generate_image))
-        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
-        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
-            handle_mention
-        ))
-
-        # Run bot
-        application.run_polling()
-
-    except Exception as e:
-        logger.critical(f"Error fatal saat menjalankan bot: {e}")
-        raise
-        
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Update statistik
-    bot_statistics["total_messages"] += 1
+    await update_bot_statistics("total_messages")
 
     # Handle different message types
     if update.message.text:
-        bot_statistics["text_messages"] += 1
+        await update_bot_statistics("text_messages")
         await handle_text(update, context)
     elif update.message.voice:
-        bot_statistics["voice_messages"] += 1
+        await update_bot_statistics("voice_messages")
         await handle_voice(update, context)
     elif update.message.photo:
-        bot_statistics["photo_messages"] += 1
+        await update_bot_statistics("photo_messages")
         await handle_photo(update, context)
     else:
         logger.info("Pesan dengan tipe yang tidak didukung diabaikan.")
@@ -1789,6 +1733,25 @@ async def get_user_statistics(user_id: int) -> Dict[str, int]:
     stats = redis_client.hgetall(f"user:{user_id}:stats")
     return {k: int(v) for k, v in stats.items()}
 
+async def get_bot_statistics() -> Dict[str, int]:
+    """Mengambil statistik bot dari Redis."""
+    stats = {
+        "total_messages": 0,
+        "voice_messages": 0,
+        "text_messages": 0,
+        "photo_messages": 0,
+        "errors": 0
+    }
+    for key in stats.keys():
+        value = redis_client.get(f"bot_stats:{key}")
+        if value:
+            stats[key] = int(value)
+    return stats
+
+async def update_bot_statistics(metric: str, increment: int = 1):
+    """Update statistik bot di Redis."""
+    redis_client.incrby(f"bot_stats:{metric}", increment)
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /stats. Menampilkan statistik penggunaan bot."""
     chat_id = update.message.chat_id
@@ -1804,4 +1767,57 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(stats_message, parse_mode="Markdown")
 
+def main():
+    logger.info("Memulai inisialisasi bot...")
+    if not check_required_settings():
+        logger.critical("Konfigurasi tidak lengkap!")
+        return
+
+    try:
+        logger.info("Inisialisasi Gemini...")
+        if GOOGLE_API_KEY:
+            genai.configure(api_key=GOOGLE_API_KEY)
+            logger.info("Gemini initialized successfully with GOOGLE_API_KEY")
+        else:
+            logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur tidak akan berfungsi")
+        logger.info("Gemini initialization completed.")
+
+        logger.info("Inisialisasi aplikasi bot Telegram...")
+        # Initialize application
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+        logger.info("Menambahkan handlers...")
+        # Add handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("stats", stats))
+        application.add_handler(CommandHandler("reset", reset_session))
+        application.add_handler(CommandHandler("carigambar", search_image_command))
+        application.add_handler(CommandHandler("ingatkan", set_reminder))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("gambar", handle_generate_image))
+        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
+        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler(
+            (filters.TEXT | filters.CAPTION) & 
+            (filters.Entity("mention") | filters.REPLY), 
+            handle_mention
+        ))
+        logger.info("Handlers ditambahkan.")
+
+        # Run bot dengan error handling
+        logger.info("Mulai menjalankan bot polling...")
+        try:
+            application.run_polling(timeout=30) # Timeout mungkin membantu dalam beberapa kasus
+        except Exception as e:
+            logger.critical(f"Gagal menjalankan bot: {e}", exc_info=True)
+            raise
+        logger.info("Bot polling dihentikan.")
+
+    except Exception as e:
+        logger.critical(f"Error fatal saat menjalankan bot: {e}", exc_info=True)
+        raise
+
+if __name__ == '__main__':
     asyncio.run(main())
