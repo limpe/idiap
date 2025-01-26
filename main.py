@@ -731,7 +731,7 @@ async def search_google(query: str) -> List[str]:
         logger.exception(f"Error saat mencari di Google: {e}")
         return []
 
-async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[Dict] = None) -> Optional[str]:
+async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[Dict] = None, complexity: str = "simple") -> Optional[str]:
     try:
         # Convert semua history ke format Gemini
         history = []
@@ -747,14 +747,33 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             system_instruction = messages[0]["content"]
             history = history[1:]  # Remove system message from history
         
-        # Initialize model with system instruction if available
+        # Adjust system instruction based on complexity
+        if complexity == "medium":
+            system_instruction = "Provide detailed and thorough responses."
+        elif complexity == "complex":
+            system_instruction = "Provide highly detailed and comprehensive responses with in-depth analysis."
+
+        # Initialize model with adjusted system instruction if available
         model = genai.GenerativeModel(
             "gemini-2.0-flash-thinking-exp-01-21",
             system_instruction=system_instruction
         ) if system_instruction else gemini_model
         
+        # Adjust generation configuration based on complexity
+        generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "top_k": 40
+        }
+        if complexity == "medium":
+            generation_config["temperature"] = 0.5
+            generation_config["top_p"] = 0.9
+        elif complexity == "complex":
+            generation_config["temperature"] = 0.3
+            generation_config["top_p"] = 0.85
+        
         # Start chat with full history
-        chat = model.start_chat(history=history)
+        chat = model.start_chat(history=history, generation_config=generation_config)
         
         # Send last message
         response = chat.send_message(messages[-1]["content"])
@@ -764,9 +783,17 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         logger.error(f"Prompt diblokir: {str(e)}")
         return "Pertanyaan Anda mengandung konten yang tidak diizinkan"
     
+    except generation_types.StopCandidateException as e:
+        logger.error(f"Gemini RECITATION error: {e}")
+        return "Terjadi kesalahan dalam memproses permintaan"
+    
+    except asyncio.TimeoutError:
+        logger.error("Gemini timeout.")
+        return "Permintaan timeout, silakan coba lagi nanti"
+    
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
-        return None
+        return "Terjadi kesalahan saat memproses permintaan"
 
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
     try:
@@ -948,8 +975,13 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
     data = {
         "model": "mistral-large-latest",
         "messages": messages,
-        "max_tokens": 10000
+        "max_tokens": 10000,
+        "temperature": 0.7,  # Add temperature for more controlled responses
+        "top_p": 0.95       # Add top_p for better response quality
     }
+
+    backoff_delay = RETRY_DELAY  # Initial delay
+    max_backoff = 60  # Maximum delay in seconds
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -960,23 +992,41 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                     headers=headers,
                     json=data
                 ) as response:
+                    if response.status == 429:  # Rate limit exceeded
+                        logger.warning(f"Rate limit exceeded on attempt {attempt + 1}")
+                        if attempt < MAX_RETRIES - 1:
+                            await asyncio.sleep(backoff_delay)
+                            backoff_delay = min(backoff_delay * 2, max_backoff)  # Exponential backoff
+                            continue
+                    
                     response.raise_for_status()
                     json_response = await response.json()
 
                     if 'choices' in json_response and json_response['choices']:
                         content = json_response['choices'][0]['message']['content']
                         return await filter_text(content)
+                    else:
+                        logger.error(f"Invalid response format from Mistral API: {json_response}")
+                        return "Terjadi kesalahan format respons dari server."
 
         except aiohttp.ClientError as e:
             logger.error(f"Percobaan {attempt + 1} gagal karena error HTTP: {str(e)}")
+            if "Too Many Requests" in str(e):
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(backoff_delay)
+                    backoff_delay = min(backoff_delay * 2, max_backoff)
+                    continue
         except asyncio.TimeoutError:
             logger.error(f"Percobaan {attempt + 1} gagal karena timeout")
+        except json.JSONDecodeError as e:
+            logger.error(f"Gagal mendecode respons JSON pada percobaan {attempt + 1}: {str(e)}")
         except Exception as e:
-            logger.error(f"Percobaan {attempt + 1} gagal: {str(e)}")
+            logger.exception(f"Percobaan {attempt + 1} gagal dengan error: {str(e)}")
 
         if attempt < MAX_RETRIES - 1:
-            logger.info(f"Menunggu {RETRY_DELAY} detik sebelum percobaan berikutnya...")
-            await asyncio.sleep(RETRY_DELAY)
+            await asyncio.sleep(backoff_delay)
+            backoff_delay = min(backoff_delay * 2, max_backoff)
+            logger.info(f"Menunggu {backoff_delay} detik sebelum percobaan berikutnya...")
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
@@ -1570,6 +1620,9 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
     except redis.RedisError as e:
         logger.error(f"Redis Error saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
+    except Exception as e:
+        logger.error(f"Error tak terduga saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
+        return True
 
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
@@ -1754,9 +1807,3 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"- Total Pesan: {user_stats.get('total_messages', 0)}\n"
         f"- Pesan Teks: {user_stats.get('text', 0)}\n"
         f"- Pesan Suara: {user_stats.get('voice', 0)}\n"
-        f"- Pesan Gambar: {user_stats.get('photo', 0)}"
-    )
-    await update.message.reply_text(stats_message)
-
-if __name__ == '__main__':
-    asyncio.run(main())
