@@ -1600,12 +1600,12 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
 
-        # Cek apakah topik percakapan berubah
-        if session['messages']:
-            last_message = session['messages'][-1]['content']
-            if not is_same_topic(last_message, message, session['messages']):
-                logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
-                return True
+        # # Cek apakah topik percakapan berubah
+        # if session['messages']:
+        #     last_message = session['messages'][-1]['content']
+        #     if not is_same_topic(last_message, message, session['messages']):
+        #         logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
+        #         return True
 
         logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
