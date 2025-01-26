@@ -159,14 +159,7 @@ factory = StemmerFactory()
 stemmer = factory.create_stemmer()
 
 
-# Statistik penggunaan
-bot_statistics = {
-    "total_messages": 0,
-    "voice_messages": 0,
-    "text_messages": 0,
-    "photo_messages": 0,
-    "errors": 0
-}
+# Statistik penggunaan dipindahkan ke Redis
 
 class AudioProcessingError(Exception):
     """Custom exception untuk error pemrosesan audio"""
@@ -701,8 +694,11 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
 
-        # Gunakan prompt default jika tidak ada prompt yang diberikan
-        user_prompt = prompt if prompt else "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesia dan termasuk penjelasan yang komprehensif."
+        # Define default prompt
+        default_prompt = "Deskripsikan gambar ini sedetail mungkin dalam Bahasa Indonesia. Sebutkan objek yang ada di gambar, warna, bentuk, dan karakteristik penting lainnya. Analisis secara komprehensif."
+
+        # Use default prompt if no prompt is provided, otherwise combine with user prompt
+        user_prompt = default_prompt if prompt is None else f"{default_prompt} Tambahan prompt dari pengguna: {prompt}"
 
         # Proses gambar dengan Gemini
         response = model.generate_content([user_prompt, image])
@@ -1534,7 +1530,7 @@ def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) ->
     
     return relevant_keywords
 
-def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 2) -> bool:
+def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 1) -> bool:
     # Ekstrak kata kunci relevan dari konteks percakapan
     relevant_keywords = extract_relevant_keywords(context_messages)
     
@@ -1792,16 +1788,18 @@ async def get_user_statistics(user_id: int) -> Dict[str, int]:
     return {k: int(v) for k, v in stats.items()}
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_stats = await get_user_statistics(user_id)
+    """Handler untuk command /stats. Menampilkan statistik penggunaan bot."""
+    chat_id = update.message.chat_id
+    stats = await get_bot_statistics()
     stats_message = (
-        f"Statistik Pengguna:\n"
-        f"- Total Pesan: {user_stats.get('total_messages', 0)}\n"
-        f"- Pesan Teks: {user_stats.get('text', 0)}\n"
-        f"- Pesan Suara: {user_stats.get('voice', 0)}\n"
-        f"- Pesan Gambar: {user_stats.get('photo', 0)}"
+        "📊 **Statistik Bot PAIDI** 📊\n\n"
+        f"Total Pesan Diterima: {stats.get('total_messages', 0)}\n"
+        f"Pesan Suara: {stats.get('voice_messages', 0)}\n"
+        f"Pesan Teks: {stats.get('text_messages', 0)}\n"
+        f"Pesan Foto: {stats.get('photo_messages', 0)}\n"
+        f"Error: {stats.get('errors', 0)}\n"
+        "\nStatistik ini mencerminkan penggunaan bot secara keseluruhan."
     )
-    await update.message.reply_text(stats_message)
+    await update.message.reply_text(stats_message, parse_mode="Markdown")
 
-if __name__ == '__main__':
     asyncio.run(main())
