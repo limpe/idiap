@@ -314,24 +314,25 @@ async def get_rsi(symbol: str, interval: str = "1h", start_date: str = None, end
     """
     from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
+    if not api_key:
+        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
+        return None
+
     if start_date is None:
         start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if not api_key:
-        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
-        return None
 
     url = f"https://api.twelvedata.com/rsi?symbol={symbol}&interval={interval}&start_date={start_date}&end_date={end_date}&apikey={api_key}"
 
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.get(url)
-            response.raise_for_status()  # Cek apakah respons sukses
+            response.raise_for_status()
 
             data = response.json()
             if data.get("status") == "ok":
-                return data.get("values", [{}])[0]  # Ambil data terbaru
+                return {"rsi": data.get("values", [{}])[0].get("rsi", "N/A")}
             else:
                 logger.error(f"Gagal mengambil data RSI: {data.get('message', 'Unknown error')}")
                 return None
@@ -339,13 +340,12 @@ async def get_rsi(symbol: str, interval: str = "1h", start_date: str = None, end
         except requests.exceptions.RequestException as e:
             logger.error(f"Error saat mengambil data RSI (percobaan {attempt + 1}): {e}")
             if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(RETRY_DELAY)  # Tunggu sebelum mencoba lagi
+                await asyncio.sleep(RETRY_DELAY)
             else:
                 return None
         except Exception as e:
             logger.error(f"Error tak terduga saat mengambil data RSI: {e}")
             return None
-    return None
     return None
 
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 100, start_date: str = None, end_date: str = None) -> Optional[Dict]:
@@ -469,6 +469,9 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
     chat_id = update.message.chat_id
     processing_msg = None
     try:
+        if not redis_client.exists(f"session:{chat_id}"):
+            await initialize_session(chat_id)
+            
         session = json.loads(redis_client.get(f"session:{chat_id}"))
         message_text = update.message.text or ""
         symbol = message_text.replace("/harga", "").strip()
@@ -486,7 +489,7 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         historical_data = await get_stock_data(symbol)
         if not historical_data:
-            await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Silakan coba lagi.")
+            await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Pastikan simbol yang dimasukkan benar dan coba lagi.")
             return
 
         stock_info = (
