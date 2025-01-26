@@ -761,14 +761,9 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             system_instruction=system_instruction
         ) if system_instruction else gemini_model
         
-        # Adjust system instruction based on complexity
-        if complexity == "simple":
-            system_instruction = "Berikan respons singkat dan jelas. Ingat konteks percakapan."
-        elif complexity == "medium":
-            system_instruction = "Berikan respons yang rinci dan menyeluruh. Ingat konteks percakapan."
-        elif complexity == "complex":
-            system_instruction = "Berikan respons yang sangat rinci dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
-        
+        # Log history for debugging
+        logger.info(f"History: {history}")
+
         # Start chat with full history
         chat = model.start_chat(history=history)
         
