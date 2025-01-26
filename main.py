@@ -239,7 +239,12 @@ async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
 
             data = response.json()
             if data.get("status") == "ok":
-                return data.get("values", [{}])[0]  # Ambil data terbaru
+                values = data.get("values", [{}])[0]  # Ambil data terbaru
+                return { # Return all MACD values
+                    "macd": values.get('macd'),
+                    "signal": values.get('signal'),
+                    "histogram": values.get('histogram'),
+                }
             else:
                 logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
                 return None
