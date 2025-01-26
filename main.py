@@ -253,7 +253,7 @@ async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, en
                 return { # Return all MACD values
                     "macd": values.get('macd'),
                     "macd_signal": values.get('macd_signal'),
-                    "macd_histogram": values.get('macd_histogram'),
+                    "macd_hist": values.get('macd_hist'),
                 }
             else:
                 logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
@@ -440,7 +440,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"2. **Moving Average Convergence Divergence (MACD):** (Note: Signal and Histogram values may not always be available from the API)\n"
         f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"   - Signal: {macd.get('macd_signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Histogram: {macd.get('macd_histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
+        f"   - Histogram: {macd.get('macd_hist', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
         f"4. **Relative Strength Index (RSI):** {rsi.get('rsi', 'Tidak tersedia') if rsi else 'Tidak tersedia'}\n"
     )
