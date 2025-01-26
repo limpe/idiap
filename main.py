@@ -761,21 +761,16 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             system_instruction=system_instruction
         ) if system_instruction else gemini_model
         
-        # Adjust generation configuration based on complexity
-        generation_config = {
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "top_k": 40
-        }
-        if complexity == "medium":
-            generation_config["temperature"] = 0.5
-            generation_config["top_p"] = 0.9
+        # Adjust system instruction based on complexity
+        if complexity == "simple":
+            system_instruction = "Berikan respons singkat dan jelas. Ingat konteks percakapan."
+        elif complexity == "medium":
+            system_instruction = "Berikan respons yang rinci dan menyeluruh. Ingat konteks percakapan."
         elif complexity == "complex":
-            generation_config["temperature"] = 0.3
-            generation_config["top_p"] = 0.85
+            system_instruction = "Berikan respons yang sangat rinci dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
         
         # Start chat with full history
-        chat = model.start_chat(history=history, generation_config=generation_config)
+        chat = model.start_chat(history=history)
         
         # Send last message
         response = chat.send_message(messages[-1]["content"])
