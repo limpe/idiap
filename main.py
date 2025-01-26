@@ -395,6 +395,7 @@ async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
         macd = await get_macd(symbol)
         vwap = await get_vwap(symbol)
 
+        rsi = await get_rsi(symbol)
         stock_data = {
             "bbands": bbands,
             "macd": macd,
