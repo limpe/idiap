@@ -193,7 +193,9 @@ async def get_bbands(symbol: str, interval: str = "1h", start_date: str = None, 
     from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
     if start_date is None:
-        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
@@ -231,7 +233,9 @@ async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, en
     from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
     if start_date is None:
-        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
@@ -274,7 +278,9 @@ async def get_vwap(symbol: str, interval: str = "1h", start_date: str = None, en
     from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
     if start_date is None:
-        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
@@ -306,7 +312,12 @@ async def get_rsi(symbol: str, interval: str = "1h", start_date: str = None, end
     """
     Mengambil data RSI dari TwelveData API.
     """
+    from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
