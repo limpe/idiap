@@ -1405,7 +1405,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
             # Proses pesan dengan konteks cerdas, dengan menyertakan lebih banyak konteks untuk reply
-            context_window = 20 if is_reply else 10  # Perluas window konteks untuk reply
+            context_window = MAX_CONVERSATION_MESSAGES_COMPLEX if is_reply else 10  # Perluas window konteks untuk reply
             response = await process_with_smart_context(session['messages'][-context_window:])
 
             if response:
@@ -1486,7 +1486,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
     try:
         # Coba Gemini terlebih dahulu
         try:
-            response = await asyncio.wait_for(process_with_gemini(messages), timeout=10)
+            response = await asyncio.wait_for(process_with_gemini(messages), timeout=30)
             if response:
                 logger.info("Menggunakan respons dari Gemini.")
                 return response
