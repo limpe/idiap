@@ -748,10 +748,12 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             history = history[1:]  # Remove system message from history
         
         # Adjust system instruction based on complexity
-        if complexity == "medium":
-            system_instruction = "Provide detailed and thorough responses."
+        if complexity == "simple":
+            system_instruction = "Berikan respons dalam Bahasa Indonesia jelas. Ingat konteks percakapan."
+        elif complexity == "medium":
+            system_instruction = "Berikan respons yang Relevan dan jelas dalam Bahasa Indonesia. Ingat konteks percakapan."
         elif complexity == "complex":
-            system_instruction = "Provide highly detailed and comprehensive responses with in-depth analysis."
+            system_instruction = "Berikan respons yang sangat rinci dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
 
         # Initialize model with adjusted system instruction if available
         model = genai.GenerativeModel(
@@ -1807,3 +1809,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"- Total Pesan: {user_stats.get('total_messages', 0)}\n"
         f"- Pesan Teks: {user_stats.get('text', 0)}\n"
         f"- Pesan Suara: {user_stats.get('voice', 0)}\n"
+        f"- Pesan Gambar: {user_stats.get('photo', 0)}"
+    )
+    await update.message.reply_text(stats_message)
+
+if __name__ == '__main__':
+    asyncio.run(main())
