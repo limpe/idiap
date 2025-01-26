@@ -252,8 +252,8 @@ async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, en
                 values = data.get("values", [{}])[0]  # Ambil data terbaru
                 return { # Return all MACD values
                     "macd": values.get('macd'),
-                    "signal": values.get('signal'),
-                    "histogram": values.get('histogram'),
+                    "macd_signal": values.get('signal'),
+                    "macd_histogram": values.get('histogram'),
                 }
             else:
                 logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
