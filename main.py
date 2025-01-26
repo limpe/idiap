@@ -688,12 +688,12 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         default_prompt = "Deskripsikan gambar ini sedetail mungkin dalam Bahasa Indonesia. Sebutkan objek yang ada di gambar, warna, bentuk, dan karakteristik penting lainnya. Analisis secara komprehensif."
 
         # Generate response with default prompt (for history)
-        default_response = await model.generate_content([default_prompt, image])
+        default_response = model.generate_content([default_prompt, image])
         filtered_default_response_text = default_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if default_response.text else None
 
         # Use default prompt if no prompt is provided, otherwise combine with user prompt
         user_prompt = prompt if prompt else default_prompt
-        user_response = await model.generate_content([user_prompt, image])
+        user_response = model.generate_content([user_prompt, image])
         filtered_user_response_text = user_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if user_response.text else None
 
 
