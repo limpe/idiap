@@ -252,8 +252,8 @@ async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, en
                 values = data.get("values", [{}])[0]  # Ambil data terbaru
                 return { # Return all MACD values
                     "macd": values.get('macd'),
-                    "macd_signal": values.get('signal'),
-                    "macd_histogram": values.get('histogram'),
+                    "macd_signal": values.get('macd_signal'),
+                    "macd_hist": values.get('macd_hist'),
                 }
             else:
                 logger.error(f"Gagal mengambil data MACD: {data.get('message', 'Unknown error')}")
@@ -440,6 +440,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"   - Signal: {macd.get('macd_signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"   - Histogram: {macd.get('macd_histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
+        f"4. **Relative Strength Index (RSI):** {rsi.get('rsi', 'Tidak tersedia') if rsi else 'Tidak tersedia'}\n"
     )
 
     return historical_data + indicators
@@ -499,11 +500,9 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
              "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek dan panjang?\n"
             "   - Apakah Market Structure tren bullish atau bearish ?\n"
              "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
-            "   - Identifikasi Key Level.\n\n"
               "2. **Indikator Teknis:**\n"
               "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
              "   - MACD untuk mengidentifikasi momentum tren.\n"
-            "   - Evaluasi Analisa RSI.\n"
              "   - Evaluasi penggunaan VWAP untuk menentukan nilai harga yang wajar.\n\n"
              "3. **Saran:**\n"
              "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
