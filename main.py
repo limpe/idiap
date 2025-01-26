@@ -400,8 +400,8 @@ async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
             "bbands": bbands,
             "macd": macd,
             "vwap": vwap,
+            "rsi": rsi
         }
-
         return stock_data
     except Exception as e:
         logger.error(f"Error fetching stock data with indicators: {str(e)}")
@@ -430,6 +430,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
     bbands = stock_data.get('bbands')
     macd = stock_data.get('macd')
     vwap = stock_data.get('vwap')
+    rsi = stock_data.get('rsi')
 
     indicators = (
         f"1. **Bollinger Bands (BBANDS):**\n"
