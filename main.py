@@ -437,8 +437,8 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"   - Lower Band: {bbands.get('lower_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n\n"
         f"2. **Moving Average Convergence Divergence (MACD):** (Note: Signal and Histogram values may not always be available from the API)\n"
         f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
+        f"   - Signal: {macd.get('macd_signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
+        f"   - Histogram: {macd.get('macd_histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
     )
 
