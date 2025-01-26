@@ -190,7 +190,10 @@ async def get_bbands(symbol: str, interval: str = "1h", start_date: str = None, 
     """
     Mengambil data Bollinger Bands (BBANDS) dari TwelveData API.
     """
+    from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
@@ -225,7 +228,10 @@ async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, en
     Mengambil data MACD dari TwelveData API.
     """
     # Implementation of get_macd remains the same as in the provided code
+    from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
@@ -265,7 +271,10 @@ async def get_vwap(symbol: str, interval: str = "1h", start_date: str = None, en
     Mengambil data VWAP dari TwelveData API.
     """
     # Implementation of get_vwap remains the same as in the provided code
+    from datetime import datetime, timedelta
     api_key = os.getenv("TWELVEDATA_API_KEY")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
