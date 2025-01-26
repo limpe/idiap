@@ -365,7 +365,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
                 f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
                 f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
                 f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
-                f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
+                #f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
             )
 
     bbands = stock_data.get('bbands')
@@ -377,10 +377,10 @@ def format_technical_indicators(stock_data: Dict) -> str:
         f"   - Upper Band: {bbands.get('upper_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
         f"   - Middle Band: {bbands.get('middle_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n"
         f"   - Lower Band: {bbands.get('lower_band', 'Tidak tersedia') if bbands else 'Tidak tersedia'}\n\n"
-        f"2. **Moving Average Convergence Divergence (MACD):**\n"
+        f"2. **Moving Average Convergence Divergence (MACD):** (Note: Signal and Histogram values may not always be available from the API)\n"
         f"   - MACD: {macd.get('macd', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"   - Signal: {macd.get('signal', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
-        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n\n"
+        f"   - Histogram: {macd.get('histogram', 'Tidak tersedia') if macd else 'Tidak tersedia'}\n"
         f"3. **Volume Weighted Average Price (VWAP):** {vwap.get('vwap', 'Tidak tersedia') if vwap else 'Tidak tersedia'}\n"
     )
 
@@ -399,7 +399,7 @@ def format_historical_data(historical_data: List[Dict]) -> str:
             f"  - Close: {entry.get('close', 'Tidak tersedia')}\n"
             f"  - High: {entry.get('high', 'Tidak tersedia')}\n"
             f"  - Low: {entry.get('low', 'Tidak tersedia')}\n"
-            f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
+            #f"  - Volume: {entry.get('volume', 'Tidak tersedia')}\n\n"
         )
     return formatted_data
 
