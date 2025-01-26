@@ -408,7 +408,10 @@ def format_historical_data(historical_data: List[Dict]) -> str:
 
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
     try:
+        # Ambil sesi dari Redis
+        session = json.loads(redis_client.get(f"session:{chat_id}"))
         # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
         symbol = message_text.replace("/harga", "").strip()
