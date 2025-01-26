@@ -88,7 +88,7 @@ def check_required_settings():
         for var in missing_vars:
             print(f"- {var}")
         return False
-    
+
     logger.info("Semua konfigurasi yang diperlukan tersedia")
     return True
 
@@ -120,7 +120,7 @@ async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
                 "role": role,
                 "parts": [{"text": msg["content"]}]
             })
-        
+
         # Mulai chat dengan riwayat yang sesuai
         generation_config = {
             "temperature": 0.7,
@@ -128,12 +128,12 @@ async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
             "top_k": 40
         }
         chat = gemini_model.start_chat(history=history, generation_config=generation_config)
-        
+
         # Kirim pesan terakhir
         response = chat.send_message(messages[-1]["content"])
-        
+
         return response.text if response else "Maaf, tidak ada respons"
-    
+
     except Exception as e:
         logger.error(f"Error in chat_with_gemini: {str(e)}")
         return "Terjadi kesalahan saat memproses permintaan"
@@ -196,7 +196,7 @@ async def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
         return None
 
     url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&apikey={api_key}"
-    
+
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.get(url)
@@ -224,13 +224,14 @@ async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data MACD dari TwelveData API.
     """
+    # Implementation of get_macd remains the same as in the provided code
     api_key = os.getenv("TWELVEDATA_API_KEY")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
     url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&apikey={api_key}"
-    
+
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.get(url)
@@ -258,13 +259,14 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     """
     Mengambil data VWAP dari TwelveData API.
     """
+    # Implementation of get_vwap remains the same as in the provided code
     api_key = os.getenv("TWELVEDATA_API_KEY")
     if not api_key:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
     url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&apikey={api_key}"
-    
+
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.get(url)
@@ -289,19 +291,15 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
     return None
 
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
-    # Jika start_date tidak diberikan, atur ke 60 hari sebelumnya
+    # Implementation of get_stock_data remains the same as in the provided code
+    from functools import partial
     if start_date is None:
         start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-    
-    # Inisialisasi klien TwelveData
+
     td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
-    
+
     for attempt in range(MAX_RETRIES):
         try:
-            # Membungkus pemanggilan dengan functools.partial untuk menghandle keyword arguments
-            from functools import partial
-            
-            # Fungsi partial untuk td.time_series dengan parameter yang diperlukan
             time_series_func = partial(
                 td.time_series,
                 symbol=symbol,
@@ -311,17 +309,14 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 end_date=end_date,
                 timezone="Asia/Bangkok"
             )
-            
+
             loop = asyncio.get_event_loop()
-            
-            # Jalankan time_series_func di executor
             ts = await loop.run_in_executor(None, time_series_func)
-            
-            # Ambil data historis
             data = await loop.run_in_executor(None, ts.as_json)
+
             if data:
-                logger.info(f"Data saham: {data}")  # Log respons API
-                return data  # Kembalikan semua data historis
+                logger.info(f"Data saham: {data}")
+                return data
             return None
         except Exception as e:
             logger.error(f"Error fetching stock data (attempt {attempt + 1}): {str(e)}")
@@ -331,17 +326,17 @@ async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30
                 return None
     return None
 
+
 async def get_stock_data_with_indicators(symbol: str) -> Optional[Dict]:
     """
     Mengambil data saham beserta indikator teknis (BBANDS, MACD, VWAP).
     """
+    # Implementation of get_stock_data_with_indicators remains the same as in the provided code
     try:
-        # Ambil data dari setiap endpoint
         bbands = await get_bbands(symbol)
         macd = await get_macd(symbol)
         vwap = await get_vwap(symbol)
 
-        # Gabungkan data
         stock_data = {
             "bbands": bbands,
             "macd": macd,
@@ -357,6 +352,7 @@ def format_technical_indicators(stock_data: Dict) -> str:
     """
     Format semua indikator teknis dan data historis dalam bentuk yang mudah dibaca oleh Gemini.
     """
+    # Implementation of format_technical_indicators remains the same as in the provided code
     if not stock_data:
         return "Tidak ada data indikator teknis yang tersedia."
 
@@ -394,6 +390,7 @@ def format_historical_data(historical_data: List[Dict]) -> str:
     """
     Format data historis saham dalam bentuk yang mudah dibaca oleh Gemini.
     """
+    # Implementation of format_historical_data remains the same as in the provided code
     formatted_data = ""
     for entry in historical_data:
         formatted_data += (
@@ -409,10 +406,9 @@ def format_historical_data(historical_data: List[Dict]) -> str:
 
 async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
+    processing_msg = None
     try:
-        # Ambil sesi dari Redis
         session = json.loads(redis_client.get(f"session:{chat_id}"))
-        # Ambil simbol saham dari pesan pengguna
         message_text = update.message.text or ""
         symbol = message_text.replace("/harga", "").strip()
 
@@ -420,32 +416,24 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("Mohon berikan simbol saham. Contoh: /harga AAPL")
             return
 
-        # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang mengambil dan menganalisis data saham...")
 
-        # Ambil data saham beserta indikator teknis
         stock_data = await get_stock_data_with_indicators(symbol)
-
         if not stock_data or not isinstance(stock_data, dict):
             await update.message.reply_text("Maaf, tidak dapat mengambil data saham. Silakan coba lagi.")
             return
 
-        # Ambil data historis saham
         historical_data = await get_stock_data(symbol)
-
         if not historical_data:
             await update.message.reply_text("Maaf, tidak dapat mengambil data historis saham. Silakan coba lagi.")
             return
 
-        # Format data saham dan indikator teknis
         stock_info = (
             f"Data untuk {symbol}:\n"
             f"{format_technical_indicators(stock_data)}\n"
             f"Data Historis:\n"
             f"{format_historical_data(historical_data)}"
         )
-
-        # Buat prompt untuk Gemini
         prompt = (
             f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
              "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
@@ -463,22 +451,20 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
              "Gunakan bahasa yang profesional namun tetap mudah dipahami oleh trader forex dengan berbagai tingkat pengalaman."
             )
 
-        # Proses data saham dengan Gemini
         response = await process_with_gemini([{"role": "user", "content": prompt}])
 
         if response:
-            # Filter teks respons
             filtered_response = await filter_text(response)
-
-            # Bagi respons menjadi beberapa bagian jika terlalu panjang
             response_parts = split_message(filtered_response)
 
-            # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
                 await update.message.reply_text(part)
-            # Tambahkan respons asisten ke sesi
+
+            logger.info(f"Menambahkan analisis saham ke sesi untuk chat_id {chat_id}: {filtered_response[:100]}...") # Log before adding to session
+            # Tambahkan respons asisten ke sesi dan update session setelah mengirim semua parts ke user
             session['messages'].append({"role": "assistant", "content": filtered_response})
             await update_session(chat_id, {"role": "assistant", "content": filtered_response})
+            logger.info(f"Selesai menambahkan analisis saham ke sesi untuk chat_id {chat_id}") # Log after adding to session
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
@@ -487,54 +473,51 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Terjadi kesalahan saat memproses permintaan saham.")
 
     finally:
-        # Hapus pesan "Sedang memproses..."
         if processing_msg:
             await processing_msg.delete()
-    
-async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
-    # Ambil semua pesan pengguna
-    user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
-    user_text = " ".join(user_messages).lower()  # Gabungkan semua pesan pengguna menjadi satu teks
 
-    # Cek apakah ada kata kunci kompleks di pesan terbaru
+
+async def determine_conversation_complexity(messages: List[Dict[str, str]], session: Dict, previous_complexity: str = "simple") -> str:
+    # Implementation of determine_conversation_complexity remains the same as in the provided code
+    user_messages = [msg.get('content', '') for msg in messages if msg.get('role') == 'user']
+    user_text = " ".join(user_messages).lower()
     latest_message = user_messages[-1] if user_messages else ""
     has_complex_keywords = any(keyword in latest_message.lower() for keyword in complex_keywords)
 
-    # Logging untuk debugging
     logger.info(f"Pesan terbaru: {latest_message}")
     logger.info(f"Apakah mengandung kata kunci kompleks? {has_complex_keywords}")
 
-    # Logika penurunan dan kenaikan kompleksitas
     if previous_complexity == "complex":
         if not has_complex_keywords:
             logger.info(f"Kompleksitas turun dari complex ke medium karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "medium"  # Turun ke medium jika tidak ada kata kunci kompleks
+            return "medium"
         else:
             logger.info(f"Kompleksitas tetap complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Tetap complex jika ada kata kunci kompleks
+            return "complex"
 
     elif previous_complexity == "medium":
         if not has_complex_keywords:
             logger.info(f"Kompleksitas turun dari medium ke simple karena pesan terbaru tidak mengandung kata kunci kompleks.")
-            return "simple"  # Turun ke simple jika tidak ada kata kunci kompleks
+            return "simple"
         else:
             logger.info(f"Kompleksitas tetap medium karena pesan terbaru mengandung kata kunci kompleks.")
-            return "medium"  # Tetap medium jika ada kata kunci kompleks
+            return "medium"
 
     else:  # previous_complexity == "simple"
         if has_complex_keywords:
             logger.info(f"Kompleksitas naik dari simple ke complex karena pesan terbaru mengandung kata kunci kompleks.")
-            return "complex"  # Naik langsung ke complex jika ada kata kunci kompleks
-        elif session.get('message_counter', 0) > 3:  # Naik ke medium jika jumlah pesan > 3
+            return "complex"
+        elif session.get('message_counter', 0) > 3:
             logger.info(f"Kompleksitas naik dari simple ke medium karena jumlah pesan > 3.")
-            return "medium"  # Naik ke medium jika pesan > 3
+            return "medium"
         else:
             logger.info(f"Kompleksitas tetap simple karena tidak ada kata kunci kompleks dan jumlah pesan <= 3.")
-            return "simple"  # Tetap simple jika tidak ada perubahan
+            return "simple"
+
 
 async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of set_reminder remains the same as in the provided code
     try:
-        # Parse waktu dan pesan dari perintah pengguna
         args = context.args
         if len(args) < 2:
             await update.message.reply_text("Format: /ingatkan <waktu> <pesan>")
@@ -543,14 +526,12 @@ async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time_str = args[0]
         message = " ".join(args[1:])
 
-        # Konversi waktu ke detik
         try:
-            time_seconds = int(time_str) * 60  # Misalnya, /reminder 5 Pesan
+            time_seconds = int(time_str) * 60
         except ValueError:
             await update.message.reply_text("Format waktu tidak valid. Gunakan angka (misalnya, 5).")
             return
 
-        # Jadwalkan pengingat
         context.job_queue.run_once(
             callback=send_reminder,
             when=time_seconds,
@@ -564,14 +545,16 @@ async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, terjadi kesalahan saat mengatur pengingat.")
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of send_reminder remains the same as in the provided code
     job = context.job
     await context.bot.send_message(chat_id=job.chat_id, text=f"⏰ Pengingat: {job.data}")
 
 async def encode_image(image_source) -> str:
     """Encode an image file or BytesIO object to base64 string."""
+    # Implementation of encode_image remains the same as in the provided code
     try:
         if isinstance(image_source, BytesIO):
-            image_source.seek(0)  # Pastikan pointer berada di awal file
+            image_source.seek(0)
             return base64.b64encode(image_source.read()).decode('utf-8')
         elif isinstance(image_source, str):
             with open(image_source, "rb") as image_file:
@@ -583,6 +566,7 @@ async def encode_image(image_source) -> str:
         raise
 
 async def check_rate_limit(user_id: int) -> bool:
+    # Implementation of check_rate_limit remains the same as in the provided code
     key = f"rate_limit:{user_id}"
     count = redis_client.get(key)
     if count and int(count) > MAX_REQUESTS_PER_MINUTE:
@@ -595,24 +579,22 @@ async def translate_to_english(text: str) -> str:
     """
     Menerjemahkan teks ke Bahasa Inggris menggunakan deep-translator.
     """
+    # Implementation of translate_to_english remains the same as in the provided code
     try:
         translation = GoogleTranslator(source='auto', target='en').translate(text)
         return translation
     except Exception as e:
         logger.error(f"Error translating text to English: {str(e)}")
-        return text  # Kembalikan teks asli jika terjemahan gagal
+        return text
 
 async def generate_image(update: Update, prompt: str) -> Optional[str]:
+    # Implementation of generate_image remains the same as in the provided code
     try:
-        # Terjemahkan prompt ke Bahasa Inggris (jika diperlukan)
         english_prompt = await translate_to_english(prompt)
         logger.info(f"Original prompt: {prompt}, Translated prompt: {english_prompt}")
-
-        # Inisialisasi Together client
         client = Together()
-        
+
         try:
-            # Generate gambar menggunakan Together API
             response = client.images.generate(
                 prompt=english_prompt,
                 model="black-forest-labs/FLUX.1-schnell-Free",
@@ -623,11 +605,9 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
                 guidance_scale=9.5,
                 response_format="b64_json"
             )
-            
-            # Ambil base64 string dari response
             if response and hasattr(response, 'data') and len(response.data) > 0:
                 return response.data[0].b64_json
-            
+
             logger.error("No image data in response")
             return None
 
@@ -639,43 +619,33 @@ async def generate_image(update: Update, prompt: str) -> Optional[str]:
         logger.exception("Error in generate_image")
         return None
 
-# Langkah 3: Update fungsi handle_generate_image
+
 async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of handle_generate_image remains the same as in the provided code
     try:
-        # Pisahkan command dan pesan
         message_text = update.message.text or ""
         is_group = update.message.chat.type in ["group", "supergroup"]
         bot_username = context.bot.username.lower()
-        
-        # Penanganan untuk grup
+
         if is_group:
-            # Cek apakah ada mention bot
             if f"@{bot_username}" not in message_text.lower():
                 logger.info(f"Pesan di grup tanpa mention yang valid diabaikan. Pesan: {message_text}")
                 return
-
-            # Hapus mention bot dari pesan
             message_text = message_text.replace(f"@{bot_username}", "").strip()
-        
-        # Ekstrak prompt dari pesan
-        # Hapus command /gambar atau /image dari awal pesan
+
         prompt = re.sub(r'^/(?:gambar|image)\s*', '', message_text).strip()
-        
+
         if not prompt:
             await update.message.reply_text("Mohon berikan prompt untuk menghasilkan gambar. Contoh: /gambar pemandangan gunung")
             return
 
-        # Kirim pesan "Sedang memproses..."
         processing_msg = await update.message.reply_text("🔄 Sedang menghasilkan gambar...")
 
         try:
-            # Panggil fungsi untuk menghasilkan gambar
             image_data = await generate_image(update, prompt)
 
             if image_data:
-                # Decode base64 string ke bytes
                 image_bytes = base64.b64decode(image_data)
-                # Kirim gambar menggunakan BytesIO
                 with BytesIO(image_bytes) as bio:
                     bio.seek(0)
                     await update.message.reply_photo(photo=bio)
@@ -683,35 +653,26 @@ async def handle_generate_image(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Maaf, gagal menghasilkan gambar. Silakan coba lagi.")
 
         finally:
-            # Hapus pesan "Sedang memproses..."
             await processing_msg.delete()
 
     except Exception as e:
         logger.error(f"Error dalam handle_generate_image: {e}")
         await update.message.reply_text("Terjadi kesalahan saat menghasilkan gambar.")
 
+
 async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) -> Tuple[Optional[str], Optional[str]]:
+    # Implementation of process_image_with_gemini remains the same as in the provided code
     try:
-        # Inisialisasi model Gemini
         model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
-
-        # Konversi BytesIO ke PIL Image
         image = Image.open(image_bytes)
-
-        # Define default prompt
         default_prompt = "Deskripsikan gambar ini sedetail mungkin dalam Bahasa Indonesia. Sebutkan objek yang ada di gambar, warna, bentuk, dan karakteristik penting lainnya. Analisis secara komprehensif."
-
-        # Generate response with default prompt (for history)
         default_response = model.generate_content([default_prompt, image])
         filtered_default_response_text = await filter_text(default_response.text) if default_response.text else None
 
-        # Use default prompt if no prompt is provided, otherwise combine with user prompt
         user_prompt = prompt if prompt else default_prompt
         user_response = model.generate_content([user_prompt, image])
         filtered_user_response_text = await filter_text(user_response.text) if user_response.text else None
 
-
-        # Kembalikan teks hasil analisis yang sudah difilter
         return filtered_user_response_text, filtered_default_response_text
 
     except Exception as e:
@@ -719,6 +680,7 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
         return "Terjadi kesalahan saat memproses gambar dengan Gemini.", None
 
 async def search_google(query: str) -> List[str]:
+    # Implementation of search_google remains the same as in the provided code
     try:
         api_key = os.environ.get("GOOGLE_API_KEY")
         cse_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
@@ -736,8 +698,8 @@ async def search_google(query: str) -> List[str]:
         return []
 
 async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[Dict] = None, complexity: str = "simple") -> Optional[str]:
+    # Implementation of process_with_gemini remains the same as in the provided code
     try:
-        # Convert semua history ke format Gemini
         history = []
         for msg in messages:
             history.append({
@@ -745,13 +707,11 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
                 "parts": [{"text": msg["content"]}]
             })
 
-        # Set system instruction jika ada
         system_instruction = None
         if messages and "system" in messages[0]["role"]:
             system_instruction = messages[0]["content"]
-            history = history[1:]  # Remove system message from history
+            history = history[1:]
         
-        # Adjust system instruction based on complexity
         if complexity == "simple":
             system_instruction = "Berikan respons dalam Bahasa Indonesia jelas. Ingat konteks percakapan."
         elif complexity == "medium":
@@ -759,53 +719,46 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         elif complexity == "complex":
             system_instruction = "Berikan respons dalam bahasa indonesia yang detail dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
 
-        # Initialize model with adjusted system instruction if available
         model = genai.GenerativeModel(
             "gemini-2.0-flash-thinking-exp-01-21",
             system_instruction=system_instruction
         ) if system_instruction else gemini_model
-        
-        # Log history for debugging
-        logger.info(f"History: {history}")
 
-        # Start chat with full history
+        logger.info(f"History: {history}")
         chat = model.start_chat(history=history)
         loop = asyncio.get_event_loop()
-        
-        # Send last message in executor to avoid blocking
         response = await loop.run_in_executor(None, chat.send_message, messages[-1]["content"])
         return await filter_text(response.text)
 
     except generation_types.BlockedPromptException as e:
         logger.error(f"Prompt diblokir: {str(e)}")
         return "Pertanyaan Anda mengandung konten yang tidak diizinkan"
-    
+
     except generation_types.StopCandidateException as e:
         logger.error(f"Gemini RECITATION error: {e}")
         return "Terjadi kesalahan dalam memproses permintaan"
-    
+
     except asyncio.TimeoutError:
         logger.error("Gemini timeout.")
         return "Permintaan timeout, silakan coba lagi nanti"
-    
+
     except Exception as e:
         logger.exception(f"Error processing Gemini request: {e}")
         return "Terjadi kesalahan saat memproses permintaan"
 
+
 async def process_image_with_pixtral_multiple(image_path: str, prompt: str = None, repetitions: int = 2) -> List[str]:
+    # Implementation of process_image_with_pixtral_multiple remains the same as in the provided code
     try:
         base64_image = await encode_image(image_path)
         results = []
-        
+
         async def single_request():
             headers = {
                 "Authorization": f"Bearer {MISTRAL_API_KEY}",
                 "Content-Type": "application/json"
             }
-
-            # Use custom prompt if provided, otherwise use default
             user_prompt = prompt if prompt else "Apa isi gambar ini? singkat padat Jelas Bahasa Indonesia."
-
             data = {
                 "model": "pixtral-large-latest",
                 "messages": [
@@ -826,7 +779,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
             }
 
             max_retries = 3
-            retry_delay = 2  # seconds
+            retry_delay = 2
 
             for attempt in range(max_retries):
                 try:
@@ -836,7 +789,7 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
                             headers=headers,
                             json=data
                         ) as response:
-                            if response.status == 429:  # Too Many Requests
+                            if response.status == 429:
                                 if attempt < max_retries - 1:
                                     await asyncio.sleep(retry_delay * (attempt + 1))
                                     continue
@@ -850,12 +803,11 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
                     logger.exception("Error in single request after all retries")
                     return "Terjadi kesalahan dalam analisis ini."
 
-        # Proses requests secara sequential dengan delay
         for i in range(repetitions):
             result = await single_request()
             results.append(result)
-            if i < repetitions - 1:  # Tidak perlu delay setelah request terakhir
-                await asyncio.sleep(1)  # Delay 1 detik antara requests
+            if i < repetitions - 1:
+                await asyncio.sleep(1)
 
         return results
 
@@ -863,56 +815,43 @@ async def process_image_with_pixtral_multiple(image_path: str, prompt: str = Non
         logger.exception("Error in processing image with Pixtral multiple")
         return ["Terjadi kesalahan saat memproses gambar."] * repetitions
 
+
 async def process_voice_to_text(update: Update) -> Optional[str]:
     """
     Proses file suara menjadi teks dengan optimasi untuk Railway.
-
-    Args:
-        update (Update): Objek update dari Telegram yang berisi pesan suara.
-
-    Returns:
-        Optional[str]: Teks hasil transkripsi suara, atau None jika gagal.
     """
+    # Implementation of process_voice_to_text remains the same as in the provided code
     try:
         logger.info("Memulai pemrosesan pesan suara...")
         voice_file = await update.message.voice.get_file()
 
-        # Gunakan BytesIO untuk mengurangi penggunaan disk
         with BytesIO() as ogg_bytes, BytesIO() as wav_bytes:
-            # Download file langsung ke memory
             ogg_data = await voice_file.download_as_bytearray()
             ogg_bytes.write(ogg_data)
             ogg_bytes.seek(0)
-            
-            # Preprocessing audio dalam memory
+
             audio = AudioSegment.from_ogg(ogg_bytes)
             audio = (audio
-                    .set_channels(1)  # Convert to mono
-                    .set_frame_rate(16000)  # Set to 16kHz
-                    .normalize())  # Normalize volume
-            
-            # Export ke WAV dalam memory
+                    .set_channels(1)
+                    .set_frame_rate(16000)
+                    .normalize())
+
             audio.export(wav_bytes, format='wav')
             wav_bytes.seek(0)
-            
-            # Recognize dengan multiple engines
+
             recognizer = sr.Recognizer()
-            
-            # Konfigurasi recognizer
             recognizer.energy_threshold = 300
             recognizer.dynamic_energy_threshold = True
             recognizer.dynamic_energy_adjustment_damping = 0.15
             recognizer.dynamic_energy_ratio = 1.5
-            
+
             with sr.AudioFile(wav_bytes) as source:
-                # Adjust for ambient noise
                 recognizer.adjust_for_ambient_noise(source)
                 audio_data = recognizer.record(source)
-                
-                # Try Google Speech Recognition
+
                 try:
                     text = recognizer.recognize_google(
-                        audio_data, 
+                        audio_data,
                         language="id-ID",
                         show_all=False
                     )
@@ -929,8 +868,10 @@ async def process_voice_to_text(update: Update) -> Optional[str]:
         logger.exception("Error dalam pemrosesan audio")
         raise
 
+
 # Potong audio besar
 def split_audio_to_chunks(audio_path: str, chunk_duration: int = 60) -> List[str]:
+    # Implementation of split_audio_to_chunks remains the same as in the provided code
     audio = AudioSegment.from_file(audio_path)
     chunks = []
     for i in range(0, len(audio), chunk_duration * 1000):
@@ -943,6 +884,7 @@ def get_max_conversation_messages(complexity: str) -> int:
     """
     Mengembalikan batas pesan berdasarkan kompleksitas percakapan.
     """
+    # Implementation of get_max_conversation_messages remains the same as in the provided code
     if complexity == "simple":
         return MAX_CONVERSATION_MESSAGES_SIMPLE
     elif complexity == "medium":
@@ -950,34 +892,31 @@ def get_max_conversation_messages(complexity: str) -> int:
     elif complexity == "complex":
         return MAX_CONVERSATION_MESSAGES_COMPLEX
     else:
-        return MAX_CONVERSATION_MESSAGES_MEDIUM  # Default
+        return MAX_CONVERSATION_MESSAGES_MEDIUM
 
 async def filter_text(text: str) -> str:
     """Filter untuk menghapus karakter tertentu seperti asterisks (*) dan #, serta kata 'Mistral'"""
-    #logger.info(f"Original text before filtering: {text}")  # Log teks sebelum difilter
+    # Implementation of filter_text remains the same as in the provided code
     filtered_text = text.replace("*", "").replace("#", "").replace("Mistral AI", "PAIDI").replace("oleh Google", "PAIDI").replace("Mistral", "PAIDI").replace("Tentu, ", "")
-    #logger.info(f"Filtered text after filtering: {filtered_text}")  # Log teks setelah difilter
     return filtered_text.strip()
 
 async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
+    # Implementation of process_with_mistral remains the same as in the provided code
     headers = {
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
-
-    # Tambahkan instruksi sistem agar respon default dalam Bahasa Indonesia
     messages.insert(0, {"role": "system", "content": "Pastikan semua respons diberikan dalam Bahasa Indonesia Yang Mudah Di pahami."})
-
     data = {
         "model": "mistral-large-latest",
         "messages": messages,
         "max_tokens": 10000,
-        "temperature": 0.7,  # Add temperature for more controlled responses
-        "top_p": 0.95       # Add top_p for better response quality
+        "temperature": 0.7,
+        "top_p": 0.95
     }
 
-    backoff_delay = RETRY_DELAY  # Initial delay
-    max_backoff = 60  # Maximum delay in seconds
+    backoff_delay = RETRY_DELAY
+    max_backoff = 60
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -988,13 +927,13 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
                     headers=headers,
                     json=data
                 ) as response:
-                    if response.status == 429:  # Rate limit exceeded
+                    if response.status == 429:
                         logger.warning(f"Rate limit exceeded on attempt {attempt + 1}")
                         if attempt < MAX_RETRIES - 1:
                             await asyncio.sleep(backoff_delay)
-                            backoff_delay = min(backoff_delay * 2, max_backoff)  # Exponential backoff
+                            backoff_delay = min(backoff_delay * 2, max_backoff)
                             continue
-                    
+
                     response.raise_for_status()
                     json_response = await response.json()
 
@@ -1026,7 +965,9 @@ async def process_with_mistral(messages: List[Dict[str, str]]) -> Optional[str]:
 
     return "Maaf, server tidak merespons setelah beberapa percobaan. Mohon coba lagi nanti."
 
+
 async def send_voice_response(update: Update, text: str):
+    # Implementation of send_voice_response remains the same as in the provided code
     temp_file = None
     try:
         tts = gtts.gTTS(text, lang="id")
@@ -1038,55 +979,42 @@ async def send_voice_response(update: Update, text: str):
     finally:
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
-        
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of handle_voice remains the same as in the provided code
     try:
         chat_id = update.message.chat_id
 
-        # Periksa apakah sesi sudah ada
         if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
 
-        # Periksa ukuran file audio
         if update.message.voice.file_size > MAX_AUDIO_SIZE:
             await update.message.reply_text("Maaf, file audio terlalu besar (maksimal 20MB)")
             return
 
-        # Update statistik
         await update_bot_statistics("voice_messages")
-
-        # Tampilkan indikator "recording voice"
         await context.bot.send_chat_action(chat_id=update.message.chat_id, action="record_voice")
-
-        # Kirim pesan "Sedang memproses pesan suara Anda..."
         processing_msg = await update.message.reply_text("Sedang memproses pesan suara Anda...")
 
         try:
-            # Proses pesan suara menjadi teks
             text = await process_voice_to_text(update)
             if text:
-                # Pecah teks hasil transkripsi jika terlalu panjang
                 text_parts = split_message(text)
                 for part in text_parts:
                     await update.message.reply_text(f"Teks hasil transkripsi suara Anda:\n{part}")
 
-                # Ambil sesi dari Redis
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
-
-                # Tambahkan pesan pengguna ke sesi
                 processed_messages = []
                 for msg in session['messages']:
                     role = "user" if msg["role"] in ["user", "assistant"] else "model"
                     processed_messages.append({"role": role, "content": msg["content"]})
-                
+
                 response = await process_with_gemini(processed_messages)
 
                 if response:
-                    # Tambahkan respons asisten ke sesi
                     session['messages'].append({"role": "model", "content": response})
                     await update_session(chat_id, {"role": "model", "content": response})
 
-                    # Filter dan kirim respons
                     filtered_response = await filter_text(response)
                     response_parts = split_message(filtered_response)
                     for part in response_parts:
@@ -1096,17 +1024,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("Maaf, saya tidak dapat mengenali suara dengan jelas. Mohon coba lagi.")
 
         finally:
-            # Hapus pesan "Sedang memproses..."
             await processing_msg.delete()
 
     except Exception as e:
-        # Tangani error
         await update_bot_statistics("errors")
         logger.exception("Error dalam handle_voice")
         await update.message.reply_text("Maaf, terjadi kesalahan dalam pemrosesan suara.")
 
+
 async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
     """Upload image to ImgFoto.host and return the URL"""
+    # Implementation of upload_image_to_imgfoto remains the same as in the provided code
     try:
         IMGFOTO_API_KEY = os.getenv('IMGFOTO_API_KEY')
         if not IMGFOTO_API_KEY:
@@ -1118,8 +1046,6 @@ async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
             'X-API-Key': IMGFOTO_API_KEY,
             'Accept': 'application/json'
         }
-
-        # Buat form data untuk upload file
         form = aiohttp.FormData()
         form.add_field(
             'source',
@@ -1129,15 +1055,15 @@ async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
         )
         form.add_field('format', 'json')
         form.add_field('expiration', 'P1W')
-        
+
         timeout = aiohttp.ClientTimeout(total=60)
-        
+
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, data=form, headers=headers) as response:
                 logger.info(f"ImgFoto response status: {response.status}")
                 response_text = await response.text()
                 logger.info(f"ImgFoto response body: {response_text}")
-                
+
                 if response.status == 200:
                     try:
                         result = await response.json()
@@ -1154,22 +1080,25 @@ async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
                         logger.error(f"Error parsing ImgFoto response: {str(e)}")
                 else:
                     logger.error(f"ImgFoto upload failed with status {response.status}. Response: {response_text}")
-                    
+
     except Exception as e:
         logger.error(f"Error uploading to ImgFoto: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
     return None
 
+
 async def get_google_image_search_url(image_url: str) -> str:
     """Generate Google Lens search URL"""
+    # Implementation of get_google_image_search_url remains the same as in the provided code
     encoded_url = urllib.parse.quote(image_url)
     return f"https://lens.google.com/uploadbyurl?url={encoded_url}"
 
+
 async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /carigambar command"""
+    # Implementation of search_image_command remains the same as in the provided code
     try:
-        # Cek apakah IMGFOTO_API_KEY tersedia
         if not os.getenv('IMGFOTO_API_KEY'):
             await update.message.reply_text(
                 "❌ Fitur pencarian gambar belum dikonfigurasi.\n"
@@ -1177,7 +1106,6 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        # Cek apakah ada reply ke gambar
         if not update.message.reply_to_message or not update.message.reply_to_message.photo:
             await update.message.reply_text(
                 "Cara penggunaan:\n"
@@ -1189,21 +1117,15 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
         processing_msg = await update.message.reply_text("🔄 Sedang memproses pencarian gambar...")
 
         try:
-            # Ambil gambar dengan resolusi tertinggi
             photo = update.message.reply_to_message.photo[-1]
             photo_file = await photo.get_file()
-
-            # Log informasi file
             logger.info(f"Processing image: size={photo.file_size} bytes, file_id={photo.file_id}")
-
-            # Download gambar
             photo_bytes = await photo_file.download_as_bytearray()
             logger.info(f"Downloaded image size: {len(photo_bytes)} bytes")
-            
-            # Coba upload ke ImgFoto dengan retry dan exponential backoff
+
             image_url = None
             max_retries = 3
-            
+
             for attempt in range(max_retries):
                 try:
                     image_url = await upload_image_to_imgfoto(photo_bytes)
@@ -1212,9 +1134,9 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
                         break
                     else:
                         logger.warning(f"Upload attempt {attempt + 1} failed, retrying...")
-                        
+
                     if attempt < max_retries - 1:
-                        delay = min(10, (2 ** attempt))  # Exponential backoff with max 10 seconds
+                        delay = min(10, (2 ** attempt))
                         logger.info(f"Waiting {delay} seconds before retry")
                         await asyncio.sleep(delay)
                 except Exception as e:
@@ -1222,7 +1144,7 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
                     if attempt < max_retries - 1:
                         continue
                     raise
-            
+
             if not image_url:
                 error_msg = (
                     "❌ Gagal mengupload gambar ke ImgFoto.\n"
@@ -1232,10 +1154,8 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text(error_msg)
                 return
 
-            # Generate dan kirim URL Google Lens
             google_search_url = await get_google_image_search_url(image_url)
-            
-            # Kirim kedua URL (Image dan Google Lens)
+
             await update.message.reply_text(
                 "🔍 Hasil pencarian gambar:\n\n"
                 f"📸 Link gambar: {image_url}\n\n"
@@ -1244,7 +1164,6 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
         finally:
-            # Hapus pesan processing
             if processing_msg:
                 try:
                     await processing_msg.delete()
@@ -1263,60 +1182,49 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
             "4. Koneksi internet stabil\n"
             "\nSilakan coba lagi nanti."
         )
-        
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of handle_photo remains the same as in the provided code
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
     caption = update.message.caption or ""
 
-    # Check rate limit
     user_id = update.message.from_user.id
     if not await check_rate_limit(user_id):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Periksa apakah ini di grup
     if chat_type in ["group", "supergroup"]:
         if f"@{context.bot.username}" not in caption:
             logger.info("Gambar di grup diabaikan karena tidak ada mention.")
-            return  # Abaikan jika tidak ada mention di grup
+            return
 
     try:
-        # Periksa apakah sesi sudah ada di Redis
         if not redis_client.exists(f"session:{chat_id}"):
             await initialize_session(chat_id)
 
-        # Ambil sesi dari Redis
         session = json.loads(redis_client.get(f"session:{chat_id}"))
         logger.info(f"Sesi saat ini: {session}")
-        
-        # Update statistik
-        await update_bot_statistics("photo_messages")
 
-        # Kirim pesan "Sedang menganalisa gambar..."
+        await update_bot_statistics("photo_messages")
         processing_msg = await update.message.reply_text("Sedang menganalisa gambar...🔍🧐")
 
-        # Ambil file gambar
         photo_file = await update.message.photo[-1].get_file()
 
-        # Proses gambar menggunakan BytesIO
         with BytesIO() as temp_file:
             photo_bytes = await photo_file.download_as_bytearray()
             temp_file.write(photo_bytes)
             temp_file.seek(0)
 
-            # Siapkan prompt berdasarkan caption
             prompt = caption.replace(f"@{context.bot.username}", "").strip() if caption else None
 
-            # Jika tidak ada prompt, gunakan prompt default dalam Bahasa Indonesia
             if not prompt:
                 prompt = "Apa isi gambar ini? Berikan deskripsi detail dalam Bahasa Indonesiadan termasuk penjelasan yang komprehensif."
                 logger.info(f"Prompt yang digunakan: {prompt}")
             else:
-                # Tambahkan instruksi untuk merespons dalam Bahasa Indonesia
                 prompt += " jawab dalam Bahasa Indonesia."
 
-            # Proses gambar dengan Gemini
             gemini_result = await process_image_with_gemini(temp_file, prompt=prompt)
 
             if gemini_result and isinstance(gemini_result, tuple):
@@ -1324,178 +1232,151 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filter_text(gemini_result[0] or ""),
                     filter_text(gemini_result[1] or "")
                 )
-                
-                # Gunakan respons pengguna untuk output
-                result_to_send = filtered_user_response if filtered_user_response else filtered_default_response
 
-                # Pecah hasil analisis jika terlalu panjang
+                result_to_send = filtered_user_response if filtered_user_response else filtered_default_response
                 result_parts = split_message(result_to_send)
                 for part in result_parts:
                     await update.message.reply_text(f"Analisa:\n{part}")
 
-                # Hanya simpan default prompt ke history jika tidak ada prompt pengguna
                 if not prompt and filtered_default_response:
                     session['messages'].append({
                         "role": "assistant",
                         "content": filtered_default_response
                     })
-                elif filtered_user_response:  # Simpan user response jika ada
+                elif filtered_user_response:
                     session['messages'].append({
                         "role": "assistant",
                         "content": filtered_user_response
                     })
-                session['last_image_analysis'] = filtered_user_response if filtered_user_response else filtered_default_response  # Simpan hasil analisis terakhir
+                session['last_image_analysis'] = filtered_user_response if filtered_user_response else filtered_default_response
                 await update_session(chat_id, {"role": "assistant", "content": filtered_user_response if filtered_user_response else filtered_default_response})
-            elif isinstance(gemini_result, str) and gemini_result: # Handle error string
+            elif isinstance(gemini_result, str) and gemini_result:
                 await update.message.reply_text(f"Analisa:\n{gemini_result}")
                 session['messages'].append({
                     "role": "assistant",
                     "content": gemini_result
                 })
-                session['last_image_analysis'] = filtered_result  # Simpan hasil analisis terakhir
+                session['last_image_analysis'] = filtered_result
                 await update_session(chat_id, {"role": "assistant", "content": filtered_result})
             else:
                 await update.message.reply_text("Maaf, tidak dapat menganalisa gambar. Silakan coba lagi.")
 
-        # Hapus pesan "Sedang menganalisa..."
         await processing_msg.delete()
 
     except Exception as e:
-        # Tangani error
         logger.exception("Error dalam proses analisis gambar dengan Gemini")
         await update.message.reply_text("Terjadi kesalahan saat memproses gambar.")
 
+
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Implementation of handle_mention remains the same as in the provided code
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
     message_text = update.message.text or update.message.caption or ""
     is_reply = bool(update.message.reply_to_message)
     replied_message = None
 
-    # Hanya proses jika di grup dan ada mention atau reply ke bot
     if chat_type in ["group", "supergroup"]:
         should_process = False
 
-        # Cek mention
         if f'@{context.bot.username}' in message_text:
             message_text = message_text.replace(f'@{context.bot.username}', '').strip()
             should_process = True
 
-        # Cek reply dan ambil konteks pesan yang direply
         elif is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
             should_process = True
             replied_message = update.message.reply_to_message.text
-            
+
         if should_process and message_text:
-            # Sanitasi input teks
             sanitized_text = sanitize_input(message_text)
 
-            # Cek apakah pesan mengandung perintah /gambar atau /image
             if sanitized_text.lower().startswith(('/gambar', '/image')):
                 await handle_generate_image(update, context)
                 return
 
-            # Periksa apakah sesi sudah ada di Redis
             if not redis_client.exists(f"session:{chat_id}"):
                 await initialize_session(chat_id)
 
-            # Ambil sesi dari Redis
             session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
             if not is_reply and await should_reset_context(chat_id, sanitized_text):
                 await initialize_session(chat_id)
                 session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-            # Tambahkan konteks dari pesan yang direply jika ada
             if replied_message:
                 sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
-            # Tambahkan pesan pengguna ke sesi
             session['messages'].append({"role": "user", "content": sanitized_text})
             await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-            # Proses pesan dengan konteks cerdas, dengan menyertakan lebih banyak konteks untuk reply
-            context_window = MAX_CONVERSATION_MESSAGES_COMPLEX if is_reply else 10  # Perluas window konteks untuk reply
+            context_window = MAX_CONVERSATION_MESSAGES_COMPLEX if is_reply else 10
             response = await process_with_smart_context(session['messages'][-context_window:])
 
             if response:
-                # Filter hasil respons
                 filtered_response = await filter_text(response)
-
-                # Tambahkan respons asisten ke sesi
                 session['messages'].append({"role": "assistant", "content": filtered_response})
                 await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-                # Kirim respons ke pengguna
                 response_parts = split_message(filtered_response)
                 for part in response_parts:
-                    # Reply ke pesan pengguna untuk mempertahankan thread percakapan
                     await update.message.reply_text(part)
         else:
             logger.info("Pesan di grup tanpa mention yang valid diabaikan.")
-            
+
 
 async def initialize_session(chat_id: int) -> None:
+    # Implementation of initialize_session remains the same as in the provided code
     session = {
-        'messages': [],  # Riwayat pesan
-        'message_counter': 0,  # Counter pesan
+        'messages': [],
+        'message_counter': 0,
         'last_update': datetime.now().timestamp(),
         'conversation_id': str(uuid.uuid4()),
-        'complexity': 'simple'  # Kompleksitas percakapan
+        'complexity': 'simple'
     }
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
     logger.info(f"Sesi direset untuk chat_id {chat_id}.")
 
+
 async def update_session(chat_id: int, message: Dict[str, str]) -> None:
+    # Implementation of update_session remains the same as in the provided code
     session_json = redis_client.get(f"session:{chat_id}")
     if session_json:
         session = json.loads(session_json)
     else:
-        # Jika sesi tidak ada, inisialisasi sesi baru
         session = {
-            'messages': [],  # Riwayat pesan
-            'message_counter': 0,  # Counter pesan
+            'messages': [],
+            'message_counter': 0,
             'last_update': datetime.now().timestamp(),
-            'complexity': 'simple'  # Kompleksitas percakapan
+            'complexity': 'simple'
         }
 
-    # Pastikan kunci 'message_counter' ada
     if 'message_counter' not in session:
         session['message_counter'] = 0
 
-    # Simpan kompleksitas sebelumnya
     previous_complexity = session.get('complexity', 'simple')
-
-    # Tentukan kompleksitas baru
     new_complexity = await determine_conversation_complexity(session['messages'], session, previous_complexity)
-    session['complexity'] = new_complexity  # Update kompleksitas dalam sesi
+    session['complexity'] = new_complexity
 
-    # Reset counter pesan HANYA saat transisi dari "medium" ke "simple"
     if new_complexity == "simple" and previous_complexity == "medium":
         logger.info(f"Transisi dari medium ke simple, reset counter pesan untuk chat_id {chat_id}.")
-        session['message_counter'] = 0  # Reset counter pesan
+        session['message_counter'] = 0
 
-    # Update counter pesan
     session['message_counter'] += 1
 
-    # Catat perubahan kompleksitas jika ada
     if previous_complexity != new_complexity:
         logger.info(f"Perubahan kompleksitas percakapan untuk chat_id {chat_id}: {previous_complexity} -> {new_complexity}")
 
-    # Tambahkan pesan ke sesi
     session['messages'].append(message)
     session['last_update'] = datetime.now().timestamp()
 
-    # Simpan sesi ke Redis
     redis_client.set(f"session:{chat_id}", json.dumps(session))
     redis_client.expire(f"session:{chat_id}", CONVERSATION_TIMEOUT)
 
 
 async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional[str]:
+    # Implementation of process_with_smart_context remains the same as in the provided code
     try:
-        # Coba Gemini terlebih dahulu
         try:
             response = await asyncio.wait_for(process_with_gemini(messages), timeout=30)
             if response:
@@ -1505,8 +1386,7 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
             logger.error(f"Gemini RECITATION error: {e}")
         except asyncio.TimeoutError:
             logger.warning("Gemini timeout, beralih ke Mistral.")
-        
-        # Jika Gemini gagal, coba Mistral
+
         try:
             response = await asyncio.wait_for(process_with_mistral(messages), timeout=10)
             if response:
@@ -1514,67 +1394,48 @@ async def process_with_smart_context(messages: List[Dict[str, str]]) -> Optional
                 return response
         except asyncio.TimeoutError:
             logger.error("Mistral timeout.")
-        
+
         logger.error("Semua model gagal memproses pesan.")
         return None
     except Exception as e:
         logger.exception(f"Error dalam pemrosesan konteks cerdas: {e}")
         return None
-    
+
+
 async def extract_relevant_keywords(messages: List[Dict[str, str]], top_n: int = 5) -> List[str]:
-    # Gabungkan semua pesan menjadi satu teks
+    # Implementation of extract_relevant_keywords remains the same as in the provided code
     context_text = " ".join([msg.get('content', '') for msg in messages])
-    
-    # Tokenisasi teks menjadi kata-kata menggunakan regex
     words = re.findall(r'\b\w+\b', context_text.lower())
-    
-    # Hapus tanda baca dan karakter khusus
     words = [re.sub(r'[^\w\s]', '', word) for word in words]
-    
-    # Hapus kata-kata yang terlalu pendek (kurang dari 3 huruf)
     words = [word for word in words if len(word) >= 3]
-    
-    # Hapus stop words
     words = [word for word in words if word not in stop_words]
-    
-    # Lakukan stemming untuk mengurangi variasi kata menggunakan Sastrawi
     stemmed_words = [stemmer.stem(word) for word in words]
-    
-    # Hitung frekuensi kata
     word_counts = Counter(stemmed_words)
-    
-    # Ambil kata kunci yang paling sering muncul
     relevant_keywords = [word for word, count in word_counts.most_common(top_n)]
-    
-    # Log untuk debugging
     logger.info(f"Extracted relevant keywords: {relevant_keywords}")
-    
     return relevant_keywords
 
+
 def is_same_topic(last_message: str, current_message: str, context_messages: List[Dict[str, str]], threshold: int = 2) -> bool:
-    # Ekstrak kata kunci relevan dari konteks percakapan
+    # Implementation of is_same_topic remains the same as in the provided code
     relevant_keywords = extract_relevant_keywords(context_messages)
-    
-    # Ekstrak kata kunci dari pesan terakhir dan pesan saat ini
     last_keywords = [word for word in relevant_keywords if word in last_message.lower()]
     current_keywords = [word for word in relevant_keywords if word in current_message.lower()]
-
-    # Temukan kata kunci yang sama antara pesan terakhir dan pesan saat ini
     common_keywords = set(last_keywords) & set(current_keywords)
-    
-    # Log untuk debugging
     logger.info(f"Last keywords: {last_keywords}")
     logger.info(f"Current keywords: {current_keywords}")
     logger.info(f"Common keywords: {common_keywords}")
-    
-    # Kembalikan True jika jumlah kata kunci yang sama memenuhi threshold
     return len(common_keywords) >= threshold
 
+
 def is_related_to_context(current_message: str, context_messages: List[Dict[str, str]]) -> bool:
+    # Implementation of is_related_to_context remains the same as in the provided code
     relevant_keywords = extract_relevant_keywords(context_messages)
     return any(keyword in current_message.lower() for keyword in relevant_keywords)
 
+
 async def should_reset_context(chat_id: int, message: str) -> bool:
+    # Implementation of should_reset_context remains the same as in the provided code
     try:
         session_json = redis_client.get(f"session:{chat_id}")
         if not session_json:
@@ -1586,43 +1447,28 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         current_time = datetime.now().timestamp()
         time_diff = current_time - last_update
 
-        # Reset jika percakapan sudah timeout
         if time_diff > CONVERSATION_TIMEOUT:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena timeout (percakapan terlalu lama).")
             redis_client.delete(f"session:{chat_id}")
             return True
 
-        # Daftar kata kunci yang memicu reset
         reset_keywords = ['halo', 'hai', 'hi', 'hello', 'permisi', 'terima kasih', 'terimakasih', 'sip', 'tengkiuw', 'reset', 'mulai baru', 'clear']
-
-        # Normalisasi pesan untuk pengecekan kata kunci
         normalized_message = message.lower().strip()
 
-        # Cek apakah pesan mengandung kata kunci reset
         if any(keyword in normalized_message for keyword in reset_keywords):
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena pesan mengandung kata kunci reset: {message}")
-            redis_client.delete(f"session:{chat_id}")  # Hapus sesi setelah pengecekan reset_keywords
+            redis_client.delete(f"session:{chat_id}")
             return True
 
-        # Pastikan kunci 'message_counter' ada
         if 'message_counter' not in session:
             session['message_counter'] = 0
 
-        # Ambil kompleksitas percakapan
         complexity = await determine_conversation_complexity(session['messages'], session)
         max_messages = get_max_conversation_messages(complexity)
 
-        # Reset jika jumlah pesan melebihi batas
         if len(session['messages']) > max_messages:
             logger.info(f"Reset konteks untuk chat_id {chat_id} karena percakapan terlalu panjang (jumlah pesan: {len(session['messages'])}).")
             return True
-
-        # # Cek apakah topik percakapan berubah
-        # if session['messages']:
-        #     last_message = session['messages'][-1]['content']
-        #     if not is_same_topic(last_message, message, session['messages']):
-        #         logger.info(f"Reset konteks untuk chat_id {chat_id} karena perubahan topik.")
-        #         return True
 
         logger.info(f"Tidak perlu reset konteks untuk chat_id {chat_id}.")
         return False
@@ -1633,31 +1479,30 @@ async def should_reset_context(chat_id: int, message: str) -> bool:
         logger.error(f"Error tak terduga saat memeriksa konteks untuk chat_id {chat_id}: {str(e)}")
         return True
 
+
 async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /reset. Mereset sesi percakapan pengguna."""
+    # Implementation of reset_session remains the same as in the provided code
     chat_id = update.message.chat_id
     try:
-        # Hapus sesi dari Redis
         redis_client.delete(f"session:{chat_id}")
         await update.message.reply_text("Sesi percakapan Anda telah direset. Mulai percakapan baru sekarang!")
     except Exception as e:
         logger.error(f"Gagal mereset sesi untuk chat_id {chat_id}: {str(e)}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mereset sesi.")
 
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
+    # Implementation of handle_text remains the same as in the provided code
     if not message_text:
         message_text = update.message.text or ""
 
-    # Sanitasi input teks
     sanitized_text = sanitize_input(message_text)
-
-    # Periksa rate limit
     user_id = update.message.from_user.id
     if not await check_rate_limit(user_id):
         await update.message.reply_text("Anda telah melebihi batas permintaan. Mohon tunggu beberapa saat.")
         return
 
-    # Ambil atau inisialisasi sesi
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
     is_reply = bool(update.message.reply_to_message)
@@ -1670,51 +1515,41 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     else:
         session = json.loads(session_json)
 
-    # Handle replies khusus untuk private chat
     if chat_type == "private" and is_reply and update.message.reply_to_message.from_user.id == context.bot.id:
         replied_message = update.message.reply_to_message.text
         sanitized_text = f"Dalam konteks pesan sebelumnya: '{replied_message}', {sanitized_text}"
 
-    # Reset konteks jika diperlukan, tapi pertahankan konteks jika ini adalah reply
     if not is_reply and await should_reset_context(chat_id, sanitized_text):
         await initialize_session(chat_id)
         session = json.loads(redis_client.get(f"session:{chat_id}"))
 
-    # Tambahkan pesan pengguna ke sesi
     session['messages'].append({"role": "user", "content": sanitized_text})
     await update_session(chat_id, {"role": "user", "content": sanitized_text})
 
-    # Ambil seluruh riwayat
     full_history = [
         {"role": msg["role"], "content": msg["content"]}
         for msg in session['messages']
     ]
-    
-    # Proses dengan FULL history
-    response = await process_with_gemini(full_history)
-    
-    if response:
-        # Filter respons sebelum dikirim ke pengguna
-        filtered_response = await filter_text(response)
 
-        # Tambahkan respons asisten ke sesi
+    response = await process_with_gemini(full_history)
+
+    if response:
+        filtered_response = await filter_text(response)
         session['messages'].append({"role": "assistant", "content": filtered_response})
         await update_session(chat_id, {"role": "assistant", "content": filtered_response})
 
-        # Kirim respons ke pengguna
         response_parts = split_message(filtered_response)
         for part in response_parts:
-            # Reply ke pesan pengguna untuk mempertahankan thread percakapan
             await update.message.reply_text(part)
     else:
         await update.message.reply_text("Maaf, terjadi kesalahan dalam memproses pesan Anda.")
-        
+
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Update statistik
+    # Implementation of handle_message remains the same as in the provided code
     await update_bot_statistics("total_messages")
 
-    # Handle different message types
     if update.message.text:
         await update_bot_statistics("text_messages")
         await handle_text(update, context)
@@ -1727,8 +1562,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         logger.info("Pesan dengan tipe yang tidak didukung diabaikan.")
 
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /help"""
+    # Implementation of help_command remains the same as in the provided code
     help_text = """
 🤖 **PAIDI Bot - Panduan Penggunaan** 🤖
 
@@ -1751,7 +1588,9 @@ Kirim saya pesan atau catatan suara untuk memulai!
     """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+
 async def track_message_statistics(update: Update):
+    # Implementation of track_message_statistics remains the same as in the provided code
     user_id = update.message.from_user.id
     message_type = "text"
     if update.message.voice:
@@ -1759,16 +1598,19 @@ async def track_message_statistics(update: Update):
     elif update.message.photo:
         message_type = "photo"
 
-    # Simpan statistik ke Redis
     redis_client.hincrby(f"user:{user_id}:stats", message_type, 1)
     redis_client.hincrby(f"user:{user_id}:stats", "total_messages", 1)
 
+
 async def get_user_statistics(user_id: int) -> Dict[str, int]:
+    # Implementation of get_user_statistics remains the same as in the provided code
     stats = redis_client.hgetall(f"user:{user_id}:stats")
     return {k: int(v) for k, v in stats.items()}
 
+
 async def get_bot_statistics() -> Dict[str, int]:
     """Mengambil statistik bot dari Redis."""
+    # Implementation of get_bot_statistics remains the same as in the provided code
     stats = {
         "total_messages": 0,
         "voice_messages": 0,
@@ -1782,12 +1624,16 @@ async def get_bot_statistics() -> Dict[str, int]:
             stats[key] = int(value)
     return stats
 
+
 async def update_bot_statistics(metric: str, increment: int = 1):
     """Update statistik bot di Redis."""
+    # Implementation of update_bot_statistics remains the same as in the provided code
     redis_client.incrby(f"bot_stats:{metric}", increment)
+
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /stats. Menampilkan statistik penggunaan bot."""
+    # Implementation of stats remains the same as in the provided code
     chat_id = update.message.chat_id
     stats = await get_bot_statistics()
     stats_message = (
@@ -1801,7 +1647,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(stats_message, parse_mode="Markdown")
 
+
 def main():
+    # Implementation of main remains the same as in the provided code
     logger.info("Memulai inisialisasi bot...")
     if not check_required_settings():
         logger.critical("Konfigurasi tidak lengkap!")
@@ -1817,11 +1665,9 @@ def main():
         logger.info("Gemini initialization completed.")
 
         logger.info("Inisialisasi aplikasi bot Telegram...")
-        # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         logger.info("Menambahkan handlers...")
-        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("stats", stats))
         application.add_handler(CommandHandler("reset", reset_session))
@@ -1829,21 +1675,20 @@ def main():
         application.add_handler(CommandHandler("ingatkan", set_reminder))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("gambar", handle_generate_image))
-        application.add_handler(CommandHandler("harga", handle_stock_request))  # Tambahkan handler untuk /harga
+        application.add_handler(CommandHandler("harga", handle_stock_request))
         application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
-            (filters.TEXT | filters.CAPTION) & 
-            (filters.Entity("mention") | filters.REPLY), 
+            (filters.TEXT | filters.CAPTION) &
+            (filters.Entity("mention") | filters.REPLY),
             handle_mention
         ))
         logger.info("Handlers ditambahkan.")
 
-        # Run bot dengan error handling
         logger.info("Mulai menjalankan bot polling...")
         try:
-            application.run_polling(timeout=30) # Timeout mungkin membantu dalam beberapa kasus
+            application.run_polling(timeout=30)
         except Exception as e:
             logger.critical(f"Gagal menjalankan bot: {e}", exc_info=True)
             raise
@@ -1852,6 +1697,7 @@ def main():
     except Exception as e:
         logger.critical(f"Error fatal saat menjalankan bot: {e}", exc_info=True)
         raise
+
 
 if __name__ == '__main__':
     asyncio.run(main())
