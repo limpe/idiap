@@ -1702,6 +1702,8 @@ def main():
         else:
             logger.warning("GOOGLE_API_KEY tidak ditemukan, fitur tidak akan berfungsi")
 
+        logger.info("Gemini initialization completed.")
+
         # Initialize application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
