@@ -348,7 +348,7 @@ async def get_rsi(symbol: str, interval: str = "1h", start_date: str = None, end
     return None
     return None
 
-async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
+async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 100, start_date: str = None, end_date: str = None) -> Optional[Dict]:
     # Implementation of get_stock_data remains the same as in the provided code
     from functools import partial
     if start_date is None:
