@@ -465,6 +465,9 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
             # Kirim setiap bagian respons ke pengguna
             for part in response_parts:
                 await update.message.reply_text(part)
+            # Tambahkan respons asisten ke sesi
+            session['messages'].append({"role": "assistant", "content": filtered_response})
+            await update_session(chat_id, {"role": "assistant", "content": filtered_response})
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
