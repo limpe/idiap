@@ -692,12 +692,12 @@ async def process_image_with_gemini(image_bytes: BytesIO, prompt: str = None) ->
 
         # Generate response with default prompt (for history)
         default_response = model.generate_content([default_prompt, image])
-        filtered_default_response_text = default_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if default_response.text else None
+        filtered_default_response_text = await filter_text(default_response.text) if default_response.text else None
 
         # Use default prompt if no prompt is provided, otherwise combine with user prompt
         user_prompt = prompt if prompt else default_prompt
         user_response = model.generate_content([user_prompt, image])
-        filtered_user_response_text = user_response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI") if user_response.text else None
+        filtered_user_response_text = await filter_text(user_response.text) if user_response.text else None
 
 
         # Kembalikan teks hasil analisis yang sudah difilter
@@ -763,7 +763,7 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
         
         # Send last message in executor to avoid blocking
         response = await loop.run_in_executor(None, chat.send_message, messages[-1]["content"])
-        return response.text.replace("Mistral", "PAIDI").replace("Google", "PAIDI")
+        return await filter_text(response.text)
 
     except generation_types.BlockedPromptException as e:
         logger.error(f"Prompt diblokir: {str(e)}")
