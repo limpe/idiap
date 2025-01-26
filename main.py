@@ -186,7 +186,7 @@ def split_message(text: str, max_length: int = 4096) -> List[str]:
     parts.append(text)
     return parts
 
-async def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
+async def get_bbands(symbol: str, interval: str = "1h", start_date: str = None, end_date: str = None) -> Optional[Dict]:
     """
     Mengambil data Bollinger Bands (BBANDS) dari TwelveData API.
     """
@@ -195,7 +195,7 @@ async def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
-    url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&apikey={api_key}"
+    url = f"https://api.twelvedata.com/bbands?symbol={symbol}&interval={interval}&start_date={start_date}&end_date={end_date}&apikey={api_key}"
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -220,7 +220,7 @@ async def get_bbands(symbol: str, interval: str = "1h") -> Optional[Dict]:
             return None
     return None
 
-async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
+async def get_macd(symbol: str, interval: str = "1h", start_date: str = None, end_date: str = None) -> Optional[Dict]:
     """
     Mengambil data MACD dari TwelveData API.
     """
@@ -230,7 +230,7 @@ async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
-    url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&apikey={api_key}"
+    url = f"https://api.twelvedata.com/macd?symbol={symbol}&interval={interval}&start_date={start_date}&end_date={end_date}&apikey={api_key}"
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -260,7 +260,7 @@ async def get_macd(symbol: str, interval: str = "1h") -> Optional[Dict]:
             return None
     return None
 
-async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
+async def get_vwap(symbol: str, interval: str = "1h", start_date: str = None, end_date: str = None) -> Optional[Dict]:
     """
     Mengambil data VWAP dari TwelveData API.
     """
@@ -270,7 +270,7 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
         logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
         return None
 
-    url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&apikey={api_key}"
+    url = f"https://api.twelvedata.com/vwap?symbol={symbol}&interval={interval}&start_date={start_date}&end_date={end_date}&apikey={api_key}"
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -293,6 +293,39 @@ async def get_vwap(symbol: str, interval: str = "1h") -> Optional[Dict]:
         except Exception as e:
             logger.error(f"Error tak terduga saat mengambil data VWAP: {e}")
             return None
+async def get_rsi(symbol: str, interval: str = "1h", start_date: str = None, end_date: str = None) -> Optional[Dict]:
+    """
+    Mengambil data RSI dari TwelveData API.
+    """
+    api_key = os.getenv("TWELVEDATA_API_KEY")
+    if not api_key:
+        logger.error("TWELVEDATA_API_KEY tidak ditemukan di environment variables.")
+        return None
+
+    url = f"https://api.twelvedata.com/rsi?symbol={symbol}&interval={interval}&start_date={start_date}&end_date={end_date}&apikey={api_key}"
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Cek apakah respons sukses
+
+            data = response.json()
+            if data.get("status") == "ok":
+                return data.get("values", [{}])[0]  # Ambil data terbaru
+            else:
+                logger.error(f"Gagal mengambil data RSI: {data.get('message', 'Unknown error')}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error saat mengambil data RSI (percobaan {attempt + 1}): {e}")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)  # Tunggu sebelum mencoba lagi
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error tak terduga saat mengambil data RSI: {e}")
+            return None
+    return None
     return None
 
 async def get_stock_data(symbol: str, interval: str = "1h", outputsize: int = 30, start_date: str = None, end_date: str = None) -> Optional[Dict]:
