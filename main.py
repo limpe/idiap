@@ -19,7 +19,7 @@ from typing import Optional, List, Dict
 from telegraph import Telegraph
 
 # Telegraph utility functions
-def create_telegraph_page(title: str, content: str) -> Optional[str]:
+async def create_telegraph_page(title: str, content: str) -> Optional[str]:
     """
     Create a Telegraph page with the given title and content.
     Returns the page URL if successful, None otherwise.
@@ -28,25 +28,29 @@ def create_telegraph_page(title: str, content: str) -> Optional[str]:
     To get your token, run create_token.py script separately.
     """
     try:
+        # Run synchronous Telegraph operations in thread pool
+        loop = asyncio.get_event_loop()
+        
         token = os.getenv("TELEGRAPH_TOKEN")
         if not token:
             logger.error("TELEGRAPH_TOKEN tidak ditemukan di environment variables")
             logger.error("Jalankan create_token.py terlebih dahulu untuk mendapatkan token")
             return None
 
-        # Create Telegraph instance with existing token
-        telegraph = Telegraph(token)
-        
-        # Format content as HTML according to Telegraph API
-        html_content = content.replace('\n', '<br>')
-        
-        # Create the page
-        try:
-            response = telegraph.create_page(
+        def create_page():
+            # Create Telegraph instance with existing token
+            telegraph = Telegraph(token)
+            
+            # Create the page
+            return telegraph.create_page(
                 title=title,
-                html_content=f'<p>{html_content}</p>',
+                html_content=f'<p>{content.replace("<br>", "\n")}</p>',
                 author_name='Paidi Analysis Bot'
             )
+
+        # Run the synchronous Telegraph operation in a thread pool
+        try:
+            response = await loop.run_in_executor(None, create_page)
             
             if 'url' in response:
                 page_url = response['url']
