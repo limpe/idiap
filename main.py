@@ -16,6 +16,69 @@ import re
 import bleach
 import requests
 
+from telegraph import Telegraph
+
+# Telegraph utility functions
+def get_telegraph() -> Optional[Telegraph]:
+    """
+    Get a Telegraph instance.
+    Returns Telegraph instance if successful, None otherwise.
+    """
+    try:
+        telegraph = Telegraph()
+        if not os.getenv("TELEGRAPH_TOKEN"):
+            # Create new account
+            account = telegraph.create_account(
+                short_name='PaidiBot',
+                author_name='Paidi Analysis Bot',
+                author_url='https://t.me/paidih_bot'
+            )
+            # Save the token for future use
+            os.environ["TELEGRAPH_TOKEN"] = account.get('access_token')
+        else:
+            # Use existing token
+            telegraph.access_token = os.getenv("TELEGRAPH_TOKEN")
+        
+        return telegraph
+    except Exception as e:
+        logger.error(f"Error in Telegraph account creation/retrieval: {e}")
+        return None
+
+async def create_telegraph_page(title: str, content: str) -> Optional[str]:
+    """
+    Create a Telegraph page with the given title and content.
+    Returns the page URL if successful, None otherwise.
+    """
+    try:
+        telegraph = get_telegraph()
+        if not telegraph:
+            return None
+
+        # Format content as HTML
+        # Convert line breaks to <br> and maintain other HTML formatting
+        content = content.replace('\n', '<br>')
+        
+        try:
+            # Create the page with proper HTML structure
+            response = telegraph.create_page(
+                title=title,
+                html_content=f'<p>{content}</p>',
+                author_name='Paidi Analysis Bot'
+            )
+            
+            if 'url' in response:
+                return response['url']
+            
+            logger.error(f"Telegraph API error: {response}")
+            return None
+        except Exception as api_error:
+            logger.error(f"Telegraph API error: {api_error}")
+            return None
+                
+    except Exception as e:
+        logger.error(f"Error creating Telegraph page: {e}")
+        return None
+
 from twelvedata import TDClient
 from deep_translator import GoogleTranslator
 from keywords import complex_keywords
@@ -522,16 +585,27 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if response:
             filtered_response = await filter_text(response)
-            response_parts = split_message(filtered_response)
+            
+            # Create Telegraph page
+            title = f"Analisis Teknikal {symbol}"
+            telegraph_url = await create_telegraph_page(title, filtered_response)
+            
+            if telegraph_url:
+                # Send Telegraph link in Telegram
+                await update.message.reply_text(
+                    f"📊 Analisis Teknikal untuk {symbol}\n\n"
+                    f"🔗 Baca analisis lengkap di: {telegraph_url}"
+                )
+            else:
+                # Fallback to sending directly in Telegram if Telegraph fails
+                response_parts = split_message(filtered_response)
+                for part in response_parts:
+                    await update.message.reply_text(part)
 
-            for part in response_parts:
-                await update.message.reply_text(part)
-
-            logger.info(f"Menambahkan analisis saham ke sesi untuk chat_id {chat_id}: {filtered_response[:100]}...") # Log before adding to session
-            # Tambahkan respons asisten ke sesi dan update session setelah mengirim semua parts ke user
+            logger.info(f"Menambahkan analisis saham ke sesi untuk chat_id {chat_id}: {filtered_response[:100]}...")
             session['messages'].append({"role": "assistant", "content": filtered_response})
             await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-            logger.info(f"Selesai menambahkan analisis saham ke sesi untuk chat_id {chat_id}") # Log after adding to session
+            logger.info(f"Selesai menambahkan analisis saham ke sesi untuk chat_id {chat_id}")
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
