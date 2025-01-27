@@ -1105,7 +1105,7 @@ async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
     # Implementation of upload_image_to_imgfoto remains the same as in the provided code
 
 
-async def publish_to_telegraph(text: str) -> Optional[str]:
+async def publish_to_telegraph(text: str, title: str = "Saved Message") -> Optional[str]:
     """Publish content to Telegraph and return the URL."""
     try:
         access_token = os.getenv('TELEGRAPH_TOKEN')
@@ -1118,7 +1118,7 @@ async def publish_to_telegraph(text: str) -> Optional[str]:
         async with aiohttp.ClientSession() as session:
             async with session.post(create_page_url, json={
                 "access_token": access_token,
-                "title": "Saved Message",
+                "title": title,
                 "author_name": "PAIDI Bot",
                 "content": [{"tag": "p", "children": [text]}],
                 "return_content": False
@@ -1594,23 +1594,47 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
     if not message_text:
         message_text = update.message.text or ""
 
-    # Handle /simpan command for replies
-    if message_text.strip().lower() == "/simpan" and update.message.reply_to_message:
+    # Handle /simpan command for replies in private and group chats
+    if message_text.strip().lower() == "/simpan":
+        if not update.message.reply_to_message:
+            await update.message.reply_text("Anda harus reply ke pesan yang ingin disimpan.")
+            return
+        
+        content = update.message.reply_to_message.text
+        if not content:
+            await update.message.reply_text("Pesan yang di-reply tidak memiliki konten teks.")
+            return
+
+        # Store content in Redis temporarily
+        chat_id = update.message.chat_id
+        redis_client.setex(f"telegraph_content:{chat_id}", 300, content)  # Expires in 5 minutes
+        await update.message.reply_text("Berikan judul untuk artikel Telegraph ini:")
+        return
+
+    # Handle title input for /simpan command
+    chat_id = update.message.chat_id
+    if redis_client.exists(f"telegraph_content:{chat_id}"):
         try:
-            content = update.message.reply_to_message.text
-            if not content:
-                await update.message.reply_text("Pesan yang di-reply tidak memiliki konten teks.")
+            content = redis_client.get(f"telegraph_content:{chat_id}")
+            title = message_text.strip()
+            
+            if not title:
+                await update.message.reply_text("Judul tidak boleh kosong. Silakan coba lagi.")
                 return
 
-            url = await publish_to_telegraph(content)
+            url = await publish_to_telegraph(content, title)
             if url:
-                await update.message.reply_text(f"✅ Pesan telah disimpan di Telegraph:\n{url}")
+                await update.message.reply_text(f"✅ Artikel telah disimpan di Telegraph:\n{url}")
             else:
-                await update.message.reply_text("❌ Gagal menyimpan pesan ke Telegraph.")
+                await update.message.reply_text("❌ Gagal menyimpan artikel ke Telegraph.")
+
+            # Clean up the temporary storage
+            redis_client.delete(f"telegraph_content:{chat_id}")
             return
         except Exception as e:
             logger.error(f"Error handling /simpan command: {e}")
-            await update.message.reply_text("❌ Terjadi kesalahan saat menyimpan pesan.")
+            await update.message.reply_text("❌ Terjadi kesalahan saat menyimpan artikel.")
+            redis_client.delete(f"telegraph_content:{chat_id}")
             return
 
     sanitized_text = sanitize_input(message_text)
@@ -1695,11 +1719,16 @@ Berikut adalah daftar perintah yang tersedia:
 /gambar <prompt> - Generate gambar berdasarkan prompt.
 /reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
 /simpan - Reply ke pesan untuk menyimpannya ke Telegraph.
+/harga <symbol> - Mengambil data saham beserta indikator teknis (contoh: /harga AAPL).
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
 - Menganalisis sentimen pesan Anda.
 - Menanggapi dengan suara.
+- Menghasilkan gambar berdasarkan prompt.
+- Mengatur pengingat.
+- Mencari gambar serupa menggunakan Google Lens.
+- Menyimpan pesan ke Telegraph.
 
 Kirim saya pesan atau catatan suara untuk memulai!
     """
@@ -1793,7 +1822,8 @@ def main():
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("gambar", handle_generate_image))
         application.add_handler(CommandHandler("harga", handle_stock_request))
-        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
+        application.add_handler(CommandHandler("simpan", handle_text))
+        application.add_handler(MessageHandler(filters.TEXT, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
