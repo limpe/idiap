@@ -41,10 +41,13 @@ async def create_telegraph_page(title: str, content: str) -> Optional[str]:
             # Create Telegraph instance with existing token
             telegraph = Telegraph(token)
             
+            # Format content properly
+            formatted_content = content.replace("<br>", chr(10))  # chr(10) is newline
+            
             # Create the page
             return telegraph.create_page(
                 title=title,
-                html_content=f'<p>{content.replace("<br>", "\n")}</p>',
+                html_content=f'<p>{formatted_content}</p>',
                 author_name='Paidi Analysis Bot'
             )
 
