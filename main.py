@@ -110,34 +110,6 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp-01-21")
 
-async def chat_with_gemini(messages: List[Dict[str, str]]) -> str:
-    try:
-        # Konversi format pesan ke struktur Gemini yang valid
-        history = []
-        for msg in messages:
-            # Sesuai dokumentasi: role harus "user" atau "model"
-            role = "user" if msg["role"] == "user" else "model"
-            history.append({
-                "role": role,
-                "parts": [{"text": msg["content"]}]
-            })
-
-        # Mulai chat dengan riwayat yang sesuai
-        generation_config = {
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "top_k": 40
-        }
-        chat = gemini_model.start_chat(history=history, generation_config=generation_config)
-
-        # Kirim pesan terakhir
-        response = chat.send_message(messages[-1]["content"])
-
-        return response.text if response else "Maaf, tidak ada respons"
-
-    except Exception as e:
-        logger.error(f"Error in chat_with_gemini: {str(e)}")
-        return "Terjadi kesalahan saat memproses permintaan"
 
 # Konstanta konfigurasi
 CHUNK_DURATION = 30  # Durasi chunk dalam detik
@@ -147,7 +119,7 @@ RETRY_DELAY = 5  # Delay antara percobaan ulang dalam detik
 CONVERSATION_TIMEOUT = 36600  # 3600 detik = 1 jam
 MAX_CONCURRENT_SESSIONS = 1000
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-MAX_CONVERSATION_MESSAGES_SIMPLE = 10
+MAX_CONVERSATION_MESSAGES_SIMPLE = 20
 MAX_CONVERSATION_MESSAGES_MEDIUM = 50
 MAX_CONVERSATION_MESSAGES_COMPLEX = 100
 MAX_REQUESTS_PER_MINUTE = 15
@@ -501,23 +473,34 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         prompt = (
             f"Berikut adalah data terkini untuk pasangan mata uang {symbol}:\n{stock_info}\n\n"
-             "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
-             "1. **Tren Harga:**\n"
-             "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek dan panjang?\n"
-            "   - Apakah Market Structure tren bullish atau bearish ?\n"
-            "   - Identifikasi Pola Candle Stick Yang mnonjol Seperti Bearish Engulfing,Bearish Engulfing,Inside bar,dll  ?\n"
-             "   - Identifikasi pola harga yang menonjol seperti support, resistance, dan breakout.\n\n"
-            "   - Identifikasi Key Level.\n\n"
-              "2. **Indikator Teknis:**\n"
-              "   - Analisis pergerakan menggunakan Bollinger Bands untuk melihat volatilitas.\n"
-             "   - MACD untuk mengidentifikasi momentum tren.\n"
-            "   - Evaluasi Analisa RSI.\n"
-             "   - Evaluasi penggunaan VWAP untuk menentukan nilai harga yang wajar.\n\n"
-             "3. **Saran:**\n"
-             "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
-              "   - Berikan alasan berbasis data yang kuat, termasuk potensi entry dan exit level.\n\n"
-             "Gunakan bahasa yang profesional namun tetap mudah dipahami oleh trader forex dengan berbagai tingkat pengalaman."
-            )
+            "Lakukan analisis mendalam terhadap performa pasangan mata uang ini dengan cakupan berikut:\n\n"
+    
+            "1. **Tren Harga:**\n"
+            "   - Apakah terdapat tren bullish atau bearish dalam jangka pendek (1D), menengah (1W), dan panjang (1M)?\n"
+            "   - Bagaimana Market Structure saat ini? Apakah menunjukkan pola bullish atau bearish?\n"
+            "   - Identifikasi pola candlestick signifikan seperti Bearish Engulfing, Bullish Engulfing, Inside Bar, dll.\n"
+            "   - Temukan pola harga penting seperti support, resistance, dan breakout.\n"
+            "   - Tentukan key level sebagai referensi utama untuk entry dan exit.\n\n"
+    
+            "2. **Indikator Teknis:**\n"
+            "   - Analisis volatilitas menggunakan Bollinger Bands.\n"
+            "   - Evaluasi momentum tren dengan MACD.\n"
+            "   - Tentukan level overbought/oversold menggunakan RSI.\n"
+            "   - Gunakan VWAP untuk menentukan harga rata-rata berbasis volume.\n\n"
+    
+            "3. **Saran:**\n"
+            "   - Berdasarkan analisis di atas, apakah ini waktu yang tepat untuk **buy** atau **sell**?\n"
+            "   - Berikan alasan berbasis data yang kuat, termasuk rekomendasi entry dan exit level yang optimal.\n"
+            "   - Tentukan area entry berdasarkan support atau breakout dan area exit berdasarkan resistance atau trailing stop.\n\n"
+    
+            "Berikan hasil analisis dalam format berikut:\n"
+            "1. **Ringkasan Analisis** (3-5 poin utama)\n"
+            "2. **Detail Analisis** (Tren, Indikator, Saran)\n"
+            "3. **Rekomendasi Akhir** (Buy/Sell dengan alasan berbasis data)\n\n"
+    
+            "Gunakan bahasa yang profesional namun tetap mudah dipahami oleh trader forex dengan berbagai tingkat pengalaman.\n"
+            "Berikan analisis berdasarkan data historis dan hindari spekulasi yang tidak berdasar."
+        )
 
         response = await process_with_gemini([{"role": "user", "content": prompt}])
 
@@ -781,11 +764,23 @@ async def process_with_gemini(messages: List[Dict[str, str]], session: Optional[
             history = history[1:]
         
         if complexity == "simple":
-            system_instruction = "Berikan respons dalam Bahasa Indonesia jelas. Ingat konteks percakapan."
+            system_instruction = "Berikan respons yang jelas dalam Bahasa Indonesia. Ingat konteks percakapan dan hindari spekulasi"
         elif complexity == "medium":
-            system_instruction = "Berikan respons yang Relevan dan jelas dalam Bahasa Indonesia. Ingat konteks percakapan."
+            system_instruction = (
+                "Jawab secara informatif dan relevan dengan bahasa yang mudah dimengerti. "
+                "Gunakan data atau fakta yang tersedia untuk mendukung jawaban. "
+                "Hindari spekulasi dan informasi yang tidak dapat diverifikasi. "
+                "Ingat konteks percakapan."
+            )
         elif complexity == "complex":
-            system_instruction = "Berikan respons dalam bahasa indonesia yang detail dan komprehensif dengan analisis mendalam. Ingat konteks percakapan."
+            system_instruction += (
+                "Ingat konteks percakapan."
+                " Jawab dengan format terstruktur: ringkasan, detail, dan kesimpulan. "
+                "Gunakan bullet points untuk memperjelas jawaban. "
+                "Hindari spekulasi dan informasi yang tidak dapat diverifikasi. "
+                "Berikan sumber jika memungkinkan."
+                "jika ada penjelasan komprehensif gunakan untuk mendukung jawaban."
+            )
 
         model = genai.GenerativeModel(
             "gemini-2.0-flash-thinking-exp-01-21",
@@ -1605,9 +1600,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             await update.message.reply_text("Pesan yang di-reply tidak memiliki konten teks.")
             return
 
-        # Store content in Redis temporarily, ensure line breaks are preserved
+        # Store content in Redis temporarily
         chat_id = update.message.chat_id
-        redis_client.setex(f"telegraph_content:{chat_id}", 300, content.replace('\r\n', '\n').replace('\r', '\n'))  # Expires in 5 minutes
+        redis_client.setex(f"telegraph_content:{chat_id}", 300, content)  # Expires in 5 minutes
         await update.message.reply_text("Berikan judul untuk artikel Telegraph ini:")
         return
 
