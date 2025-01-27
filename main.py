@@ -15,62 +15,47 @@ import google.generativeai.types as generation_types
 import re
 import bleach
 import requests
-
+from typing import Optional, List, Dict
 from telegraph import Telegraph
 
 # Telegraph utility functions
-def get_telegraph() -> Optional[Telegraph]:
-    """
-    Get a Telegraph instance.
-    Returns Telegraph instance if successful, None otherwise.
-    """
-    try:
-        telegraph = Telegraph()
-        if not os.getenv("TELEGRAPH_TOKEN"):
-            # Create new account
-            account = telegraph.create_account(
-                short_name='PaidiBot',
-                author_name='Paidi Analysis Bot',
-                author_url='https://t.me/paidih_bot'
-            )
-            # Save the token for future use
-            os.environ["TELEGRAPH_TOKEN"] = account.get('access_token')
-        else:
-            # Use existing token
-            telegraph.access_token = os.getenv("TELEGRAPH_TOKEN")
-        
-        return telegraph
-    except Exception as e:
-        logger.error(f"Error in Telegraph account creation/retrieval: {e}")
-        return None
-
-async def create_telegraph_page(title: str, content: str) -> Optional[str]:
+def create_telegraph_page(title: str, content: str) -> Optional[str]:
     """
     Create a Telegraph page with the given title and content.
     Returns the page URL if successful, None otherwise.
+
+    Note: Requires TELEGRAPH_TOKEN in environment variables.
+    To get your token, run create_token.py script separately.
     """
     try:
-        telegraph = get_telegraph()
-        if not telegraph:
+        token = os.getenv("TELEGRAPH_TOKEN")
+        if not token:
+            logger.error("TELEGRAPH_TOKEN tidak ditemukan di environment variables")
+            logger.error("Jalankan create_token.py terlebih dahulu untuk mendapatkan token")
             return None
 
-        # Format content as HTML
-        # Convert line breaks to <br> and maintain other HTML formatting
-        content = content.replace('\n', '<br>')
+        # Create Telegraph instance with existing token
+        telegraph = Telegraph(token)
         
+        # Format content as HTML according to Telegraph API
+        html_content = content.replace('\n', '<br>')
+        
+        # Create the page
         try:
-            # Create the page with proper HTML structure
             response = telegraph.create_page(
                 title=title,
-                html_content=f'<p>{content}</p>',
+                html_content=f'<p>{html_content}</p>',
                 author_name='Paidi Analysis Bot'
             )
             
             if 'url' in response:
-                return response['url']
+                page_url = response['url']
+                logger.info(f"Telegraph page created successfully: {page_url}")
+                return page_url
             
             logger.error(f"Telegraph API error: {response}")
             return None
+            
         except Exception as api_error:
             logger.error(f"Telegraph API error: {api_error}")
             return None
