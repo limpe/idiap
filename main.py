@@ -1605,9 +1605,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, messag
             await update.message.reply_text("Pesan yang di-reply tidak memiliki konten teks.")
             return
 
-        # Store content in Redis temporarily
+        # Store content in Redis temporarily, ensure line breaks are preserved
         chat_id = update.message.chat_id
-        redis_client.setex(f"telegraph_content:{chat_id}", 300, content)  # Expires in 5 minutes
+        redis_client.setex(f"telegraph_content:{chat_id}", 300, content.replace('\r\n', '\n').replace('\r', '\n'))  # Expires in 5 minutes
         await update.message.reply_text("Berikan judul untuk artikel Telegraph ini:")
         return
 
@@ -1823,7 +1823,7 @@ def main():
         application.add_handler(CommandHandler("gambar", handle_generate_image))
         application.add_handler(CommandHandler("harga", handle_stock_request))
         application.add_handler(CommandHandler("simpan", handle_text))
-        application.add_handler(MessageHandler(filters.TEXT, handle_message))
+        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message))
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(
