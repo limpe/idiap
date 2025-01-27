@@ -15,61 +15,6 @@ import google.generativeai.types as generation_types
 import re
 import bleach
 import requests
-from typing import Optional, List, Dict
-from telegraph import Telegraph
-
-# Telegraph utility functions
-async def create_telegraph_page(title: str, content: str) -> Optional[str]:
-    """
-    Create a Telegraph page with the given title and content.
-    Returns the page URL if successful, None otherwise.
-
-    Note: Requires TELEGRAPH_TOKEN in environment variables.
-    To get your token, run create_token.py script separately.
-    """
-    try:
-        # Run synchronous Telegraph operations in thread pool
-        loop = asyncio.get_event_loop()
-        
-        token = os.getenv("TELEGRAPH_TOKEN")
-        if not token:
-            logger.error("TELEGRAPH_TOKEN tidak ditemukan di environment variables")
-            logger.error("Jalankan create_token.py terlebih dahulu untuk mendapatkan token")
-            return None
-
-        def create_page():
-            # Create Telegraph instance with existing token
-            telegraph = Telegraph(token)
-            
-            # Format content properly
-            formatted_content = content.replace("<br>", chr(10))  # chr(10) is newline
-            
-            # Create the page
-            return telegraph.create_page(
-                title=title,
-                html_content=f'<p>{formatted_content}</p>',
-                author_name='Paidi Analysis Bot'
-            )
-
-        # Run the synchronous Telegraph operation in a thread pool
-        try:
-            response = await loop.run_in_executor(None, create_page)
-            
-            if 'url' in response:
-                page_url = response['url']
-                logger.info(f"Telegraph page created successfully: {page_url}")
-                return page_url
-            
-            logger.error(f"Telegraph API error: {response}")
-            return None
-            
-        except Exception as api_error:
-            logger.error(f"Telegraph API error: {api_error}")
-            return None
-                
-    except Exception as e:
-        logger.error(f"Error creating Telegraph page: {e}")
-        return None
 
 from twelvedata import TDClient
 from deep_translator import GoogleTranslator
@@ -130,7 +75,8 @@ def check_required_settings():
         'MISTRAL_API_KEY': 'API Key Mistral',
         'GOOGLE_API_KEY': 'API Key Google',
         'TOGETHER_API_KEY': 'API Key Together',
-        'IMGFOTO_API_KEY': 'API Key ImgFoto.host'
+        'IMGFOTO_API_KEY': 'API Key ImgFoto.host',
+        'TELEGRAPH_TOKEN': 'Token Telegraph'
     }
 
     for var_name, var_desc in required_vars.items():
@@ -577,27 +523,16 @@ async def handle_stock_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if response:
             filtered_response = await filter_text(response)
-            
-            # Create Telegraph page
-            title = f"Analisis Teknikal {symbol}"
-            telegraph_url = await create_telegraph_page(title, filtered_response)
-            
-            if telegraph_url:
-                # Send Telegraph link in Telegram
-                await update.message.reply_text(
-                    f"📊 Analisis Teknikal untuk {symbol}\n\n"
-                    f"🔗 Baca analisis lengkap di: {telegraph_url}"
-                )
-            else:
-                # Fallback to sending directly in Telegram if Telegraph fails
-                response_parts = split_message(filtered_response)
-                for part in response_parts:
-                    await update.message.reply_text(part)
+            response_parts = split_message(filtered_response)
 
-            logger.info(f"Menambahkan analisis saham ke sesi untuk chat_id {chat_id}: {filtered_response[:100]}...")
+            for part in response_parts:
+                await update.message.reply_text(part)
+
+            logger.info(f"Menambahkan analisis saham ke sesi untuk chat_id {chat_id}: {filtered_response[:100]}...") # Log before adding to session
+            # Tambahkan respons asisten ke sesi dan update session setelah mengirim semua parts ke user
             session['messages'].append({"role": "assistant", "content": filtered_response})
             await update_session(chat_id, {"role": "assistant", "content": filtered_response})
-            logger.info(f"Selesai menambahkan analisis saham ke sesi untuk chat_id {chat_id}")
+            logger.info(f"Selesai menambahkan analisis saham ke sesi untuk chat_id {chat_id}") # Log after adding to session
         else:
             await update.message.reply_text("Maaf, terjadi kesalahan saat memproses data saham.")
 
@@ -1168,6 +1103,36 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upload_image_to_imgfoto(image_bytes: bytes) -> Optional[str]:
     """Upload image to ImgFoto.host and return the URL"""
     # Implementation of upload_image_to_imgfoto remains the same as in the provided code
+
+
+async def publish_to_telegraph(text: str) -> Optional[str]:
+    """Publish content to Telegraph and return the URL."""
+    try:
+        access_token = os.getenv('TELEGRAPH_TOKEN')
+        if not access_token:
+            logger.error("TELEGRAPH_TOKEN not found in environment variables")
+            return None
+
+        # Create page
+        create_page_url = "https://api.telegra.ph/createPage"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(create_page_url, json={
+                "access_token": access_token,
+                "title": "Saved Message",
+                "author_name": "PAIDI Bot",
+                "content": [{"tag": "p", "children": [text]}],
+                "return_content": False
+            }) as response:
+                page_data = await response.json()
+                if page_data.get("ok"):
+                    return page_data["result"]["url"]
+                else:
+                    logger.error(f"Failed to create Telegraph page: {page_data}")
+                    return None
+
+    except Exception as e:
+        logger.error(f"Error publishing to Telegraph: {e}")
+        return None
     try:
         IMGFOTO_API_KEY = os.getenv('IMGFOTO_API_KEY')
         if not IMGFOTO_API_KEY:
@@ -1626,9 +1591,27 @@ async def reset_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: Optional[str] = None):
-    # Implementation of handle_text remains the same as in the provided code
     if not message_text:
         message_text = update.message.text or ""
+
+    # Handle /simpan command for replies
+    if message_text.strip().lower() == "/simpan" and update.message.reply_to_message:
+        try:
+            content = update.message.reply_to_message.text
+            if not content:
+                await update.message.reply_text("Pesan yang di-reply tidak memiliki konten teks.")
+                return
+
+            url = await publish_to_telegraph(content)
+            if url:
+                await update.message.reply_text(f"✅ Pesan telah disimpan di Telegraph:\n{url}")
+            else:
+                await update.message.reply_text("❌ Gagal menyimpan pesan ke Telegraph.")
+            return
+        except Exception as e:
+            logger.error(f"Error handling /simpan command: {e}")
+            await update.message.reply_text("❌ Terjadi kesalahan saat menyimpan pesan.")
+            return
 
     sanitized_text = sanitize_input(message_text)
     user_id = update.message.from_user.id
@@ -1711,6 +1694,7 @@ Berikut adalah daftar perintah yang tersedia:
 /carigambar - Mencari gambar serupa menggunakan Google Lens.
 /gambar <prompt> - Generate gambar berdasarkan prompt.
 /reminder <waktu> <pesan> - Mengatur pengingat (contoh: /reminder 5 Beli susu).
+/simpan - Reply ke pesan untuk menyimpannya ke Telegraph.
 
 **Fitur Lain:**
 - Menerima pesan teks, suara, dan gambar.
